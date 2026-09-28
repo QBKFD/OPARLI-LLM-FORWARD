@@ -1,0 +1,105 @@
+{
+  "A1_eta2_hour_of_day_2021": {
+    "atr": 0.171,
+    "atr_ratio": 0.444,
+    "atr_percentile": 0.34,
+    "bb_width": 0.047,
+    "bb_width_percentile": 0.059,
+    "parkinson_vol": 0.028,
+    "rv_15": 0.063,
+    "rv_60": 0.008,
+    "rv_240": 0.001,
+    "rv_ratio_short_long": 0.103,
+    "rv_ratio_mid_long": 0.016,
+    "rv_ratio_short_mid": 0.119,
+    "rv_adjusted": 0.001,
+    "log_gk60": 0.028,
+    "log_rv_ratio": 0.162,
+    "wick60": 0.0,
+    "har_1h": 0.5,
+    "har_24h": 0.008,
+    "har_120h": 0.008,
+    "y4": 0.48,
+    "y24": 0.007
+  },
+  "A2_hour_of_day_controls": {
+    "y4": {
+      "n_rows": 14608,
+      "r2": {
+        "M0": 0.3507,
+        "M1": 0.2486,
+        "M2": 0.1826,
+        "HOD": 0.4123,
+        "M0+HOD": 0.6781,
+        "M1+HOD": 0.6214,
+        "M2+HOD": 0.6226,
+        "M3+HOD": 0.677,
+        "M4+HOD": 0.6769
+      },
+      "dm": {
+        "M1 vs M2": {
+          "dm": -4.993,
+          "p_A_better": 0.0
+        },
+        "M1+HOD vs M2+HOD": {
+          "dm": 0.158,
+          "p_A_better": 0.5627
+        },
+        "M4+HOD vs M3+HOD": {
+          "dm": 0.055,
+          "p_A_better": 0.5219
+        }
+      }
+    },
+    "y24": {
+      "n_rows": 13874,
+      "r2": {
+        "M0": 0.4751,
+        "M1": 0.4046,
+        "M2": 0.4182,
+        "HOD": 0.0003,
+        "M0+HOD": 0.4827,
+        "M1+HOD": 0.402,
+        "M2+HOD": 0.4204,
+        "M3+HOD": 0.4777,
+        "M4+HOD": 0.4735
+      },
+      "dm": {
+        "M1 vs M2": {
+          "dm": 0.572,
+          "p_A_better": 0.7162
+        },
+        "M1+HOD vs M2+HOD": {
+          "dm": 0.768,
+          "p_A_better": 0.7787
+        },
+        "M4+HOD vs M3+HOD": {
+          "dm": 0.368,
+          "p_A_better": 0.6437
+        }
+      }
+    }
+  },
+  "A3_new_vs_persistence_spearman_2021": {
+    "autocorr_lag1": {
+      "log_gk60": 0.106,
+      "log_rv_ratio": 0.092,
+      "wick60": 0.165
+    },
+    "variance_ratio_2": {
+      "log_gk60": 0.095,
+      "log_rv_ratio": 0.018,
+      "wick60": 0.156
+    },
+    "variance_ratio_5": {
+      "log_gk60": 0.042,
+      "log_rv_ratio": -0.037,
+      "wick60": 0.107
+    },
+    "hurst_dfa": {
+      "log_gk60": 0.067,
+      "log_rv_ratio": 0.017,
+      "wick60": 0.033
+    }
+  }
+}
