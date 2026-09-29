@@ -5,7 +5,7 @@
 - Until 2026-09-29, all data from **2024-01-01** onward was sealed (every study
   under `research/` asserted timestamps < 2024-01-01).
 - **2024-01-01 to 2026-01-30** is used for the levels confirmation test,
-  `research/levels_confirm/` (pre-registration commit: `<filled in right after the PREREG commit>`),
+  `research/levels_confirm/` (pre-registration commit: `305d1d0`),
   by decision of the owner. After that test it is spent: seen data.
 
 ## Current seal
