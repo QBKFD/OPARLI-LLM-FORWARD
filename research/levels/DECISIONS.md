@@ -39,3 +39,30 @@ Entries 1–12 were written before any result.
     add nothing to a sign count.
 
 ## During and after the run
+
+13. **`run_levels.py` frozen after its first complete run** (2026-09-29 19:30).
+    `tables_levels.py` is reporting only. `exploratory_levels.py` holds the
+    distance check.
+
+14. **Found after the run: the placebos are biased in distance from the open.**
+    Placebo draws that land on the wrong side of the open are redrawn (the
+    pre-registered eligibility rule). When a real level sits close to the open,
+    that pushes its placebos farther out. Mean distance: DAILY real 0.49 σ_d vs
+    placebo 0.78 σ_d; WEEKLY 1.14 vs 1.37. Distance from the open itself shapes
+    event behaviour (far levels are reached on trending days). The pre-registered
+    verdict stands as computed. A distance-stratified estimate is reported as
+    exploratory. A future confirmatory test should draw placebos matched on
+    distance from the open.
+
+15. **Monte-Carlo variation of the placebo set.** The exploratory rerun draws
+    placebos for DAILY + WEEKLY only, so its random stream differs from the main
+    run (which also drew ROUND placebos). Its raw effects differ from the primary
+    table by up to about 0.6 pp (e.g. DAILY H1 −1.8 vs −1.2 pp). That is the size
+    of the placebo sampling noise.
+
+16. **Secondary BH family:** 54 conditioning cells + 6 tradability cells = 60
+    tests, BH at 5 %.
+
+17. **Replication vs support.** DAILY H3 meets the REPLICATED criterion (+8.9 pp,
+    p = 0.002), but it isn't SUPPORTED (BH p 0.085, era 1 negative). It is
+    reported as "replicated but not supported".
