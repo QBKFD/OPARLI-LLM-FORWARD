@@ -93,3 +93,28 @@ diagnostic.
      Δ = +10 pp and separately −10 pp, 200 repetitions each, with the same
      bootstrap. Reported: the mean and SD of the recovered effect, bias, and the
      share of CIs containing Δ.
+
+## Addendum 2 (owner's instruction after the A/A failure; written before any rerun)
+
+- **New bootstrap:** a circular **moving-block bootstrap over calendar time**.
+  The calendar is the 4,379 non-excluded trading days 2007–2023, in order. A
+  resample concatenates ceil(N / Lb) blocks of Lb contiguous trading days
+  (uniform circular starts), truncated to N days. Each event is weighted by the
+  multiplicity of **its own day** (real events: the real day; placebo events: the
+  placebo's day), so every real and placebo event whose day falls in a drawn
+  block comes along. 5,000 draws. Event, outcome and placebo code are unchanged.
+  The pairing set (placebos attached to real levels with an event) is unchanged.
+- **Validation** is rerun with block lengths **60, 120 and 240 (primary = 120)**:
+  A/A 200 reps NEAR and FAR, injection ±10 pp. The criteria are unchanged (A/A mean
+  within ±1 pp, coverage 93–97 %, for both NEAR and FAR). **Continue only if the
+  primary (120) passes. Otherwise stop and report.**
+- **Periods:** every Q1–Q5 cell listed above is reported as planned. At the
+  owner's instruction, the pooled cells of Q1, Q3 and Q5 are also reported for
+  **2007–2023 (primary) and 2015–2023 (secondary)**. (The owner's note called
+  2015–2023 "declared", but the earlier plan didn't declare it. It is added here,
+  before any run.)
+- **levels_confirm CI correction:** the 2024-01-02 .. 2026-01-30 events are
+  recomputed with the unchanged confirm pipeline, *only* to recompute the NEAR
+  BREAK effect's 95 % CI (and its point estimate, as a check) with the new
+  bootstrap (calendar = the 538 test days, Lb = 120). Nothing else is computed on
+  that period.
