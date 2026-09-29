@@ -1,0 +1,146 @@
+3,5c3,9
+< Volatility block, round 2: deseasonalized, 1-min based candidate block C
+< (L, S, T, W) vs the 13 existing 1H features, with a development run
+< (2021-2023) and a primary out-of-era confirmation run (2007-2020).
+---
+> Volatility block, round 3: mechanical fix of round 2. Per-minute means
+> instead of sums (features and targets), W removed, candidate MC = (L, S, T),
+> vs the 13 existing 1H features. Development 2021-2023; confirmation 2007-2020
+> (second use of that period, mechanical fix only).
+> 
+> This file is a copy of research/vol_features_r2/run_r2.py with only the
+> changes listed in PREREG.md (diff: results/diff_run_r2_vs_r3.txt).
+10c14
+<     backend/venv/bin/python3 research/vol_features_r2/run_r2.py
+---
+>     backend/venv/bin/python3 research/vol_features_r3/run_r3.py
+25a30
+> sys.path.insert(0, str(ROOT / "research" / "vol_features_r2"))   # audit_long (cache builder)
+29c34
+< CACHE = HERE / "cache" / "xauusd_txt_pre2024_filetime.parquet"
+---
+> CACHE = ROOT / "research" / "vol_features_r2" / "cache" / "xauusd_txt_pre2024_filetime.parquet"
+37a43
+> FEATURE_COVERAGE = 0.50            # round 3: mRV windows need >= 50 % of minutes
+41d46
+< C4 = ["L", "S", "T", "W"]
+43c48
+< MODELS = {"M1": M1, "M1H": M1 + HOD, "MC": C4, "MC3": C3, "MCH": C4 + HOD}
+---
+> MODELS = {"M1": M1, "M1H": M1 + HOD, "MC": C3, "MCH": C3 + HOD}
+45,46c50
+< DM_PAIRS = [("M1H", "MC"), ("MC", "MC3"), ("MC3", "MC"), ("MCH", "MC"),
+<             ("MC", "M1"), ("M1H", "M1")]
+---
+> DM_PAIRS = [("M1H", "MC"), ("MCH", "MC"), ("MC", "M1"), ("M1H", "M1")]
+142c146,149
+<     """L, S, T (+ the raw log dsRVs) and deseasonalized targets for every bar."""
+---
+>     """L, S, T (+ the log mRVs) and deseasonalized mean targets for every bar.
+> 
+>     Round 3: per-minute means over the available minutes instead of sums.
+>     """
+146,151c153,163
+<     per_bar = pd.Series(np.where(n1 > 0, s1, np.nan), index=t)
+<     a1 = _log(per_bar)
+<     a24 = _log(per_bar.rolling(24, min_periods=24).sum())
+<     a120 = _log(per_bar.rolling(120, min_periods=120).sum())
+<     out = pd.DataFrame({"ds1": a1, "ds24": a24, "ds120": a120,
+<                         "L": a24, "S": a1 - a24, "T": a24 - a120}, index=t)
+---
+>     sums = pd.Series(s1, index=t, dtype=float)
+>     cnts = pd.Series(n1, index=t, dtype=float)
+>     logm = {}
+>     for n in (1, 24, 120):
+>         s_n = sums.rolling(n, min_periods=n).sum()
+>         c_n = cnts.rolling(n, min_periods=n).sum()
+>         mean = (s_n / c_n).where(c_n >= FEATURE_COVERAGE * 60 * n)
+>         logm[n] = _log(mean)
+>     out = pd.DataFrame({"m1": logm[1], "m24": logm[24], "m120": logm[120],
+>                         "L": logm[24], "S": logm[1] - logm[24], "T": logm[24] - logm[120]},
+>                        index=t)
+156c168
+<         out[name] = np.where(ok, _log(s), np.nan)
+---
+>         out[name] = np.where(ok, _log(s / np.maximum(n, 1)), np.nan)
+172c184
+<     """Profile-free features: the 13 existing, W, hour dummies, raw HAR."""
+---
+>     """Profile-free features: the 13 existing, hour dummies, raw HAR (W removed in round 3)."""
+176,178c188
+<     st = pd.concat([r1.existing_features(bars),
+<                     r1.new_features(bars)[["wick60"]].rename(columns={"wick60": "W"}),
+<                     hod, r1.har_features(bars, m.index, r)], axis=1)
+---
+>     st = pd.concat([r1.existing_features(bars), hod, r1.har_features(bars, m.index, r)], axis=1)
+257c267
+<         pat = F[C4 + list(HORIZONS)].notna().to_numpy()
+---
+>         pat = F[C3 + list(HORIZONS)].notna().to_numpy()
+264c274
+<                          M1 + RAW_HAR + ["ds1", "ds24", "ds120"] + C4 +
+---
+>                          M1 + RAW_HAR + ["m1", "m24", "m120"] + C3 +
+266c276
+<         rho = tr[C4].dropna().corr(method="spearman")
+---
+>         rho = tr[C3].dropna().corr(method="spearman")
+268c278
+<                                        for i, a in enumerate(C4) for b in C4[i + 1:]}})
+---
+>                                        for i, a in enumerate(C3) for b in C3[i + 1:]}})
+293c303
+<             for mname in ("MC", "MC3"):
+---
+>             for mname in ("MC",):
+350c360
+<     """Evaluate R1-R5 on one result set (period or era)."""
+---
+>     """Evaluate R1, R2, R4, R5 on one result set (period or era). R3 dropped in round 3."""
+352c362
+<     r1_detail, r2_detail, r3_detail = {}, {}, {}
+---
+>     r1_detail, r2_detail = {}, {}
+360,362c370,371
+<                         "ok": pm["MCH"]["r2"] - pm["MC"]["r2"] <= 0.01}
+<         r3_detail[t] = {"p_MC_better": d["MC|MC3"]["p_A_better"],
+<                         "p_MC3_better": d["MC3|MC"]["p_A_better"]}
+---
+>                         "ok": pm["MCH"]["r2"] - pm["MC"]["r2"] <= 0.01,
+>                         "reported_gain_hod_M1": pm["M1H"]["r2"] - pm["M1"]["r2"]}
+364c373,374
+<     eta_max = {c: float(eta_sel[c].max()) for c in C4}
+---
+>     eta_max = {c: float(eta_sel[c].max()) for c in C3}
+>     eta_m1 = {c: float(eta_sel[c].max()) for c in M1}           # reported, not pass/fail
+367,369d376
+<     sig = {t: r3_detail[t]["p_MC_better"] < 0.05 for t in T}
+<     worse = {t: r3_detail[t]["p_MC3_better"] < 0.05 for t in T}
+<     R3 = any(sig[a] and not worse[b] for a in T for b in T if a != b)
+380c387
+<         for f in C4:
+---
+>         for f in C3:
+391c398,399
+<     block = ("C: L, S, T" + (", W" if R3 else "")) if (R1 and R2) else "status quo (13 existing)"
+---
+>     failed = [n for n, ok in (("R1", R1), ("R2", R2)) if not ok]
+>     block = "recommend (L, S, T)" if not failed else f"not recommended: {', '.join(failed)} failed"
+393,394c401,402
+<             "R2": {"pass": R2, "detail": r2_detail, "eta2_max": eta_max},
+<             "R3": {"keep_W": R3, "detail": r3_detail},
+---
+>             "R2": {"pass": R2, "detail": r2_detail, "eta2_max": eta_max,
+>                    "reported_eta2_max_M1": eta_m1},
+412c420
+<         res["rho"].to_csv(OUT / f"rho_LSTW_{name}.csv", float_format="%.4f")
+---
+>         res["rho"].to_csv(OUT / f"rho_LST_{name}.csv", float_format="%.4f")
+424c432
+<                 f"R3 keep W={d['R3']['keep_W']} R4 flags={d['R4']['flags']} R5={d['R5']['pass']} "
+---
+>                 f"R4 flags={d['R4']['flags']} R5={d['R5']['pass']} "
+426c434
+<     (OUT / "results_r2.json").write_text(json.dumps(allres, indent=2, default=float))
+---
+>     (OUT / "results_r3.json").write_text(json.dumps(allres, indent=2, default=float))
