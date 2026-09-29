@@ -1,0 +1,96 @@
+{
+ "info": {
+  "mode": "dry",
+  "minutes": 943556,
+  "test_days": 644,
+  "test_days_excluded": 0,
+  "median_sigma_over_price": 0.00803039989736907,
+  "units": 25809,
+  "real_units": 1229,
+  "placebo_short": 0
+ },
+ "main_near": {
+  "effect": 0.06213262084041782,
+  "real_rate": 0.4,
+  "placebo_rate": 0.3378673791595822,
+  "n_real": 305,
+  "n_placebo": 4117,
+  "ci_lo": 0.006176792319944667,
+  "ci_hi": 0.12041252179150203,
+  "p_less": 0.9846015398460154,
+  "se": 0.029132991899549907,
+  "mde": 0.07243918435823084,
+  "n_draws": 10000,
+  "verdict": "REJECTED"
+ },
+ "far": {
+  "effect": 0.04284435826683569,
+  "real_rate": 0.43478260869565216,
+  "placebo_rate": 0.39193825042881647,
+  "n_real": 184,
+  "n_placebo": 1166,
+  "ci_lo": -0.03357568831001043,
+  "ci_hi": 0.12002818943088168,
+  "p_less": 0.8612138786121388,
+  "se": 0.039218963285519826,
+  "mde": 0.09751795220944505,
+  "n_draws": 10000
+ },
+ "specificity": {
+  "near_minus_far": 0.019288262573582127,
+  "ci_lo": -0.07484804515637915,
+  "ci_hi": 0.11347359046744097,
+  "p_less": 0.6577342265773423
+ },
+ "side_claims": "not evaluated (main claim not SUPPORTED)",
+ "exploratory": {
+  "H1_touch_reaction:NEAR": {
+   "effect": 0.02982346761864907,
+   "ci_lo": -0.02293165108796655,
+   "ci_hi": 0.08264323640836319,
+   "n_real": 344,
+   "n_placebo": 5446
+  },
+  "H1_touch_reaction:FAR": {
+   "effect": 0.009383096256444567,
+   "ci_lo": -0.05800866461538981,
+   "ci_hi": 0.07722630208854726,
+   "n_real": 229,
+   "n_placebo": 1849
+  },
+  "H3_sweep_reversal:NEAR": {
+   "effect": 0.06463339609626967,
+   "ci_lo": -0.011509047209042682,
+   "ci_hi": 0.13955500890409783,
+   "n_real": 194,
+   "n_placebo": 1659
+  },
+  "H3_sweep_reversal:FAR": {
+   "effect": 0.06944698122780313,
+   "ci_lo": -0.019462128904508557,
+   "ci_hi": 0.1583513604911775,
+   "n_real": 146,
+   "n_placebo": 675
+  },
+  "break_near_grid": {
+   "b0.2_h60": 0.04902742327892745,
+   "b0.2_h240": 0.018526939479248383,
+   "b0.3_h60": 0.06737597406992996,
+   "b0.3_h240": 0.06213262084041782,
+   "b0.5_h60": 0.04042892922986259,
+   "b0.5_h240": 0.025963517920497586
+  }
+ },
+ "counts": {
+  "NEAR": {
+   "real_break_events": 305,
+   "placebo_break_events_paired": 4117,
+   "real_levels_eligible": 449
+  },
+  "FAR": {
+   "real_break_events": 184,
+   "placebo_break_events_paired": 1166,
+   "real_levels_eligible": 780
+  }
+ }
+}
