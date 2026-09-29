@@ -513,6 +513,14 @@ def _market_open(now) -> bool:
     return True
 
 
+def _send_quietly(tg, text: str):
+    """Confirmation messages are best-effort: the decision is already logged."""
+    try:
+        tg.send(text)
+    except Exception as e:
+        print(f"telegram send failed ({e!r})", flush=True)
+
+
 def _valid_bar(ts, o, h, l, c) -> bool:
     """Only real prices inside trading hours may reach the level engine. IBKR sends
     -1 for "no quote" (e.g. while a data farm reconnects) and pushes frozen quotes
@@ -629,7 +637,15 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
             if dry:
                 _time.sleep(2)
                 continue
-            msgs, offset = tg.poll(offset)
+            try:
+                msgs, offset = tg.poll(offset)
+            except Exception as e:
+                # a Telegram/network hiccup must not kill the feed (it used to:
+                # "connection reset by peer" -> crash -> restart gap). offset is
+                # unchanged, so unread replies are fetched again next round.
+                print(f"telegram poll failed ({e!r}); retrying", flush=True)
+                _time.sleep(5)
+                msgs = []
             for text in msgs:
                 r = parse_reply(text)
                 if not r:
@@ -638,11 +654,11 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                     row = con.execute("SELECT alert_ts_utc FROM alerts WHERE alert_id=?",
                                       (r["alert_id"],)).fetchone()
                     if not row:
-                        tg.send(f"unknown alert_id {r['alert_id']}"); continue
+                        _send_quietly(tg, f"unknown alert_id {r['alert_id']}"); continue
                     record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
                                     row[0], r.get("direction"), r.get("entry"), r.get("stop"),
                                     r.get("target"), r.get("reasoning"))
-                    tg.send(f"logged {r['decision']} for {r['alert_id']}")
+                    _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
