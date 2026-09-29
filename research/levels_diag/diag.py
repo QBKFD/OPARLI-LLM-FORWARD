@@ -27,9 +27,11 @@ import confirm as cf  # noqa: E402  (unchanged)
 lv = cf.lv
 OUT, FIG = HERE / "results", HERE / "figures"
 START, END = "2007-01-01", "2023-12-31"
-B = 10_000
+B = 5_000                      # addendum 2: 5,000 block-bootstrap draws
 N_AA = 200
 N_INJ = 200
+BLOCKS = (60, 120, 240)
+PRIMARY_BLOCK = 120
 
 
 def log(m):
@@ -43,17 +45,28 @@ def two_sided(draws):
     return float(min(1.0, 2 * min(lo, hi)))
 
 
-def cell(sub: pd.DataFrame, value: str, seed: int, W_cache={}):
-    """Effect with its own real-day bootstrap over the clusters present in the cell."""
+def block_indices(n_days: int, lb: int, n_draws: int, rng) -> np.ndarray:
+    """Circular moving-block resample of calendar positions: (n_draws, n_days)."""
+    n_blocks = int(np.ceil(n_days / lb))
+    starts = rng.integers(0, n_days, size=(n_draws, n_blocks))
+    idx = (starts[:, :, None] + np.arange(lb)[None, None, :]) % n_days
+    return idx.reshape(n_draws, n_blocks * lb)[:, :n_days]
+
+
+def block_W(n_days: int, lb: int, n_draws: int = B, seed: int = 0) -> np.ndarray:
+    """Day multiplicities of a circular moving-block bootstrap (rows sum to n_days)."""
+    idx = block_indices(n_days, lb, n_draws, np.random.default_rng(seed))
+    flat = (idx + np.arange(n_draws)[:, None] * n_days).ravel()
+    return np.bincount(flat, minlength=n_draws * n_days).reshape(n_draws, n_days).astype(np.float32)
+
+
+def cell(sub: pd.DataFrame, value: str, cal: pd.Index, W: np.ndarray):
+    """Effect with the calendar block bootstrap: every event weighted by its OWN day
+    (sub.cluster = own-day key; cal = the full calendar, in order)."""
     real = sub[~sub.is_placebo]
     if real.empty:
         return {"effect": np.nan, "n_real": 0, "n_placebo": 0}
-    clusters = pd.Index(sorted(real.cluster.unique()))
-    key = (len(clusters), seed)
-    if key not in W_cache:
-        W_cache.clear()
-        W_cache[key] = cf.boot_W(len(clusters), B=B, seed=seed)
-    pt, dr = cf.effect_draws(sub, value, clusters, W_cache[key])
+    pt, dr = cf.effect_draws(sub, value, cal, W)
     s = cf.summarize(pt, dr)
     s["p_two"] = two_sided(dr)
     return {k: s[k] for k in ("effect", "ci_lo", "ci_hi", "p_two", "real_rate", "placebo_rate", "n_real", "n_placebo")}
@@ -176,6 +189,9 @@ def evaluate(units, mk, days, design):
     ev["cls"] = np.where((ev.dist >= cf.NEAR[0]) & (ev.dist <= cf.NEAR[1]), "NEAR",
                          np.where(ev.dist > cf.NEAR[1], "FAR", "none"))
     ev["year"] = pd.to_datetime(ev.period_date).dt.year
+    own = {u["id"]: u["days"][0] for u in units}
+    ev["real_cluster"] = ev["cluster"]
+    ev["cluster"] = ev.unit.map(own)          # addendum 2: each event weighted by its own day
     ev["tgt"] = (ev[f"o_{lv.B_MAIN}_{lv.H_MAIN}"] == 1).astype(float)
     return ev
 
@@ -201,15 +217,14 @@ def old_units(days, test_idx, mk):
 # Validation (gates Q1-Q5)
 # =============================================================================
 
-def aa_test(ev_c, units_c, cls):
+def aa_test(ev_c, units_c, cls, cal, W):
     br = ev_c[(ev_c.etype == "BREAK") & (ev_c.cls == cls) & ev_c.is_placebo].copy()
     real_ids = sorted({u["id"] for u in units_c if not u["is_placebo"]})
     uid = {}
     for u in units_c:
         if u["is_placebo"]:
             uid[(u["parent"], u["j"])] = u["id"]
-    clusters = pd.Index(sorted({u["cluster"] for u in units_c if not u["is_placebo"]}))
-    W = cf.boot_W(len(clusters), B=B, seed=777)
+    clusters = cal
     rng = np.random.default_rng(4242)
     maxid = max(real_ids) + 1
     effs, cover = [], []
@@ -229,13 +244,12 @@ def aa_test(ev_c, units_c, cls):
             "pass": bool(abs(effs.mean()) <= 0.01 and 0.93 <= np.mean(cover) <= 0.97)}
 
 
-def injection_test(ev_c, delta):
+def injection_test(ev_c, delta, cal, W):
     sub = ev_c[(ev_c.etype == "BREAK") & (ev_c.cls == "NEAR") & (ev_c.year >= 2021)].copy()
     real = sub[~sub.is_placebo]
     plc = sub[sub.is_placebo & sub.parent.isin(real.unit)]
     p0 = plc.tgt.mean()
-    clusters = pd.Index(sorted(real.cluster.unique()))
-    W = cf.boot_W(len(clusters), B=B, seed=999)
+    clusters = cal
     rng = np.random.default_rng(31337 + int(delta * 1000))
     rec, cover = [], []
     is_real = ~sub.is_placebo.to_numpy()
@@ -279,19 +293,32 @@ def main() -> int:
     log(f"  {info}")
 
     # ---------------- validation first (gate)
-    log("Validation: A/A (200 reps each) and injection (200 reps each)")
-    val = {"aa": [aa_test(ev_c, units_c, "NEAR"), aa_test(ev_c, units_c, "FAR")],
-           "injection": [injection_test(ev_c, +0.10), injection_test(ev_c, -0.10)]}
-    for a in val["aa"]:
-        log(f"  A/A {a['class']}: mean {a['mean_effect']:+.4f}, coverage {a['ci_coverage_of_0']:.3f}, pass {a['pass']}")
-    for i in val["injection"]:
-        log(f"  inject {i['delta']:+.2f}: recovered {i['mean_recovered']:+.4f} (bias {i['bias']:+.4f}), coverage {i['ci_coverage_of_delta']:.3f}")
-    res = {"info": info, "validation": val}
-    if not all(a["pass"] for a in val["aa"]):
-        res["stopped"] = "A/A test failed: diagnostic results withheld; see validation.aa for the bias"
+    cal = pd.Index(test_idx)
+    log("Validation (calendar block bootstrap): A/A 200 reps NEAR/FAR, injection ±10 pp, blocks 60/120/240")
+    val = {}
+    for lb in BLOCKS:
+        W = block_W(len(cal), lb, seed=1000 + lb)
+        v = {"aa": [aa_test(ev_c, units_c, "NEAR", cal, W), aa_test(ev_c, units_c, "FAR", cal, W)],
+             "injection": [injection_test(ev_c, +0.10, cal, W), injection_test(ev_c, -0.10, cal, W)]}
+        val[str(lb)] = v
+        for a in v["aa"]:
+            log(f"  block {lb} A/A {a['class']}: mean {a['mean_effect']:+.4f}, coverage {a['ci_coverage_of_0']:.3f}, pass {a['pass']}")
+        for i in v["injection"]:
+            log(f"  block {lb} inject {i['delta']:+.2f}: recovered {i['mean_recovered']:+.4f} (bias {i['bias']:+.4f}), coverage {i['ci_coverage_of_delta']:.3f}")
+        if lb == PRIMARY_BLOCK:
+            W_primary = W
+        else:
+            del W
+    res = {"info": info, "bootstrap": {"type": "circular moving-block over the trading calendar", "draws": B,
+                                       "block_lengths": BLOCKS, "primary": PRIMARY_BLOCK},
+           "validation": val}
+    if not all(a["pass"] for a in val[str(PRIMARY_BLOCK)]["aa"]):
+        res["stopped"] = f"A/A failed at the primary block length {PRIMARY_BLOCK}: diagnostic results withheld"
         (OUT / "diag_results.json").write_text(json.dumps(res, indent=1, default=float))
-        log("A/A FAILED -> stopping before Q1-Q5")
+        log("A/A FAILED at the primary block length -> stopping before Q1-Q5")
         return 0
+    W = W_primary
+    C = lambda sub, v="tgt": cell(sub, v, cal, W)
 
     log("Old same-day design (levels.build_units, DAILY) on the same σ unit")
     units_o = old_units(days, test_idx, mk)
@@ -320,7 +347,8 @@ def main() -> int:
     q1 = {}
     for design, ev in (("corrected", ev_c), ("old_same_day", ev_o)):
         for cls in ("NEAR", "FAR"):
-            q1[f"{design}:{cls}:2007-2020"] = cell(per(BR(ev), 2007, 2020)[lambda x: x.cls == cls], "tgt", 11)
+            for a_, b_ in ((2007, 2020), (2007, 2023), (2015, 2023)):
+                q1[f"{design}:{cls}:{a_}-{b_}"] = C(per(BR(ev), a_, b_)[lambda x: x.cls == cls])
     pub = json.loads((ROOT / "research" / "levels" / "results" / "results_levels.json").read_text())
     pubd = json.loads((ROOT / "research" / "levels" / "results" / "exploratory_distance.json").read_text())
     q1["published_levels_DAILY_H2"] = next({k: r[k] for k in ("conf_effect", "conf_ci_lo", "conf_ci_hi")}
@@ -330,30 +358,30 @@ def main() -> int:
     years = {}
     for design, ev in (("corrected", ev_c), ("old_same_day", ev_o)):
         for Y in range(2007, 2024):
-            years[f"{design}:{Y}"] = cell(BR(ev)[(BR(ev).cls == "NEAR") & (BR(ev).year == Y)], "tgt", 100 + Y)
+            years[f"{design}:{Y}"] = C(BR(ev)[(BR(ev).cls == "NEAR") & (BR(ev).year == Y)])
     q2 = {"per_year": years}
     b = BR(ev_c)[BR(ev_c).cls == "NEAR"]
     for a_, b_ in ((2007, 2023), (2007, 2020)):
         for name in ("PDH", "PDL"):
-            q2[f"{name}:{a_}-{b_}"] = cell(per(b, a_, b_)[lambda x: x.name == name], "tgt", 21)
+            q2[f"{name}:{a_}-{b_}"] = C(per(b, a_, b_)[lambda x: x.name == name])
     for up in (True, False):
-        q2[f"trend_{'up' if up else 'down'}:2007-2023"] = cell(b[b.trend_up == up], "tgt", 22)
+        q2[f"trend_{'up' if up else 'down'}:2007-2023"] = C(b[b.trend_up == up])
         for name in ("PDH", "PDL"):
             with_trend = (name == "PDH") == up
             q2[f"{name}|trend_{'up' if up else 'down'} ({'with' if with_trend else 'against'} trend)"] = \
-                cell(b[(b.trend_up == up) & (b.name == name)], "tgt", 23)
+                C(b[(b.trend_up == up) & (b.name == name)])
     # ---------------- Q3
     q3 = {}
     for et, fill, lab in (("TOUCH", lv.FILL, "H1_touch"), ("SWEEP", None, "H3_sweep")):
         e = ev_c[(ev_c.etype == et) & ((ev_c.fill == fill) if fill is not None else True)]
         for cls in ("NEAR", "FAR"):
-            for a_, b_ in ((2007, 2020), (2021, 2023)):
-                q3[f"{lab}:{cls}:{a_}-{b_}"] = cell(per(e, a_, b_)[lambda x: x.cls == cls], "tgt", 31)
+            for a_, b_ in ((2007, 2020), (2021, 2023), (2007, 2023), (2015, 2023)):
+                q3[f"{lab}:{cls}:{a_}-{b_}"] = C(per(e, a_, b_)[lambda x: x.cls == cls])
     # ---------------- Q4
     q4 = {}
     for design, ev in (("corrected", ev_c), ("old_same_day", ev_o)):
         for cls in ("NEAR", "FAR"):
-            q4[f"{design}:{cls}:2021-2023"] = cell(per(BR(ev), 2021, 2023)[lambda x: x.cls == cls], "tgt", 41)
+            q4[f"{design}:{cls}:2021-2023"] = C(per(BR(ev), 2021, 2023)[lambda x: x.cls == cls])
     od = [u["own_dist"] for u in units_o if u["is_placebo"] and 2021 <= pd.Timestamp(u["period_date"]).year <= 2023]
     rd = [u["dist"] for u in units_o if not u["is_placebo"] and 2021 <= pd.Timestamp(u["period_date"]).year <= 2023]
     q4["placebo_distance_from_own_open"] = {"old_same_day_placebos_mean": float(np.mean(od)),
@@ -363,8 +391,8 @@ def main() -> int:
     q5 = {}
     for design, ev in (("corrected", ev_c), ("context_matched", ev_x)):
         for cls in ("NEAR", "FAR"):
-            for a_, b_ in ((2007, 2020), (2021, 2023), (2007, 2023)):
-                q5[f"{design}:{cls}:{a_}-{b_}"] = cell(per(BR(ev), a_, b_)[lambda x: x.cls == cls], "tgt", 51)
+            for a_, b_ in ((2007, 2020), (2021, 2023), (2007, 2023), (2015, 2023)):
+                q5[f"{design}:{cls}:{a_}-{b_}"] = C(per(BR(ev), a_, b_)[lambda x: x.cls == cls])
     res.update(q1=q1, q2=q2, q3=q3, q4=q4, q5=q5)
     (OUT / "diag_results.json").write_text(json.dumps(res, indent=1, default=float))
     year_figure(years, FIG / "near_effect_per_year.png")
