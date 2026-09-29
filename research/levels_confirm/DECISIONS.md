@@ -28,3 +28,16 @@ Entries 1–9 were written before any outcome on 2024+ data.
 9. **MDE formula:** (z_0.95 + z_0.80) · bootstrap SE.
 
 ## During and after the run
+
+10. **Dry run (2021-01-04 .. 2023-06-30, seen data), 21:49.** It ran without
+    errors, with plausible counts (305 real NEAR breaks, 4,117 paired placebo
+    breaks, no placebo short, MDE 7.2 pp). Development output: NEAR +6.2 pp
+    (opposite to the hypothesis). No code or PREREG change followed. Committed
+    before the confirmatory run (8c04efd).
+11. **Confirmatory run executed once** (2026-09-29 21:50). No rerun: the task's
+    rule is "run ONCE", and the pipeline is deterministic (seeds fixed). The test
+    suite was run again afterwards.
+12. **No bug found after the run.** So there is no "fix, rerun once, document
+    both" step.
+13. **Side claims were not evaluated,** as pre-registered, because the main claim
+    isn't SUPPORTED.
