@@ -66,3 +66,30 @@ Then REPORT.md (at most ~1.5 pages): answers to Q1–Q4 with numbers and figures
 and "Hypotheses worth testing on fresh data (EURUSD or data from 2026-10-01)",
 each stated with a direction and a minimum effect size. Everything is labelled
 diagnostic.
+
+## Addendum (added at the owner's request after the first plan commit, still before anything was run)
+
+5. **Q5 (context-matched placebos):** a second corrected placebo variant.
+   Placebo days are additionally matched on (a) the position of the day open
+   within the previous day's high–low range, pos = (open − PDL) / (PDH − PDL),
+   in **terciles** (thresholds = empirical 1/3 and 2/3 quantiles of pos over all
+   2007–2023 trading days), and (b) the **sign of the previous day's return**,
+   ln(close of D−1 / close of D−2). Candidate placebo days are the ±60-day window
+   restricted to the real day's context class (6 classes). Otherwise identical to
+   `confirm.build_units` (same placement, exclusion, eligibility, 20 per level, up
+   to 1000 draws; seed 20260132). NEAR / FAR effects are reported under both
+   variants side by side. **If the effect shrinks toward 0 with context
+   matching, the conclusion is that prior-day context, not the level, drives
+   it.**
+6. **Machinery validation, run BEFORE Q1–Q5 and reported first:**
+   - **A/A test:** 200 repetitions. In each, for every real level one of its 20
+     placebos (uniform) is treated as "real" and the other 19 as its placebos.
+     Corrected design, BREAK continuation, NEAR and FAR, 2007–2023, the same
+     real-day bootstrap (10,000 draws). **Pass criteria:** mean effect within ±1
+     pp of 0 AND the share of 95 % CIs containing 0 within **93–97 %**. **If
+     either fails, stop and report the bias instead of the diagnostic results.**
+   - **Injection test (2021–2023):** real NEAR break outcomes are replaced by
+     Bernoulli draws with probability (observed paired placebo rate + Δ), for
+     Δ = +10 pp and separately −10 pp, 200 repetitions each, with the same
+     bootstrap. Reported: the mean and SD of the recovered effect, bias, and the
+     share of CIs containing Δ.
