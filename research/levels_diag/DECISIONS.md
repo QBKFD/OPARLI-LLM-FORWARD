@@ -19,3 +19,21 @@
    across bootstrap clusters from the unit definitions, with no outcomes.
 6. **No attempt to fix the bootstrap and rerun.** The plan says stop. A fix is
    proposed in the report for the owner to decide on.
+
+## Rerun with the calendar block bootstrap (addendum 2)
+
+7. **Addendum 2 committed before the rerun** (a3a955c): block bootstrap spec, the
+   owner's added periods (2007–2023 primary, 2015–2023 secondary; the latter
+   wasn't in the original plan, as noted there), and the confirm CI-correction
+   scope.
+8. **Gate applied literally, a second time.** Primary block 120: A/A NEAR
+   coverage 0.885, outside 93–97 %. The run stopped before Q1–Q5 (the code
+   enforces it). Blocks 60 and 240 also fail NEAR (0.900 / 0.875); FAR passes
+   at 60 and 120 and fails at 240 (0.925).
+9. **The confirm CI correction is NOT applied.** Step 4 depends on a validated
+   bootstrap; the new one failed validation, so a "corrected CI" from it would
+   carry no more authority than the original. `confirm_ci_correction.py` is
+   committed but was not run. 2024–26 was not read again.
+10. **One investigation of the failure** (`aa_investigation.py`): placebo-only A/A
+    data, no Q1–Q5 quantity. It separates estimator bias from SE calibration.
+    Reported, not acted on.
