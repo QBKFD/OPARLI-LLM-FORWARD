@@ -80,3 +80,33 @@ were made.
     data.
 
 ## During and after the run
+
+17. **Test fixes before the first run.** Three tests failed the first time. The
+    cause was synthetic data too short to fill the profile's 50-return buckets,
+    and its start straddled the 2019 US DST change. One test had passed
+    *vacuously*: two all-NaN profiles compare as "unequal", which let it pass
+    without testing anything. `fit_profile` now raises if no bucket has enough
+    data, and the tests use 12 days of synthetic data in June. The floor test's
+    expectation was also wrong (it compared with the 1st percentile of the
+    already-floored profile) and was corrected. `run_r2.py` was not changed by
+    any of this beyond the new error check.
+
+18. **`run_r2.py` frozen after its first full run** (2026-09-29 08:00). Tables
+    come from `tables_r2.py` (reporting only). Everything beyond PREREG lives in
+    `exploratory_r2.py`.
+
+19. **Rules applied literally.** R2 fails on S (max η² 0.153 against a 0.05
+    limit) and on the y4 hour-dummy gain (0.0133 against a 0.01 limit). Under the
+    pre-registered mapping (R1 pass + R2 fail → status quo), the confirmatory
+    recommendation is the status quo, even though C beats M1H by about 0.19 R² at
+    4h and 0.23 at 24h. The exploratory diagnosis goes in the report, not into
+    the verdict.
+
+20. **R5 over all of CONF** fails on a single coefficient: W → y4 is significant
+    in 2 of 24 folds, once with each sign. Within each era it passes (1
+    significant fold each). Reported as FAIL, as the rule says.
+
+21. **The one bad OHLC row** (all zeros) is at 2004-04-30 00:00 and duplicates a
+    real bar. It is outside the years used, so it has no effect on DEV or CONF.
+    `load_conf` doesn't filter bad rows, and there are none in 2007–2020
+    (verified).
