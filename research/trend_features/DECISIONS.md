@@ -30,3 +30,22 @@ Entries 1–9 were written before any model result.
    `XAUUSD.txt`, as round 3 did.
 
 ## During and after the run
+
+10. **Test fix before the first run.** The alternating-returns test failed on the
+    first Z24 window: it includes the series' very first bucket (no previous
+    bucket, so its return is NaN), which left 287 alternating returns that don't
+    cancel. The test now evaluates windows that start after the first bucket. No
+    code change.
+
+11. **`run_trend.py` frozen after its first full run** (2026-09-29 17:51).
+    Tables come from `tables_trend.py` (reporting only), and the declared sign
+    test from `exploratory_trend.py`.
+
+12. **R2b applied literally.** At E24 the hour-dummy gain is −0.00056 for MT and
+    −0.00063 for M1+. Hour dummies *hurt* both out of sample, MT slightly less,
+    and "MT gain <= M1+ gain" then fails by 0.00007. The rule as pre-registered
+    has no tolerance, so R2b = FAIL and MT is not recommended. The report
+    discusses how thin this is. No override.
+
+13. **R5 reported on MV+MT for every coefficient.** Only MT features matter for
+    the mapping, and since R2b fails, the drop list isn't used.
