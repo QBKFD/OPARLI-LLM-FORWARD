@@ -209,7 +209,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
 6. **Partial `is_final=False` updates.** I plan to *omit* them from the stream
    (no consumer). Confirm.
 
-## 4. Open questions (not blocking step 1)
+## 4. Open questions raised in step 0 (all resolved; see Decisions)
 
 - Does IBKR's 10-day MIDPOINT history include the forming minute as a partial
   bar? The scanner then sets the same `ts` again from the live stream (an
@@ -505,3 +505,97 @@ switch PR.)
   (2026-01-30) to the recorder's start, and any recorder outages. It must run
   against a local paper gateway. The scanner never kept its bars (memory only,
   ~10 days, lost on each restart).
+
+## Step 8: verification (2026-10-14)
+
+Baseline is `research/levels-diag` @ 29dec96 (step 0). Branch
+`feat/datafeed-v1`.
+
+| Check | Result |
+|---|---|
+| Scanner `--selftest` | `SELFTEST: ALL PASSED`; full output **byte-identical** to the step 0 output |
+| Research suites (backend venv, per suite) | levels 11, levels_confirm 8, levels_diag 4, regime_v2 9, trend_features 7, vol_block 5, vol_features 14, vol_features_r2 9, vol_features_r3 11, test_sealing 2 = **80 passed**, the same counts as baseline |
+| Root `pytest` (`.venv`) | **156 passed, 7 skipped** (80 research + 76 datafeed; skips below) |
+| `git diff 29dec96..HEAD -- backend deploy/scanner research` | **empty** |
+| Scanner image build | **not run** (no Docker locally; nothing is built on EC2, per owner). Replaced by the proof below |
+| Image inputs unchanged | every file the scanner image or compose uses has the same git blob at baseline and HEAD (table below), and the working tree is clean in those paths |
+| Equivalence (step 3) | **identical** bars (bar_ts, O, H, L, C, n_ticks) between the new builder and the real scanner path on all 11 sequences; `_market_open` identical at 75k timestamps across 2026; `_valid_bar` identical on 5,000 random bars. Deviations #1, #2, #3 (timer close + after-grace tick), #4 and #7 each pass their explicit difference test |
+| Secrets | no IPs, hostnames, key paths or secrets in new files (grep). `<host>` placeholders in `.env.example` only |
+
+Image inputs (git blob at baseline = HEAD, first 16 hex of SHA-256 of the
+working file):
+
+| File | Blob | SHA-256 |
+|---|---|---|
+| deploy/scanner/Dockerfile | c2758bcd | 1741751de7a2e172 |
+| deploy/scanner/docker-compose.yml | a2fcaf83 | 2d07de53e4709532 |
+| deploy/scanner/entrypoint.sh | 6cb15723 | d8d13c41d684c619 |
+| deploy/scanner/watchdog.sh | e57c78d3 | 4300ab33baf55cfa |
+| deploy/scanner/.env.example | 0682d580 | daccbd4f4b3dddbc |
+| backend/deterministic_scanner.py | 9c30b904 | 939c8fef4a8e7f24 |
+| backend/services/\_\_init\_\_.py | e69de29b | e3b0c44298fc1c14 (empty) |
+| backend/services/tws_connector.py | cdee417c | d92ca81b3d0ad59c |
+
+Branch size vs `research/levels-diag`: 29 files, +4,340 lines, 0 deletions.
+That includes the two survey docs (ARCHITECTURE_MAP, REPO_MAP). Without them:
+27 files, +3,386.
+
+### Skipped tests: to run before merge
+
+None failed. Six need a throwaway Redis (`REDIS_TEST_URL`, e.g. DB 15 on a
+local Redis; the tests flush it). Owner chose to skip Redis for now.
+
+1. `tests/datafeed/test_bus.py::test_ordering_and_roundtrip[redis]`
+2. `tests/datafeed/test_bus.py::test_count_limits_batch_and_keeps_order[redis]`
+3. `tests/datafeed/test_bus.py::test_unacked_redelivered_after_crash[redis]`
+4. `tests/datafeed/test_bus.py::test_groups_are_independent[redis]`
+5. `tests/datafeed/test_bus.py::test_trimming_keeps_newest[redis]`
+6. `tests/datafeed/test_end_to_end.py::test_replay_one_day_end_to_end[redis]`
+
+**Until these run, `RedisStreamBus` has never run against a real server.**
+The part most worth seeing is redelivery after a crash (#3), plus how a
+trimmed pending entry comes back from `XREADGROUP ... 0`.
+
+Manual, not a merge blocker:
+
+- `tests/datafeed/test_sources.py::test_live_paper_gateway_manual`. Needs
+  `DATAFEED_IBKR_LIVE=1` and a **local paper** gateway. It would confirm the
+  two assumptions that are still untested: IBKR `formatDate=2` history dates
+  being tz-aware UTC, and the real `pendingTickersEvent` flow.
+
+Also not run: `docker compose -f deploy/datafeed/docker-compose.yml up`
+(no Docker locally).
+
+### Open questions (carried forward)
+
+- **Python 3.12** (the scanner image) is allowed by `requires-python` but
+  untested; only 3.13.1 was available.
+- **Backfill job** (follow-up PR, see above). It's the only way to recover the
+  gap from the parquet's end (2026-01-30) to the recorder's start.
+- **The scanner never kept its bars.** History before the recorder starts can
+  only come from IBKR MIDPOINT history, not from the tick-built bars the
+  scanner actually saw.
+- **No dead-letter stream.** A message the store keeps failing on retries
+  forever and shows only in `error_count`.
+- **Has #4's stall happened in production?** Grep the scanner logs for
+  "Error in pending tickers handler".
+
+### What the scanner-switch PR will need
+
+1. **Consume `bars.xauusd.1m`** instead of owning IBKR. Drop
+   `services/tws_connector.py` from the scanner image, and give the feed its
+   own client id.
+2. **Warm-up from the store.** Build levels from
+   `bars_before("XAUUSD", now, timedelta(days=N))` (live preferred, history
+   fallback) instead of a 10-day IBKR reload. That removes the partial-week
+   PWH/PWL risk. Keep the IBKR history load as a fallback while the store is
+   young.
+3. **A test proving live bars == replay bars** through the scanner, as in
+   the target plan, before switching.
+4. **A new journal epoch.** The fixes listed under "Scanner bugs to fix at
+   switch time" (#1, #2, #4) and the behaviour changes #3 and #7 change which
+   bars the scanner sees.
+5. **Staleness.** Replace the scanner's silence heartbeat with
+   `latest_bar_ts` + recorder `lag_s`.
+6. **Run the six Redis tests** above, and a paper-gateway smoke test of the
+   feed.
