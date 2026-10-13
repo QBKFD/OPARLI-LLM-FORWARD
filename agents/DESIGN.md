@@ -390,3 +390,31 @@ Every table that a model can fill has `model_id`, `prompt_hash`, `tokens_in`,
   bull's turn). Simultaneous rounds have no first-mover advantage. OK?
 - **Q4. 4h alignment:** UTC epoch (00/04/…/20). The alternative is NY-session
   alignment (18:00 NY open, shifts with DST). I'd use UTC for v0.
+
+## Decisions and results by step
+
+### Step 1: packaging and venv
+
+- **`[agents]` extra:** `langgraph==1.2.12` (released 2026-09-21) and
+  `pydantic==2.13.5` (2026-08-28). These are the newest releases at least two
+  weeks old on 2026-10-14; langgraph 1.2.13–1.2.15 and pydantic 2.14.x are
+  newer.
+- **Packaging.** `agents*` is added to package discovery, and `prompts/*.md`
+  is package data. The distribution is still named `datafeed`.
+- **Venv.** `.venv/` in this worktree, Python 3.13.1, installed with
+  `pip install -e '.[feed,replay,dev,agents]'`.
+- **Transitive versions** as resolved (not pinned by the extra):
+  - langchain-core 1.6.10, langgraph-checkpoint 4.3.0, langgraph-prebuilt
+    1.1.0, langgraph-sdk 0.4.7;
+  - langsmith 0.14.8, pydantic_core 2.46.5, ormsgpack 1.12.2, xxhash 4.0.1.
+
+  No LLM client (anthropic, openai, …) is installed. langsmith comes in through
+  langchain-core and only sends traces if `LANGSMITH_TRACING` /
+  `LANGCHAIN_TRACING_V2` is set. Neither is set here, and a test (step 7)
+  checks that no LLM client module gets imported.
+- **Baseline** with this venv: `pytest tests/datafeed` gives **76 passed, 7
+  skipped**, the same as the datafeed step 8 report. The 7 skips are 6 Redis
+  tests and 1 manual IBKR test. The historical parquet is symlinked from the
+  main checkout to `database/ohlcv_data/` (gitignored, not committed). The
+  research suites need scipy, matplotlib and numba, which aren't installed in
+  this venv. They aren't touched by this branch and weren't run.

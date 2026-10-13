@@ -1,6 +1,7 @@
-# Packaging for the root-level `datafeed` package only. Flat layout: the repo
-# root also holds backend/, research/, scripts/, deploy/ and tests/, which are
-# not part of this distribution, so package discovery is explicit.
+# Packaging for the root-level `datafeed` and `agents` packages only. Flat
+# layout: the repo root also holds backend/, research/, scripts/, deploy/ and
+# tests/, which are not part of this distribution, so package discovery is
+# explicit.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -20,10 +21,16 @@ feed = ["ib_insync==0.9.86", "redis==5.2.1"]
 # Replay source reads the historical parquet.
 replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0"]
 dev = ["pytest==9.1.1"]
+# The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
+# least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
+agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["datafeed*"]
+include = ["datafeed*", "agents*"]
+
+[tool.setuptools.package-data]
+agents = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects the research suites and the datafeed
