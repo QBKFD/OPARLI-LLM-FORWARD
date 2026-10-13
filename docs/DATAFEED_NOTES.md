@@ -250,3 +250,18 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     (adds `backend/` to `sys.path`). `tests/datafeed/conftest.py` removes it
     again, so datafeed tests can't silently import backend code. The old tests
     still run when named explicitly.
+- **Step 2 bus.**
+  - Each message is JSON-encoded whole into one Redis field (`json`), so ints
+    and floats round-trip unchanged.
+  - Both timestamps are ISO-8601 UTC with `+00:00`. Naive datetimes are rejected.
+  - `consume()` returns the consumer's own unacked entries first, and new ones
+    only when none are pending, so recovery after a crash is just a restart
+    under the same consumer name.
+  - New groups start at stream id `0`.
+  - An unacked entry that got trimmed before redelivery is acked, logged and
+    counted in `bus.lost`.
+  - Default `maxlen` is 100,000 (~70 days of 1-min bars).
+  - **RedisStreamBus is untested against a real server**: there's no Redis here,
+    and Docker on this Mac isn't available. Its tests skip unless
+    `REDIS_TEST_URL` is set. I tried fakeredis and dropped it: it returned
+    never-delivered entries for `XREADGROUP ... 0`, which real Redis doesn't do.
