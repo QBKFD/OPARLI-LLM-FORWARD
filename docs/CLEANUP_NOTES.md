@@ -185,3 +185,55 @@ hard-codes a local TWS paper port and `clientId=2`. That's unchanged here.
 - **The README still documents the old layout:** `backend/main.py`,
   `run_system.py`, `scripts/*` and `scripts/start-all.sh`. For the PR
   description.
+
+## Step 5: legacy/README.md and legacy/PORT_CANDIDATES.md
+
+- **`legacy/README.md`.** Says the folder is unmaintained, not deployed,
+  excluded from tests and CI, and kept as the port source for the LangGraph
+  agents. Includes a folder table (new path, old path, contents).
+- **`legacy/PORT_CANDIDATES.md`.** A verdict, a new role, the required fixes
+  and file:line evidence (legacy paths) for: meta_decision, the
+  market_data_provider + clock pair, the technical stack incl.
+  regime_detector, chart_generator, visual_analysis, the sentiment agent,
+  news_events, llm_provider, SL/TP + position_sizing + risk_service,
+  hard_limit_checker, position_manager, and a DO NOT PORT table for the bus
+  agents, core, live_trading, weight_manager and session_tracker.
+- **How claims were checked.** Every claim was re-read at its legacy path.
+  Those marked **(ran)** were reproduced by executing the legacy code, loaded
+  by file path. Nothing in `legacy/` was edited.
+- **Corrected or dropped from earlier reviews:**
+  - The ATR $10 fallback is at `technical_indicators.py:323`, not `:327`.
+  - The meta KeyError is not inside `meta_agent.py`'s own `.format` calls,
+    which pass `evolved_instructions`. It happens when `meta_agent.py` hands
+    its template to `MetaDecisionService` (`meta_agent.py:284-287` →
+    `meta_decision.py:391-398`).
+  - `llm_provider` "no retries" is softened to "no explicit timeout or retry
+    policy (SDK defaults)".
+- **New defects found while verifying:**
+  1. `regime_detector.py:68-69` compares percent with dollars. `atr_trend` is
+     "decreasing" on 100% of real bars (2023/2025, all timeframes), so the
+     strong TRENDING/RANGING branches never fire.
+  2. Rounding in `stop_loss_calculator.py:121` against the exact check at
+     `risk_service.py:133` rejects 50% of trades whose 3×ATR clamp binds.
+  3. With the installed pandas_ta 0.4.71b0, Bollinger Bands are silently
+     missing from every chart (column-name template, `chart_generator.py:301-303`).
+  4. The chart's session overlay has no `is_complete` filter, so replays draw
+     the full-day/week high/low.
+  5. The `news_events.py:135` `abs()` makes the Tier-1 after-window 45 min,
+     not 30. `tag_events` leaves times naive (`:122`).
+  6. The sentiment agent gets no news or calendar input at all
+     (`sentimentanalyst_agent.py:207-249`).
+  7. `HistoricalDataProvider.get_price(as_of=None)` returns the frame's last
+     close. Higher-timeframe candles are returned while still forming. Unknown
+     timeframes silently become 1-min.
+  8. A Trade Manager / Execution payload key mismatch (`action`/`quantity`/
+     `entry_time` vs `direction`/`position_size`/`fill_time`).
+- **Follow-up for `datafeed` (not touched here).**
+  `datafeed.store.query.bars_before(t)` uses `bar_ts < t`, the same rule as
+  the legacy provider. For `t` not on a minute boundary (e.g. 10:07:30), it
+  returns the 10:07 bar, which completes only at 10:08. For replay, history
+  and backfilled bars that's up to 59 s of look-ahead. Live bars are recorded
+  only after they close, so a `known_by` read hides them. The fix belongs in
+  the datafeed branch: require minute-aligned `t`, or use
+  `bar_ts + 1 min <= t`. The datafeed docstring's "as of t" explanation is
+  only right for minute-aligned `t`.
