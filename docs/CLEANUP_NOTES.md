@@ -101,3 +101,29 @@ the pre-cleanup survey docs. The README isn't edited in this PR: the shorter
 cleanup prompt has no README step, and it is stale in other ways after step 4
 (it documents `backend/main.py`, `run_system.py` and `scripts/*` at their old
 paths). Listed for the PR description.
+
+## Step 3: research no longer depends on regime_classifier/
+
+- **Copied unchanged** to `research/_shared/regime_features/` (`cmp`
+  byte-identical): `regime_classifier/regime_features.py` and
+  `regime_config.py`. A `PROVENANCE.md` there says where they came from and
+  not to edit them.
+- **Loader change.** `research/vol_features/run_study.py::_import_feature_engine`
+  now points its synthetic package at the copy. It keeps the package name
+  `regime_classifier`, so module identities are unchanged. The docstring
+  explains why. That's the only research code edit.
+- **Callers that go through the loader:** `vol_features/run_study.py`,
+  `vol_features/exploratory.py`, `vol_features_r2/run_r2.py`,
+  `vol_features_r3/run_r3.py`, `trend_features/run_trend.py`, and two tests:
+  `vol_features/test_vol_features.py:124` and `trend_features/test_trend.py:122`.
+  No other research file references `regime_classifier/` in code.
+- **Numbers identical.** `existing_features()` on 2024-02-01..2024-04-30
+  (86,816 rows × 13 features) was computed from the old path before the
+  change and from the new path after. `assert_frame_equal(check_exact=True)`
+  passes, and both hashes are `df8c1e950866f9df`.
+- **Research suites:** 11 / 8 / 4 / 9 / 7 / 5 / 14 / 9 / 11 + sealing 2 =
+  **80 passed**, same as baseline.
+- **No cache regenerated.** The exact feature comparison covers the only
+  computation that changed location. Step 4 re-runs every suite with
+  `regime_classifier/` gone from the root, which proves nothing still loads
+  from there.
