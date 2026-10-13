@@ -192,7 +192,7 @@ The selftest pins six DST cases (DS:765–772).
 
 `is_final=False` updates aren't part of the contract: no consumer uses them.
 
-## 3. Points needing your decision before step 3
+## 3. Points that needed a decision before step 3 (decided; see Decisions)
 
 Each item is current production behaviour that I think is wrong. The task says
 to reproduce *exactly*, so by default I will copy all of them and list them as
@@ -265,3 +265,77 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     and Docker on this Mac isn't available. Its tests skip unless
     `REDIS_TEST_URL` is set. I tried fakeredis and dropped it: it returned
     never-delivered entries for `XREADGROUP ... 0`, which real Redis doesn't do.
+- **Step 3: bar contract decisions** (owner, 2026-10-13). Code:
+  `datafeed/ingest/xauusd_bars.py`. Each counter is exposed in
+  `BarBuilder.health()`.
+
+  | # | Old behaviour | Decision | Reason | Counter |
+  |---|---|---|---|---|
+  | 1 | One-sided quote → previous session's `close` enters the bar | **Fix**: skip the tick | A stale price makes fake highs/lows and fake level touches | `skipped_one_sided` |
+  | 2 | Tick from an earlier minute is folded into the current bar | **Fix**: drop it | It changes the wrong bar's H/L/C | `late_ticks` |
+  | 3 | Bar closes only on the next minute's first tick | **Fix**: close at minute end + `GRACE_S` (2.0 s, named constant) via `advance(now)`. Ticks for a minute received after its deadline are late (#2) | Bars before a pause or close no longer arrive minutes or days late | `timer_closes` |
+  | 4 | No `ticker.time` → naive local `datetime.now()`, later labelled UTC | **Fix**: use the injected UTC receive time; naive tick times raise | Wrong timestamps (4–5 h off on a non-UTC host), and a feed stall (below) | `ticks_without_ts` |
+  | 5 | `n_ticks` counts quote-update events, including unchanged midpoints | **Copy**, documented | It's an activity count; changing it gains nothing | — |
+  | 6 | Partial `is_final=False` bars every 5 s | **Leave out** of the stream | No consumer uses them | — |
+  | 7 | History load may include the forming minute as a partial bar | **Fix**: `trim_history` drops history bars from the forming minute onward. Completed minutes present in both history and live keep conflict logging (store, step 5) | A partial bar would otherwise collide with the final live bar | — |
+
+  Also counted: `dropped_no_quote` (no usable price at all; dropped in the old
+  code too), `ticks_in`, `ticks_used`, `bars_closed`.
+
+  **#4 is worse than it looked in step 0.** The equivalence test found it.
+  After a tick without a timestamp, the old connector's open bar is keyed by a
+  *naive* time. Every later tick has a tz-aware `ticker.time`. Comparing the
+  two raises `TypeError` inside `_on_pending_tickers`, which is caught and
+  logged ("Error in pending tickers handler"). So every later tick is dropped
+  and **no bar is emitted again until the process restarts**. The scanner's
+  30-min silence warning is the only symptom.
+
+- **Step 3: equivalence result.** The new builder + `_valid_bar` gives
+  **identical bars** (bar_ts, O, H, L, C, n_ticks) to the real old code path
+  (`TWSConnector._on_pending_tickers` → scanner `on_bar` filter, loaded by file
+  path, unmodified, no IBKR) on 11 synthetic sequences:
+  - plain trading, many repeated midpoints, multi-minute gaps;
+  - 15% −1 / 0 / NaN quotes;
+  - US DST start (2026-03-08) and end (2026-11-01) around the break and Sunday
+    reopen, plus the summer break;
+  - Friday close → frozen weekend quotes → Sunday reopen.
+
+  A guard test checks those edge cases actually occur in the sequences.
+  `_market_open` matches the scanner's on every 7th minute of 2026 (75k
+  points), and `_valid_bar` on 5,000 random bars. #1, #2, #3 (timer close and
+  after-grace late tick), #4 and #7 each have a test asserting the documented
+  difference.
+- **`_market_open` uses `astimezone(ZoneInfo("America/New_York"))`**, not
+  pandas `tz_convert`, so the core package doesn't need pandas. Equivalence is
+  tested as above. `tzdata` moved from the `replay` extra to core dependencies,
+  because slim images ship no zoneinfo.
+- **Bar message (schema_version 1):** the common fields plus `bar_ts` (=
+  `source_ts`), `open`, `high`, `low`, `close`, `n_ticks`, `history` (bool).
+  There's **no volume field**: live CMDTY XAUUSD has no usable volume (0 in the
+  old bars).
+- **The builder returns unfiltered bars.** Applying `_valid_bar` before publish
+  is wired in step 4.
+
+## Scanner bugs to fix at switch time (new journal epoch)
+
+When the scanner switches to this feed, these fixes change which bars it sees,
+so the decision journal needs a new epoch marker. Alerts before and after the
+switch aren't strictly comparable.
+
+1. **#1 stale-close fallback.** One-sided quotes put the previous session's
+   close into bars.
+2. **#2 late ticks** folded into the wrong bar.
+3. **#4 missing tick time.** Naive local time labelled UTC, and the bar-builder
+   stall after it.
+
+(#3 and #7 also change behaviour at the switch: bar *timing* and the history
+warm-up. They aren't bugs in the bars the scanner kept, but list them in the
+switch PR.)
+
+## Follow-ups (not this PR)
+
+- **Backfill job.** IBKR MIDPOINT history in chunks → `bars` with
+  `source="ibkr_history"`. It would fill the gap from the parquet's end
+  (2026-01-30) to the recorder's start, and any recorder outages. It must run
+  against a local paper gateway. The scanner never kept its bars (memory only,
+  ~10 days, lost on each restart).

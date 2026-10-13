@@ -12,13 +12,13 @@ description = "XAUUSD 1-min bar feed: IBKR ingest, Redis stream bus, point-in-ti
 # The backend venv runs 3.13; the scanner image runs python:3.12-slim. Allow
 # both so the scanner can later import this package inside its own image.
 requires-python = ">=3.12"
-dependencies = []  # bus (in-memory), store and query are stdlib only
+dependencies = ["tzdata==2025.3"]  # zoneinfo data for _market_open (slim images ship none); bus, store, query are otherwise stdlib only
 
 [project.optional-dependencies]
 # Pinned to the versions the scanner image and backend venv already use.
 feed = ["ib_insync==0.9.86", "redis==5.2.1"]
 # Replay source reads the historical parquet.
-replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0", "tzdata==2025.3"]
+replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0"]
 dev = ["pytest==9.1.1"]
 
 [tool.setuptools.packages.find]
