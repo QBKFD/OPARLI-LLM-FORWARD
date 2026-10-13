@@ -286,6 +286,17 @@ class IbkrXauusdSource:
 SEAL_START = datetime(2026, 10, 1, tzinfo=timezone.utc)
 
 
+# First and last bar_ts (inclusive) of database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet.
+# A replay window must lie inside [first, last + 1 min); anything else is an error,
+# never a silently shorter replay.
+PARQUET_COVERAGE = (datetime(2020, 1, 1, 23, 0, tzinfo=timezone.utc),
+                    datetime(2026, 1, 30, 21, 59, tzinfo=timezone.utc))
+
+
+class CoverageError(ValueError):
+    """A replay window reaches outside the parquet's coverage."""
+
+
 class SealedDataError(RuntimeError):
     """A replay window or row reaches the sealed period."""
 
@@ -305,7 +316,11 @@ class ReplaySource:
     are published, in timestamp order. The parquet's vendor volume is not
     published.
 
-    Seal guard: a window ending after SEAL_START (or an open end) is refused
+    Coverage: the window must lie inside `coverage` (default PARQUET_COVERAGE,
+    first and last bar_ts inclusive), else CoverageError. A missing start or
+    end means the coverage bound.
+
+    Seal guard: a window ending after SEAL_START is refused
     before anything is published, and any row at or after SEAL_START stops the
     run with SealedDataError. No override.
 
@@ -318,10 +333,19 @@ class ReplaySource:
     schema_version = SCHEMA_VERSION
 
     def __init__(self, path: str, symbol: str = "XAUUSD", start=None, end=None,
-                 bars_per_s: float = 0.0, sleep=_time.sleep) -> None:
+                 bars_per_s: float = 0.0, sleep=_time.sleep,
+                 coverage: tuple = PARQUET_COVERAGE) -> None:
         self.path, self.symbol = path, symbol
-        self.start, self.end = _utc_or_none(start), _utc_or_none(end)
-        if self.end is None or self.end > SEAL_START:
+        first, last = coverage
+        self.coverage = (first, last)
+        limit = last + timedelta(seconds=BAR_S)                  # exclusive end of coverage
+        self.start = _utc_or_none(start) or first
+        self.end = _utc_or_none(end) or limit
+        if not (first <= self.start < self.end <= limit):
+            raise CoverageError(
+                f"replay window [{self.start.isoformat()}, {self.end.isoformat()}) is outside the "
+                f"parquet coverage [{first.isoformat()}, {last.isoformat()}] (bar_ts, inclusive)")
+        if self.end > SEAL_START:
             raise SealedDataError(f"replay window must end on or before {SEAL_START.isoformat()} "
                                   f"(research seal); got end={self.end}")
         self.bars_per_s, self._sleep = bars_per_s, sleep
@@ -371,4 +395,6 @@ class ReplaySource:
         self.done = True
 
     def health(self) -> dict:
-        return {"source": self.name, "done": self.done, "last_bar_ts": self.last_bar_ts, **self.stats}
+        return {"source": self.name, "done": self.done, "last_bar_ts": self.last_bar_ts,
+                "coverage": [t.isoformat() for t in self.coverage],
+                "window": [self.start.isoformat(), self.end.isoformat()], **self.stats}

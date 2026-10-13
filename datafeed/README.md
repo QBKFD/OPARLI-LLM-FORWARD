@@ -50,8 +50,14 @@ python -m datafeed.recorder &
 python -m datafeed.ingest
 ```
 
+**Coverage.** The parquet covers bar_ts **2020-01-01 23:00 to 2026-01-30 21:59
+UTC** (inclusive; `PARQUET_COVERAGE`). A replay window must lie inside it, i.e.
+`[2020-01-01 23:00, 2026-01-30 22:00)`, otherwise replay fails with
+`CoverageError` rather than replaying fewer bars. A missing start or end means
+the coverage bound. `health()` reports `coverage` and `window`.
+
 **Seal guard.** Replay refuses any window that ends after 2026-10-01 00:00 UTC
-(the research seal, see `research/SEALING.md`), or that has no end. A sealed
+(the research seal, see `research/SEALING.md`). A sealed
 row stops the run. There's no override.
 
 **Without anything** (prints JSON lines): `python -m datafeed.ingest --stdout`.

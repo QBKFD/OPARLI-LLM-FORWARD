@@ -460,12 +460,27 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     separate from research code (datafeed doesn't import research), and a test
     loads `research/sealing.py` by path and asserts it equals `GLOBAL_SEAL`.
   - **Window check.** `ReplaySource` raises `SealedDataError` at construction
-    if the window has no end or ends after `SEAL_START`. Ending exactly at the
+    if the window ends after `SEAL_START`. (Fix C later made a missing end
+    default to the coverage end.) Ending exactly at the
     seal is allowed, since the end is exclusive.
   - **Row check.** During the run, any row with `bar_ts >= SEAL_START` raises
     before it's published. It's defence in depth: the window check already
     excludes such rows.
   - **No override.**
+
+- **Fix C: parquet coverage** (owner decision, 2026-10-13).
+  - **Constant.** `PARQUET_COVERAGE` = bar_ts 2020-01-01 23:00 to 2026-01-30
+    21:59 UTC, inclusive. A test checks it against the real parquet's min/max
+    when the file is present.
+  - **Window rule.** The replay window must satisfy
+    `first <= start < end <= last + 1 min`, else `CoverageError`. That also
+    covers empty or reversed windows, and windows partly or wholly outside.
+    There's no silent short replay.
+  - **Defaults.** A missing start or end means the coverage bound, so an open
+    end is now allowed: it can't reach the seal.
+  - **Other parquet files.** `coverage=` is a parameter. Tests pass the small
+    fixture's coverage, and other files need their own.
+  - **Docs.** Coverage and window are in `health()` and the README.
 
 ## Scanner bugs to fix at switch time (new journal epoch)
 
