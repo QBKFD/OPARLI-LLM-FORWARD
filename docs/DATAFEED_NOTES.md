@@ -230,4 +230,23 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
 
 ## Decisions
 
-(none yet)
+- **Scanner image build (step 0).** Docker exists only on the production EC2
+  host, and a `compose build` there would retag the image the running scanner
+  restarts from. So no build is run. Step 8 shows instead that none of the
+  image's inputs changed.
+- **Step 1 packaging.**
+  - `requires-python = ">=3.12"`: the backend venv is 3.13.1 and the scanner
+    image is 3.12. Tested on 3.13.1 only; there's no local 3.12 interpreter.
+  - Extras: `feed` (ib_insync 0.9.86, redis 5.2.1), `dev` (pytest 9.1.1), plus
+    `replay` (pandas 2.3.3, numpy 2.2.6, pyarrow 25.0.0, tzdata 2025.3). The
+    replay source needs parquet, and the core (bus, store, query) stays
+    stdlib-only. Versions match the scanner image and backend venv. redis-py
+    wasn't installed anywhere, so 5.2.1 is new.
+  - Dev environment: `.venv/` at the repo root (gitignored), Python 3.13.1. The
+    research test deps (scipy, matplotlib, numba) are installed there by hand
+    at the backend venv's versions. They aren't package dependencies.
+  - pytest: `testpaths = ["research", "tests/datafeed"]`. `tests/datafeed`
+    sits under `tests/`, so pytest also loads the old `tests/conftest.py`
+    (adds `backend/` to `sys.path`). `tests/datafeed/conftest.py` removes it
+    again, so datafeed tests can't silently import backend code. The old tests
+    still run when named explicitly.
