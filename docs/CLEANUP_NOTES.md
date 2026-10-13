@@ -237,3 +237,32 @@ hard-codes a local TWS paper port and `clientId=2`. That's unchanged here.
   the datafeed branch: require minute-aligned `t`, or use
   `bar_ts + 1 min <= t`. The datafeed docstring's "as of t" explanation is
   only right for minute-aligned `t`.
+
+## Step 6: pytest config, survey-doc notes, README
+
+- **pytest** (`pyproject.toml`):
+  - `testpaths = ["research", "tests"]`.
+  - `norecursedirs` = pytest's defaults plus `legacy`, so legacy/ is skipped
+    even when a parent directory is collected.
+  - **Results:**
+    - Root `pytest` and `pytest .` both collect 163 tests: 80 research + 83
+      under `tests/` (76 + 7 skipped). Nothing from `legacy/`.
+    - Root `pytest`: **156 passed, 7 skipped**, the same as baseline.
+    - `pytest legacy` named explicitly reports 3 collection errors. That's
+      expected, since legacy code is not runnable (see legacy/README.md).
+  - The `pyproject.toml` comment that listed `scripts/` now lists the new
+    top-level folders.
+- **Survey docs.** `docs/REPO_MAP.md` and `docs/ARCHITECTURE_MAP.md` now start
+  with "**Describes the pre-cleanup state.**" and a pointer to this file for
+  old → new paths. Nothing else in them changed.
+- **`README.md` rewritten** (469 → 77 lines), short and for the new layout:
+  - what runs in production (scanner, `deploy/scanner/`, what it keeps and
+    doesn't);
+  - datafeed v1 (built, not deployed);
+  - research/, tools/, legacy/ (port source only);
+  - a folder | status | contents table, how to run the tests, and links to
+    the docs.
+  - The sentence about the deleted launch scripts is gone. So are the old
+    agent-pipeline, API, Postgres, deployment and status sections: they
+    described code that now lives in `legacy/`.
+  - No study verdicts are stated: each study's REPORT.md is the source.

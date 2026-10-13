@@ -1,6 +1,6 @@
 # Packaging for the root-level `datafeed` package only. Flat layout: the repo
-# root also holds backend/, research/, scripts/, deploy/ and tests/, which are
-# not part of this distribution, so package discovery is explicit.
+# root also holds backend/, research/, tools/, legacy/, deploy/ and tests/,
+# which are not part of this distribution, so package discovery is explicit.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -26,10 +26,12 @@ where = ["."]
 include = ["datafeed*"]
 
 [tool.pytest.ini_options]
-# A bare `pytest` at the root collects the research suites and the datafeed
-# tests only. The old agent tests in tests/ (outside tests/datafeed) are not
-# collected; run them explicitly with `pytest tests/test_*.py`.
-testpaths = ["research", "tests/datafeed"]
+# A bare `pytest` at the root collects research/ and tests/ only. legacy/ is
+# never collected: it is listed in norecursedirs (with pytest's own defaults),
+# so it is skipped even when a parent directory is collected.
+testpaths = ["research", "tests"]
+norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
+                 "venv", "{arch}", "legacy"]
 markers = [
     "ibkr: needs a live IBKR gateway; manual only, skipped by default",
     "redis: needs a reachable Redis server; skipped when unavailable",
