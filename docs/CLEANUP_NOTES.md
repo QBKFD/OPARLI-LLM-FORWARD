@@ -87,3 +87,17 @@ Step 7 must show the same git blob and SHA-256 for each.
 - **The old values remain in git history** and in the tag `legacy-agents-v0`.
   No history rewrite (owner decision). If that key is still valid, rotating
   it is the only real fix.
+
+## Step 2: deleted
+
+| Deleted | Lines | Why |
+|---|---:|---|
+| scripts/3-start-backend.sh | 6 | launches the undeployed agent API |
+| scripts/4-start-frontend.sh | 6 | launches the undeployed frontend |
+| scripts/start-all.sh | 42 | opens the two above in macOS Terminal windows |
+
+Nothing else references them, apart from one sentence in `README.md:345` and
+the pre-cleanup survey docs. The README isn't edited in this PR: the shorter
+cleanup prompt has no README step, and it is stale in other ways after step 4
+(it documents `backend/main.py`, `run_system.py` and `scripts/*` at their old
+paths). Listed for the PR description.
