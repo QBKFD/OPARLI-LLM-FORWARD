@@ -33,10 +33,11 @@ include = ["datafeed*", "agents*"]
 agents = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
-# A bare `pytest` at the root collects the research suites and the datafeed
-# tests only. The old agent tests in tests/ (outside tests/datafeed) are not
-# collected; run them explicitly with `pytest tests/test_*.py`.
-testpaths = ["research", "tests/datafeed"]
+# A bare `pytest` at the root collects the research suites, the datafeed tests
+# and the new agents tests only. The old agent tests in tests/ (outside
+# tests/datafeed and tests/agents) are not collected; run them explicitly with
+# `pytest tests/test_*.py`.
+testpaths = ["research", "tests/datafeed", "tests/agents"]
 markers = [
     "ibkr: needs a live IBKR gateway; manual only, skipped by default",
     "redis: needs a reachable Redis server; skipped when unavailable",

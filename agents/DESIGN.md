@@ -418,3 +418,36 @@ Every table that a model can fill has `model_id`, `prompt_hash`, `tokens_in`,
   main checkout to `database/ohlcv_data/` (gitignored, not committed). The
   research suites need scipy, matplotlib and numba, which aren't installed in
   this venv. They aren't touched by this branch and weren't run.
+
+### Step 2: schemas
+
+`agents/schemas.py` and `agents/hashing.py`, as in section 0.6, with these
+details:
+
+- **Every model:** frozen, `extra="forbid"`, NaN and infinity refused,
+  datetimes tz-aware and stored as UTC.
+- **Snapshot hash.**
+  - It's computed when the model is validated. A snapshot loaded with a hash
+    that doesn't match its content raises, so tampering or a schema drift
+    shows up when the snapshot is loaded.
+  - The validator also refuses any bar with `ts >= as_of`, a misaligned bar, a
+    wrong `complete` flag, non-increasing bars and duplicate level/event ids.
+- **Vote invariants:**
+  - abstain ⇒ direction `none`, confidence 0 and a non-empty
+    `abstain_reason`;
+  - not abstain ⇒ no `abstain_reason`.
+- **Turn:** an `error` means an empty turn (no claims, no concession).
+- **Claim:** `invalid_reason` is set exactly when `valid` is False.
+- **DebateResult:** turns must be unique and ordered by (round, bull before
+  bear). The `n_valid_*` counts must match the turns.
+- **Placeholders.** `Level` and `Event` are minimal models (id, price/ts,
+  label/title) that hold the slots in the snapshot until levels/ and the
+  calendar ingest exist.
+- **Canonical JSON** (`hashing.py`):
+  - sorted keys, compact separators;
+  - floats via repr, refusing NaN/inf;
+  - datetimes as UTC `+00:00`;
+  - tuples become lists;
+  - anything else (sets, bytes, naive datetimes, non-str keys) raises.
+- **Tests:** `tests/agents/conftest.py` takes `backend/` off `sys.path`.
+  `testpaths` gains `tests/agents`. `test_schemas.py`: 23 passed.
