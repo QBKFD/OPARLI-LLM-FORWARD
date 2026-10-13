@@ -402,6 +402,27 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     arguments compared with the step 1 placeholder. `db` defaults to
     `$DATAFEED_DB`.
 
+- **Step 6: recorder.**
+  - **Loop.** Consume a batch (up to 500, own unacked entries first), write it
+    in one transaction, `COMMIT`, then ack every entry. Consumer group
+    `recorder`; the consumer name comes from `DATAFEED_RECORDER_CONSUMER`
+    (default `recorder-1`) and must stay stable across restarts.
+  - **Crash before COMMIT.** Rollback, then redelivery, so no gap.
+  - **Crash after COMMIT, before ack.** Redelivery, and identical values are a
+    no-op, so no duplicate rows and no conflicts.
+  - **Invalid message** (missing common or bar fields, bad timestamps). It can
+    never succeed, so it's logged, counted as `rejected` and acked.
+  - **Store error.** Rollback, `errors += 1`, pause 5 s; the batch is retried
+    as pending.
+  - **Ack error** propagates (crash-only).
+  - **Health.** `last_recorded_bar_ts`; `lag_s` = now − (newest bar_ts + 60 s),
+    i.e. measured from when that bar completed; `error_count` / `last_error`;
+    counts of inserted / duplicate / conflict / rejected / batches.
+    `python -m datafeed.recorder` logs it every 60 s.
+  - **Not covered.** A message the store keeps failing on (not a validation
+    error) is retried forever and shows up only in `error_count`. No
+    dead-letter stream in v1.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,
