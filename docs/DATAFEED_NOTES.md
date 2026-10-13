@@ -361,6 +361,47 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   being tz-aware UTC (assumed; naive dates are treated as UTC), and the real
   `pendingTickersEvent` flow.
 
+- **Step 5: store keyed by `(symbol, bar_ts, kind)`** (owner decision,
+  option b, 2026-10-13).
+  - **`kind`** is `history` for `history=True` messages, and `live` otherwise.
+    Replay bars are `live` too: they stand in for the live feed locally, and
+    `source` tells them apart.
+  - **Why.** IBKR MIDPOINT history and tick-built live bars for the same minute
+    usually differ slightly. With one row per minute, every restart's 10-day
+    warm-up would log thousands of conflicts. Separate rows keep both versions
+    and make that difference measurable.
+  - **Write rule.**
+    - The same values again (OHLC + `n_ticks`; `ingest_ts` and `source` are
+      ignored) are a no-op.
+    - Different values for an existing `(symbol, bar_ts, kind)` are a real
+      conflict. The stored row is kept as first recorded, and the incoming row
+      is logged as JSON in `bar_conflicts`.
+    - `insert_bar` never commits; the caller commits, then acks (step 6).
+  - **Reads.**
+    - `bars_before(symbol, t, lookback, db=None, known_by=None)` returns one bar
+      per minute with `bar_ts` strictly `< t`, live preferred and history as
+      fallback, each row with its `kind`. `lookback` is an int (count) or a
+      timedelta (window).
+    - Optional `known_by`: also requires `ingest_ts <= known_by`, so a later
+      backfill can't leak into a simulated live view.
+    - `latest_bar_ts(symbol, kind=None)` for staleness checks.
+    - `compare_live_vs_history(symbol, start, end)` returns per-minute
+      live − history deltas (O/H/L/C) for minutes that have both, plus counts
+      and mean / mean |Δ| / max |Δ| per field.
+  - **Query plan.** Both the outer search and the live-exists subquery use the
+    primary key (checked with `EXPLAIN QUERY PLAN`). Timestamps are stored as
+    canonical `YYYY-MM-DDTHH:MM:SS+00:00` text, so string order is time order.
+    Another offset for the same instant normalises to the same key.
+  - **Storage details.**
+    - Migrations are numbered SQL in `schema.MIGRATIONS`, each applied in its
+      own transaction and recorded in `schema_version`.
+    - WAL + `synchronous=NORMAL`. Readers open `mode=ro`.
+    - The "as of t" rule and the append-only `ingest_ts`-versioned pattern for
+      later tables are documented in the `query.py` docstring.
+  - **Signature change.** `bars_before` gained `db` and `known_by` keyword
+    arguments compared with the step 1 placeholder. `db` defaults to
+    `$DATAFEED_DB`.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,
