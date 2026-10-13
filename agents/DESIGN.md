@@ -451,3 +451,42 @@ details:
   - anything else (sets, bytes, naive datetimes, non-str keys) raises.
 - **Tests:** `tests/agents/conftest.py` takes `backend/` off `sys.path`.
   `testpaths` gains `tests/agents`. `test_schemas.py`: 23 passed.
+
+### Step 3: snapshot builder
+
+`agents/snapshot.py`, `agents/resample.py`, `agents/config.py`
+(`SnapshotConfig`).
+
+- **`build_snapshot(t, cfg, db)`** returns a `Snapshot` or a
+  `Stale(as_of, newest_bar_ts, reason)`.
+  - `as_of = floor(t)`. Bars come from `bars_before(symbol, as_of, …)` only.
+  - Live mode uses kinds live/history and `known_by=t`. Replay mode uses kind
+    replay and `known_by=None`.
+  - `as_of > SEAL_START` raises `SealedError`, with no override. `SEAL_START`
+    is imported from `datafeed.ingest.xauusd_bars`, the same object datafeed
+    tests against the research seal.
+- **Fetch window alignment.** The window start is
+  `bucket_start(as_of − fetch_lookback, largest kept timeframe)`. Without it,
+  the oldest 4h bucket would be cut at the window edge but still labelled
+  complete. A test compares a 1-day and a 2-day fetch.
+- **`mode` has no default:** `live` or `replay` must be chosen explicitly.
+- **Staleness.** The age is `as_of − (newest 1m bar_ts + 1 min)`, i.e. measured
+  from when that bar completed. Stale means `age > max_staleness`; exactly 5
+  min is still fresh. No bars at all is also `Stale`, with its own reason.
+- **`prepare_snapshot(t, cfg, db, sink)`.**
+  - Fresh: it saves the snapshot to the sink and returns it. The graph's
+    snapshot node calls it before any agent node (step 4).
+  - Stale: it logs a warning (`run skipped at as_of …: <reason>`) and saves
+    nothing. The skip also gets a persistent row in `runs` (step 4/6).
+- **`known_by` is part of the hash.** In live mode it's t, so two triggers in
+  the same minute can give different hashes. That's on purpose: `known_by`
+  decides which bars are visible. In replay, the hash depends only on as_of
+  (and the config and the stored bars).
+- **Size.** The default snapshot (240 × 1m, 192 × 15m, ≤ 120 × 1h, ≤ 120 × 4h)
+  is about 69 KB of canonical JSON on the synthetic store. It builds in about
+  0.14 s.
+- **Test data.** `tests/agents/conftest.py` builds a synthetic replay store
+  through the datafeed's own path: parquet → `ReplaySource` → `InMemoryBus` →
+  `Recorder` → SQLite. That's Mon–Wed 2025-06-09..11, with the daily break and
+  ~3 % missing minutes.
+- **Tests:** `test_snapshot.py`: 20 passed (43 in tests/agents).
