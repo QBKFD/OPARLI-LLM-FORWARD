@@ -51,7 +51,8 @@ def test_replay_one_day_end_to_end(kind, tmp_path):
     Recorder(bus, schema.connect(path), STREAM, block_ms=None, sleep=lambda s: None).run(
         stop_when_idle=True)
 
-    got = bars_before("XAUUSD", end.to_pydatetime(), timedelta(days=1), db=path)
+    got = bars_before("XAUUSD", end.to_pydatetime(), timedelta(days=1), db=path, kinds=("replay",))
+    assert bars_before("XAUUSD", end.to_pydatetime(), timedelta(days=1), db=path) == []   # never a fallback
 
     df = pd.read_parquet(PARQUET, filters=[("timestamp", ">=", start), ("timestamp", "<", end)])
     df = df.sort_values("timestamp")
@@ -61,4 +62,4 @@ def test_replay_one_day_end_to_end(kind, tmp_path):
             if _valid_bar(t.to_pydatetime(), o, h, l, c)]
     assert len(want) > 1000
     assert [(r["bar_ts"], r["open"], r["high"], r["low"], r["close"]) for r in got] == want
-    assert {r["kind"] for r in got} == {"live"} and {r["source"] for r in got} == {"replay"}
+    assert {r["kind"] for r in got} == {"replay"} and {r["source"] for r in got} == {"replay"}

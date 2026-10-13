@@ -10,6 +10,9 @@ THE "AS OF t" RULE
 
     One bar per minute: the live (tick-built) bar if one exists, otherwise the
     IBKR history bar. Each result row carries `kind` so callers can see which.
+    Replay bars (kind "replay", from a parquet replay) are returned only when
+    asked for explicitly with kinds=("replay",), and are never mixed with
+    live/history or used as a fallback.
 
     Optional `known_by`: also require ingest_ts <= known_by, i.e. only bars the
     system had actually received by then. Backfilled history for an old minute
@@ -47,42 +50,59 @@ def _con(db):
     return connect(path, readonly=True), True
 
 
-def bars_before(symbol, t, lookback, db=None, known_by=None) -> list[dict]:
-    """Bars with bar_ts < t, one per minute (live preferred, history as
-    fallback), oldest first.
+DEFAULT_KINDS = ("live", "history")
 
+
+def _check_kinds(kinds) -> tuple:
+    kinds = tuple(kinds)
+    if kinds == ("replay",):
+        return kinds
+    if not kinds or "replay" in kinds or len(set(kinds)) != len(kinds) \
+            or not set(kinds) <= set(DEFAULT_KINDS):
+        raise ValueError(f"kinds must be an ordering of {DEFAULT_KINDS} or ('replay',), got {kinds}")
+    return kinds
+
+
+def bars_before(symbol, t, lookback, db=None, known_by=None, kinds=DEFAULT_KINDS) -> list[dict]:
+    """Bars with bar_ts < t, one per minute, oldest first.
+
+    kinds: preference order. Default ("live", "history"): live preferred,
+           history as fallback. ("replay",): replay bars only.
     lookback: int -> at most that many bars (the most recent ones);
               timedelta -> bars with bar_ts >= t - lookback.
     db: sqlite3.Connection or path (default $DATAFEED_DB)."""
+    kinds = _check_kinds(kinds)
     con, own = _con(db)
     try:
-        t_s = canonical(t)
         where = ["b.symbol = ?", "b.bar_ts < ?"]
-        args: list = [symbol, t_s]
-        live_known = ""
+        args: list = [symbol, canonical(t)]
+        known = ""
         if known_by is not None:
-            k = canonical(known_by)
             where.append("b.ingest_ts <= ?")
-            args.append(k)
-            live_known = "AND l.ingest_ts <= ?"
+            args.append(canonical(known_by))
+            known = "AND p.ingest_ts <= ?"
         if isinstance(lookback, timedelta):
             where.append("b.bar_ts >= ?")
             args.append(canonical(t - lookback))
-            limit, largs = "", []
-        else:
-            limit, largs = "LIMIT ?", [int(lookback)]
-        sql = f"""
-            SELECT {', '.join('b.' + c.strip() for c in COLUMNS.split(','))}
-            FROM bars b
-            WHERE {' AND '.join(where)}
-              AND (b.kind = 'live' OR NOT EXISTS (
-                     SELECT 1 FROM bars l
-                     WHERE l.symbol = b.symbol AND l.bar_ts = b.bar_ts
-                       AND l.kind = 'live' {live_known}))
-            ORDER BY b.bar_ts DESC {limit}"""
-        if known_by is not None:
-            args.append(canonical(known_by))
-        rows = con.execute(sql, args + largs).fetchall()
+        # row of kind k_i is used only if no row of a preferred kind k_0..k_(i-1) exists
+        prefs = []
+        for i, k in enumerate(kinds):
+            clause = "b.kind = ?"
+            args.append(k)
+            for better in kinds[:i]:
+                clause += (" AND NOT EXISTS (SELECT 1 FROM bars p WHERE p.symbol = b.symbol"
+                           f" AND p.bar_ts = b.bar_ts AND p.kind = ? {known})")
+                args.append(better)
+                if known_by is not None:
+                    args.append(canonical(known_by))
+            prefs.append(f"({clause})")
+        sql = (f"SELECT {', '.join('b.' + c.strip() for c in COLUMNS.split(','))} FROM bars b"
+               f" WHERE {' AND '.join(where)} AND ({' OR '.join(prefs)})"
+               " ORDER BY b.bar_ts DESC")
+        if not isinstance(lookback, timedelta):
+            sql += " LIMIT ?"
+            args.append(int(lookback))
+        rows = con.execute(sql, args).fetchall()
         return [dict(r) for r in reversed(rows)]
     finally:
         if own:

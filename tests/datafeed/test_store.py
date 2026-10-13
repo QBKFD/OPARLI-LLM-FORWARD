@@ -40,10 +40,10 @@ def write(con, msgs):
 
 def test_schema_version_and_wal(db):
     path, con = db
-    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 1
+    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 2
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con2 = schema.connect(path)                     # re-open: migrations not re-applied
-    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 1
+    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 2
     con2.close()
 
 
@@ -157,10 +157,15 @@ def test_wal_reader_while_writer_active(db):
 
 def test_query_uses_primary_key_index(db):
     _, con = db
-    plan = " ".join(r[3] for r in con.execute(
-        "EXPLAIN QUERY PLAN SELECT * FROM bars WHERE symbol=? AND bar_ts<? ORDER BY bar_ts DESC LIMIT 5",
-        ("XAUUSD", "2026")))
-    assert "PRIMARY KEY" in plan and "SCAN bars" not in plan
+    sql = []
+    con.set_trace_callback(sql.append)          # capture the SQL bars_before really runs
+    bars_before("XAUUSD", T("2026-03-02 10:00"), 5, db=con)
+    con.set_trace_callback(None)
+    q = next(x for x in sql if x.startswith("SELECT b."))
+    plan = [r[3] for r in con.execute("EXPLAIN QUERY PLAN " + q)]
+    assert any("SEARCH b USING PRIMARY KEY" in p for p in plan)
+    assert any("SEARCH p USING PRIMARY KEY" in p for p in plan)
+    assert not any(p.startswith("SCAN") for p in plan)
 
 
 def test_timestamps_canonical(db):
@@ -170,3 +175,48 @@ def test_timestamps_canonical(db):
     assert write(con, [m]) == ["duplicate"]
     with pytest.raises(ValueError):
         schema.canonical(datetime(2026, 3, 2, 10))
+
+
+def test_replay_kind_only_when_asked(db):
+    path, con = db
+    write(con, [msg("2026-03-02 10:00", 1.0, source="replay"), msg("2026-03-02 10:01", 2.0, source="replay"),
+                msg("2026-03-02 10:01", 20.0, history=True), msg("2026-03-02 10:02", 30.0)])
+    assert {r["kind"] for r in con.execute("SELECT kind FROM bars WHERE source='replay'")} == {"replay"}
+    t = T("2026-03-02 11:00")
+    default = bars_before("XAUUSD", t, 10, db=path)
+    assert [(r["bar_ts"][11:16], r["kind"]) for r in default] == [("10:01", "history"), ("10:02", "live")]
+    rep = bars_before("XAUUSD", t, 10, db=path, kinds=("replay",))
+    assert [(r["bar_ts"][11:16], r["kind"], r["open"]) for r in rep] == [("10:00", "replay", 1.0),
+                                                                         ("10:01", "replay", 2.0)]
+    assert [r["kind"] for r in bars_before("XAUUSD", t, 10, db=path, kinds=("history",))] == ["history"]
+    for bad in [("live", "replay"), ("replay", "history"), (), ("live", "live"), ("nope",)]:
+        with pytest.raises(ValueError):
+            bars_before("XAUUSD", t, 10, db=path, kinds=bad)
+
+
+def test_migration_2_moves_v1_replay_rows(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "v1.sqlite")
+    con = sqlite3.connect(path, isolation_level=None)
+    con.row_factory = sqlite3.Row
+    con.execute("PRAGMA journal_mode=WAL")
+    real = schema.MIGRATIONS
+    try:
+        schema.MIGRATIONS = real[:1]                       # a store created by v1
+        schema.migrate(con)
+    finally:
+        schema.MIGRATIONS = real
+    con.execute("BEGIN")
+    v1_rows = [msg("2026-03-02 10:00", 1.0, source="replay"), msg("2026-03-02 10:00", 2.0, history=True),
+               msg("2026-03-02 10:01", 3.0)]
+    for m in v1_rows:                                    # v1 stored replay as 'live'
+        con.execute("INSERT INTO bars VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (m["symbol"], schema.canonical(m["bar_ts"]), "history" if m["history"] else "live",
+                     m["open"], m["high"], m["low"], m["close"], m["n_ticks"], m["source"],
+                     1, schema.canonical(m["ingest_ts"]), "2026-03-02T12:00:00+00:00"))
+    con.execute("COMMIT")
+    assert schema.migrate(con) == 2
+    got = {(r["bar_ts"][11:16], r["kind"], r["source"]) for r in con.execute("SELECT * FROM bars")}
+    assert got == {("10:00", "replay", "replay"), ("10:00", "history", "ibkr"), ("10:01", "live", "ibkr")}
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute("INSERT INTO bars VALUES ('X','t','bogus',1,1,1,1,NULL,'s',1,'t','t')")

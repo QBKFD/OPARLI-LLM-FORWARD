@@ -442,6 +442,19 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - `datafeed/README.md`: full usage, env table, message schema, store tables,
     the "as of t" rule, and planned modules.
 
+- **Fix A: kind `replay`** (owner decision, 2026-10-13). Before this, v1
+  stored replay bars as `kind='live'`, so vendor parquet bars could stand in
+  for real tick-built bars.
+  - **Migration 0002** rebuilds `bars` with
+    `CHECK (kind IN ('live','history','replay'))` and moves rows with
+    `source='replay'` to `kind='replay'`.
+  - **`kind_of`:** `source == "replay"` maps to `replay`.
+  - **Reads.** `bars_before(..., kinds=("live","history"))` is the default.
+    `kinds=("replay",)` returns replay bars only. Any mix with replay raises
+    `ValueError`, so replay is never a fallback.
+  - **Index test.** It now checks the plan of the SQL `bars_before` actually
+    runs (captured with a trace callback), not a stand-in query.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,

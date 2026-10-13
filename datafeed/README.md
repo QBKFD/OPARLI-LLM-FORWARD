@@ -105,7 +105,8 @@ All timestamps are ISO-8601 UTC with `+00:00`.
 
 SQLite in WAL mode. Migrations are numbered in `datafeed/store/schema.py`.
 
-- **`bars`**: primary key `(symbol, bar_ts, kind)`, kind `live` or `history`.
+- **`bars`**: primary key `(symbol, bar_ts, kind)`, kind `live`, `history` or
+  `replay` (bars from a parquet replay).
   - Columns: OHLC, `n_ticks`, `source`, `schema_version`, `ingest_ts`,
     `recorded_ts`.
   - Writing the same values again is a no-op.
@@ -117,10 +118,13 @@ SQLite in WAL mode. Migrations are numbered in `datafeed/store/schema.py`.
 
 ## The "as of t" rule
 
-`bars_before(symbol, t, lookback, db=None, known_by=None)` returns bars with
+`bars_before(symbol, t, lookback, db=None, known_by=None, kinds=("live", "history"))` returns bars with
 `bar_ts` **strictly before t**: the minute that opens at t is never included.
 - **One bar per minute.** The live bar if there is one, otherwise the history
   bar. Each row says which (`kind`).
+- **Replay bars only on request.** They're returned only with
+  `kinds=("replay",)`, never mixed with live or history and never used as a
+  fallback.
 - **`lookback`** is a bar count or a `timedelta` window.
 - **`known_by`** additionally requires `ingest_ts <= known_by`. Use it to
   simulate what a live process could have seen, so later backfills stay

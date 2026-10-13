@@ -8,10 +8,11 @@
   so string order is time order.
 
 bars
-    One row per (symbol, bar_ts, kind), kind in {live, history}:
-      live     tick-built bars from the live feed (and replay bars, which
-               stand in for the live feed in local runs; `source` tells them apart)
+    One row per (symbol, bar_ts, kind), kind in {live, history, replay}:
+      live     tick-built bars from the live feed
       history  IBKR history warm-up bars (published with history=True)
+      replay   bars replayed from a parquet file (source="replay"); never mixed
+               with the other two by readers (see query.py)
     Live and history bars for the same minute are separate rows. They usually
     differ slightly (tick midpoints vs IBKR MIDPOINT bars), and neither is
     allowed to overwrite the other. Readers choose (see query.py).
@@ -34,7 +35,7 @@ from datafeed.ingest.base import parse_utc
 
 log = logging.getLogger(__name__)
 
-KINDS = ("live", "history")
+KINDS = ("live", "history", "replay")
 VALUE_FIELDS = ("open", "high", "low", "close", "n_ticks")
 
 MIGRATIONS: list[tuple[int, str]] = [
@@ -65,6 +66,32 @@ MIGRATIONS: list[tuple[int, str]] = [
         detected_ts     TEXT    NOT NULL
     );
     CREATE INDEX bar_conflicts_key ON bar_conflicts (symbol, bar_ts);
+    """),
+    (2, """
+    -- add kind 'replay' (SQLite can't alter a CHECK: rebuild the table) and
+    -- move rows recorded from the replay source, stored as 'live' by v1, to it
+    CREATE TABLE bars_v2 (
+        symbol          TEXT    NOT NULL,
+        bar_ts          TEXT    NOT NULL,
+        kind            TEXT    NOT NULL CHECK (kind IN ('live', 'history', 'replay')),
+        open            REAL    NOT NULL,
+        high            REAL    NOT NULL,
+        low             REAL    NOT NULL,
+        close           REAL    NOT NULL,
+        n_ticks         INTEGER,
+        source          TEXT    NOT NULL,
+        schema_version  INTEGER NOT NULL,
+        ingest_ts       TEXT    NOT NULL,
+        recorded_ts     TEXT    NOT NULL,
+        PRIMARY KEY (symbol, bar_ts, kind)
+    ) WITHOUT ROWID;
+    INSERT INTO bars_v2
+        SELECT symbol, bar_ts,
+               CASE WHEN source = 'replay' THEN 'replay' ELSE kind END,
+               open, high, low, close, n_ticks, source, schema_version, ingest_ts, recorded_ts
+        FROM bars;
+    DROP TABLE bars;
+    ALTER TABLE bars_v2 RENAME TO bars;
     """),
 ]
 
@@ -125,6 +152,8 @@ def connect(path: str, *, readonly: bool = False) -> sqlite3.Connection:
 
 
 def kind_of(msg: dict) -> str:
+    if msg.get("source") == "replay":
+        return "replay"
     return "history" if msg.get("history") else "live"
 
 
