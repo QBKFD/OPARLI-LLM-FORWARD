@@ -423,6 +423,25 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     error) is retried forever and shows up only in `error_count`. No
     dead-letter stream in v1.
 
+- **Step 7: local run.**
+  - **Files.** `deploy/datafeed/docker-compose.yml` (header: "Not deployed.
+    Local testing only.") with redis (7.4.1-alpine, healthchecked), feed
+    (replay of 2025-06-11 by default) and recorder (`on-failure`), and a
+    `datafeed_store` volume. The parquet is mounted read-only. There's also a
+    new `deploy/datafeed/Dockerfile` (python:3.12-slim, `.[feed,replay]`): the
+    compose services need an image, and this is the only file outside the
+    planned list. `redis://redis:6379/0` in the compose file is the compose
+    service name, not a host.
+  - **Not run: Docker isn't available on this Mac.** The compose file was
+    checked only by parsing it (services feed, recorder, redis).
+  - **End-to-end test** `tests/datafeed/test_end_to_end.py`: one day of
+    parquet (2025-06-11) → `ReplaySource` → bus → `Recorder` → store →
+    `bars_before` equals the parquet rows after `_valid_bar` (exact float
+    equality, >1,000 bars). It runs over `InMemoryBus` (passes) and over
+    Redis when `REDIS_TEST_URL` is set (skipped here: no Redis).
+  - `datafeed/README.md`: full usage, env table, message schema, store tables,
+    the "as of t" rule, and planned modules.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,

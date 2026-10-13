@@ -1,0 +1,59 @@
+# Not deployed. Local testing only.
+#
+# redis + feed (replay mode by default) + recorder, sharing a volume for the
+# SQLite store. Nothing here connects to any IBKR gateway unless you set
+# DATAFEED_SOURCE=ibkr and IB_* yourself, and then only to a LOCAL PAPER
+# gateway. Never point it at the production gateway.
+#
+#   docker compose -f deploy/datafeed/docker-compose.yml up --build
+#   (run from the repo root; the parquet is mounted read-only from
+#    database/ohlcv_data/)
+
+services:
+  redis:
+    image: redis:7.4.1-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+
+  feed:
+    build:
+      context: ../..
+      dockerfile: deploy/datafeed/Dockerfile
+    command: ["python", "-m", "datafeed.ingest"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATAFEED_SOURCE: ${DATAFEED_SOURCE:-replay}
+      DATAFEED_REPLAY_PARQUET: /parquet/XAUUSD_1min_UTC_clean.parquet
+      DATAFEED_REPLAY_START: ${DATAFEED_REPLAY_START:-2025-06-11}
+      DATAFEED_REPLAY_END: ${DATAFEED_REPLAY_END:-2025-06-12}
+      DATAFEED_REPLAY_BARS_PER_S: ${DATAFEED_REPLAY_BARS_PER_S:-0}
+      IB_HOST: ${IB_HOST:-}
+      IB_PORT: ${IB_PORT:-}
+      IB_CLIENT_ID: ${IB_CLIENT_ID:-}
+    volumes:
+      - ../../database/ohlcv_data:/parquet:ro
+    restart: "no"          # replay ends; for DATAFEED_SOURCE=ibkr use on-failure (crash-only)
+
+  recorder:
+    build:
+      context: ../..
+      dockerfile: deploy/datafeed/Dockerfile
+    command: ["python", "-m", "datafeed.recorder"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATAFEED_DB: /data/datafeed.sqlite
+      DATAFEED_RECORDER_CONSUMER: recorder-1
+    volumes:
+      - datafeed_store:/data
+    restart: on-failure
+
+volumes:
+  datafeed_store:
