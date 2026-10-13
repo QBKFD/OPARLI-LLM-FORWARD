@@ -1,7 +1,12 @@
-# Agents skeleton: notes
+# Agents skeleton: design
 
-Working notes for the `feat/agents-skeleton` branch (from `feat/datafeed-v1` @
+Design notes for the `feat/agents-skeleton` branch (from `feat/datafeed-v1` @
 c3d25fb). Step 0 is the proposal below. Later steps append their decisions.
+
+**Overnight run (2026-10-14).** The owner asked for steps 1–7 to run without a
+"go" between them, following this proposal. Q1–Q4 (end of section 0) are
+applied as the proposed defaults and are still open for the owner to confirm.
+A question that blocks a step goes at the top of this file.
 
 Scope: a LangGraph skeleton under a new top-level `agents/`. Shadow decisions
 only, no broker, no LLM calls, no API keys. It reads no code from `backend/` or
