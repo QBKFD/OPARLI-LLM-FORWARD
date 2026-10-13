@@ -127,3 +127,61 @@ paths). Listed for the PR description.
   computation that changed location. Step 4 re-runs every suite with
   `regime_classifier/` gone from the root, which proves nothing still loads
   from there.
+
+## Step 4: moved with `git mv` (history kept)
+
+197 files renamed. Rename detection keeps their history: `git log --follow`.
+
+| From | To | Files |
+|---|---|---:|
+| backend/ (all except the 3 production files) | legacy/backend_v0/ (same sub-paths: agents/, config/ incl. news_events.py, core/, database/, middleware/, routes/, services/, static/, main.py, run_system.py, live_trading.py, requirements.txt) | 69 |
+| frontend/ | legacy/frontend/ | 85 |
+| regime_classifier/ | legacy/regime_classifier/ | 8 |
+| notebooks/ | legacy/notebooks/ | 3 |
+| tests/conftest.py, tests/test_meta_renormalization.py, tests/test_pipeline_integration.py | legacy/tests_agents/ | 3 |
+| scripts/ (everything left after step 2, except the one below) | legacy/scripts/ (same sub-paths: backfill/, no_go_strategies/) | 24 |
+| scripts/backfill/fetch_data_xauusd.py | tools/data/fetch_data_xauusd.py | 1 |
+| database/schema.sql | legacy/database/schema.sql | 1 |
+| scraper_fxfac/ | tools/scraper_fxfac/ | 3 |
+
+**Still at the old location:**
+- `backend/` now holds exactly the 3 production files.
+- `tests/` holds `tests/datafeed/`, untouched.
+- `database/historical_news/DATA_NOTES_events.md` stays: it's calendar
+  timezone provenance, not Postgres material.
+- `deploy/scanner/`, `datafeed/`, `research/`, `docs/` are unchanged.
+
+**Cleanup of what the moves left behind.** The vacated directories held only
+empty folders and ignored `__pycache__` files: no untracked files, no `.env`.
+The empty folders and the stale caches in `regime_classifier/` and `tests/`
+were removed, so no empty `regime_classifier/` directory stays importable as a
+namespace package.
+
+**Edits:** none to legacy code. One non-legacy edit: the usage line in
+`tools/data/fetch_data_xauusd.py` now says `python tools/data/fetch_data_xauusd.py`.
+Its data path (`../../database/snapshots/...`, relative to the file) still
+resolves to the repo root, at the same depth as before. Note that this script
+hard-codes a local TWS paper port and `clientId=2`. That's unchanged here.
+
+**Checks after the move:**
+
+| Check | Result |
+|---|---|
+| Scanner `--selftest` | ALL PASSED, output byte-identical to baseline |
+| Research suites | 11 / 8 / 4 / 9 / 7 / 5 / 14 / 9 / 11 + sealing 2 = **80 passed** (baseline 80), now with no `regime_classifier/` at the root |
+| `existing_features()` reference (step 3) | still exactly identical |
+| tests/datafeed | 76 passed, 7 skipped (baseline 76 / 7) |
+| Imports of `legacy` from outside `legacy/` | none (grep) |
+| Code outside `legacy/` naming a moved path | only comments/docstrings: `pyproject.toml` comment, two comments in `backend/deterministic_scanner.py` (production, not edited), research docstrings and PREREG/DECISIONS records (historical, not edited) |
+
+**Known consequences, by design:**
+- **Old agent tests can't run where they are.** `legacy/tests_agents/conftest.py`
+  still points at `<repo>/backend`, so those tests won't run from their new
+  location. Legacy code isn't edited, and step 6 keeps `legacy/` out of
+  pytest.
+- **`tests/datafeed/conftest.py` is now a no-op.** It removes `backend/` from
+  `sys.path`, which the old `tests/conftest.py` used to add. It's harmless,
+  and untouched per the rules.
+- **The README still documents the old layout:** `backend/main.py`,
+  `run_system.py`, `scripts/*` and `scripts/start-all.sh`. For the PR
+  description.
