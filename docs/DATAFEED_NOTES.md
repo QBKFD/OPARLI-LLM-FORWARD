@@ -316,6 +316,51 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
 - **The builder returns unfiltered bars.** Applying `_valid_bar` before publish
   is wired in step 4.
 
+- **Step 4: sources.**
+  - **Layout.** `ingest/ibkr.py` holds only the connection (`IbkrConfig`,
+    `IbkrConnection`, `crash`). Both sources (`IbkrXauusdSource`,
+    `ReplaySource`) live in `ingest/xauusd_bars.py`, as the target layout says.
+  - **One connection.** History is loaded on the same connection as the quote
+    stream. The scanner instead opens a second short-lived client
+    (clientId + 10).
+  - **Config.** `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` are all required, with no
+    defaults. No other port variable or port number appears in `ibkr.py`
+    (a test checks this).
+  - **Crash-only, same as the scanner.** Connect failure, history failure or a
+    lost connection: back off 20 s, then `SystemExit(1)`.
+  - **Live loop.** `ib.sleep(LOOP_S=0.25)`, then `builder.advance(now)`, so a
+    bar closes within ~0.25 s after its grace deadline.
+  - **Warm-up.** History bars are trimmed at the forming minute (#7) and
+    published with `history=True`.
+  - **`n_ticks` is `null`** for history and replay bars: neither has tick
+    counts. Live bars carry the event count (#5).
+  - **Validity filter.** Only bars passing `_valid_bar` are published, in all
+    three paths. Rejected bars are counted in `invalid_bars`.
+  - **Replay.** Bars are published in timestamp order, optionally inside
+    `[START, END)`, at `BARS_PER_S` (0 = unthrottled). Vendor volume is not
+    published.
+  - **Entry point.** `python -m datafeed.ingest [--stdout]`;
+    `DATAFEED_SOURCE=replay` is the default. `--stdout` prints JSON lines
+    instead of publishing to Redis.
+- **Open question for step 5 (store conflicts on every restart).** Each
+  restart republishes 10 days of IBKR MIDPOINT history. Those minutes are
+  already in the store as *live tick-built* bars, and the two usually differ
+  slightly. So by your conflict rule, every restart would log thousands of
+  `bar_conflicts` rows. Options:
+  - (a) the recorder skips `history=True` bars whose minute already exists
+    (log only real conflicts between two live bars, or between two history
+    bars);
+  - (b) store history and live bars as separate rows keyed by
+    `(symbol, bar_ts, kind)`;
+  - (c) keep the rule as written and accept the volume.
+
+  I'd pick (a). It needs your decision before step 5.
+- **Not tested here.** A real gateway. The manual test
+  `test_live_paper_gateway_manual` runs only with `DATAFEED_IBKR_LIVE=1` and a
+  local paper gateway. Two things are untested: IBKR's `formatDate=2` dates
+  being tz-aware UTC (assumed; naive dates are treated as UTC), and the real
+  `pendingTickersEvent` flow.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,

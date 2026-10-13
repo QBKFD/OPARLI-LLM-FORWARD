@@ -26,21 +26,31 @@ produce no bar; n_ticks counts quote-update events, including ones where the
 midpoint didn't change (#5, documented, not a price-change count). No partial
 (is_final=False) bars are produced (#6).
 
+Sources (both publish bar messages to STREAM, see bar_message):
+  IbkrXauusdSource  live: history warm-up (history=True), then tick-built bars
+  ReplaySource      parquet replay for local runs without IBKR
+
 Volume: none. Live CMDTY XAUUSD carries no usable volume (0 in the old bars),
 so bar messages have no volume field rather than an invented one.
 """
 
 from __future__ import annotations
 
+import logging
+import os
+import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from datafeed.ingest.base import make_message
+from datafeed.ingest.base import Publish, make_message
+
+log = logging.getLogger(__name__)
 
 STREAM = "bars.xauusd.1m"
 SCHEMA_VERSION = 1
 BAR_S = 60
+LOOP_S = 0.25            # live event-loop slice; the bar timer (advance) runs this often
 GRACE_S = 2.0            # bar closes at minute end + GRACE_S; later ticks for it are late
 
 _NY = ZoneInfo("America/New_York")
@@ -93,7 +103,7 @@ class Bar:
     high: float
     low: float
     close: float
-    n_ticks: int
+    n_ticks: int | None     # None for history/replay bars (no tick count)
 
     def ohlc(self):
         return (self.bar_ts, self.open, self.high, self.low, self.close)
@@ -193,3 +203,152 @@ def bar_message(bar: Bar, *, source: str, history: bool,
         payload=dict(bar_ts=bar.bar_ts.astimezone(timezone.utc).isoformat(),
                      open=bar.open, high=bar.high, low=bar.low, close=bar.close,
                      n_ticks=bar.n_ticks, history=history))
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class IbkrXauusdSource:
+    """Live source on the one IBKR connection (datafeed.ingest.ibkr).
+
+    1. connect; failure -> crash-only exit
+    2. 10-day MIDPOINT history, trimmed at the forming minute (#7), published
+       with history=True (warm-up, never live)
+    3. stream quotes -> BarBuilder; the loop runs advance() every LOOP_S (#3)
+    4. connection lost -> crash-only exit
+    Only bars passing _valid_bar are published; the rest are counted."""
+
+    name = "ibkr"
+    stream = STREAM
+    schema_version = SCHEMA_VERSION
+
+    def __init__(self, conn, clock=_utcnow, sleep=_time.sleep, max_loops: int | None = None) -> None:
+        self.conn, self.clock, self._sleep, self.max_loops = conn, clock, sleep, max_loops
+        self.builder = BarBuilder(conn.symbol)
+        self.stats = dict(history_bars=0, live_bars=0, invalid_bars=0)
+        self.last_bar_ts: str | None = None
+        self._publish: Publish | None = None
+
+    def _emit(self, bars, history: bool) -> None:
+        for bar in bars:
+            if not _valid_bar(*bar.ohlc()):
+                self.stats["invalid_bars"] += 1
+                continue
+            self._publish(bar_message(bar, source=self.name, history=history, ingest_ts=self.clock()))
+            self.stats["history_bars" if history else "live_bars"] += 1
+            self.last_bar_ts = bar.bar_ts.isoformat()
+
+    def on_tickers(self, tickers) -> None:
+        now = self.clock()
+        bars = []
+        for t in tickers:
+            if getattr(t, "contract", None) is None or t.contract.conId != self.conn.contract.conId:
+                continue
+            bars += self.builder.on_tick(now, t.time, t.bid, t.ask, t.close)
+        self._emit(bars, history=False)
+
+    def run(self, publish: Publish) -> None:
+        from datafeed.ingest.ibkr import crash
+        self._publish = publish
+        try:
+            self.conn.connect()
+        except Exception as e:
+            crash(f"could not connect to gateway ({e!r})", self._sleep)
+        try:
+            hist = self.conn.history()
+        except Exception as e:
+            self.conn.disconnect()
+            crash(f"history load failed ({e!r})", self._sleep)
+        self._emit(trim_history(hist, self.clock()), history=True)
+        self.conn.subscribe(self.on_tickers)
+        log.info("ibkr: %d history bars published, streaming %s",
+                 self.stats["history_bars"], self.conn.symbol)
+        loops = 0
+        while self.max_loops is None or loops < self.max_loops:
+            loops += 1
+            if not self.conn.connected():
+                self.conn.disconnect()
+                crash("gateway connection lost", self._sleep)
+            self.conn.sleep(LOOP_S)
+            self._emit(self.builder.advance(self.clock()), history=False)
+
+    def health(self) -> dict:
+        connected = self.conn.contract is not None and self.conn.connected()
+        return {"source": self.name, "connected": connected, "last_bar_ts": self.last_bar_ts,
+                **self.stats, **self.builder.health()}
+
+
+def _utc_or_none(s):
+    if not s:
+        return None
+    ts = datetime.fromisoformat(s) if isinstance(s, str) else s
+    return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+
+
+class ReplaySource:
+    """Historical 1-min bars from parquet, for local runs without IBKR.
+
+    Same message schema as the live source: source="replay", history=False,
+    n_ticks=None (no tick counts in the parquet). Only rows passing _valid_bar
+    are published, in timestamp order. The parquet's vendor volume is not
+    published.
+
+    Env: DATAFEED_REPLAY_PARQUET (required), DATAFEED_REPLAY_START (inclusive),
+    DATAFEED_REPLAY_END (exclusive), DATAFEED_REPLAY_BARS_PER_S (0 = as fast
+    as possible, the default). Dates are UTC."""
+
+    name = "replay"
+    stream = STREAM
+    schema_version = SCHEMA_VERSION
+
+    def __init__(self, path: str, symbol: str = "XAUUSD", start=None, end=None,
+                 bars_per_s: float = 0.0, sleep=_time.sleep) -> None:
+        self.path, self.symbol = path, symbol
+        self.start, self.end = _utc_or_none(start), _utc_or_none(end)
+        self.bars_per_s, self._sleep = bars_per_s, sleep
+        self.stats = dict(rows=0, published=0, invalid_bars=0)
+        self.last_bar_ts: str | None = None
+        self.done = False
+
+    @classmethod
+    def from_env(cls, env=os.environ) -> "ReplaySource":
+        path = env.get("DATAFEED_REPLAY_PARQUET")
+        if not path:
+            raise RuntimeError("set DATAFEED_REPLAY_PARQUET")
+        return cls(path, start=env.get("DATAFEED_REPLAY_START"), end=env.get("DATAFEED_REPLAY_END"),
+                   bars_per_s=float(env.get("DATAFEED_REPLAY_BARS_PER_S") or 0))
+
+    def rows(self):
+        """(bar_ts, o, h, l, c) in timestamp order, inside [start, end)."""
+        import pandas as pd
+        filters = []
+        if self.start is not None:
+            filters.append(("timestamp", ">=", pd.Timestamp(self.start)))
+        if self.end is not None:
+            filters.append(("timestamp", "<", pd.Timestamp(self.end)))
+        df = pd.read_parquet(self.path, columns=["timestamp", "open", "high", "low", "close"],
+                             filters=filters or None)
+        ts = pd.DatetimeIndex(df["timestamp"])
+        ts = ts.tz_localize("UTC") if ts.tz is None else ts.tz_convert("UTC")
+        df = df.assign(timestamp=ts).sort_values("timestamp", kind="stable")
+        for t, o, h, l, c in df.itertuples(index=False, name=None):
+            yield t.to_pydatetime(), float(o), float(h), float(l), float(c)
+
+    def run(self, publish: Publish) -> None:
+        gap = 1.0 / self.bars_per_s if self.bars_per_s > 0 else 0.0
+        for ts, o, h, l, c in self.rows():
+            self.stats["rows"] += 1
+            if not _valid_bar(ts, o, h, l, c):
+                self.stats["invalid_bars"] += 1
+                continue
+            publish(bar_message(Bar(self.symbol, ts, o, h, l, c, None),
+                                source=self.name, history=False))
+            self.stats["published"] += 1
+            self.last_bar_ts = ts.isoformat()
+            if gap:
+                self._sleep(gap)
+        self.done = True
+
+    def health(self) -> dict:
+        return {"source": self.name, "done": self.done, "last_bar_ts": self.last_bar_ts, **self.stats}
