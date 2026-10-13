@@ -71,3 +71,19 @@ Step 7 must show the same git blob and SHA-256 for each.
   the hard-coded server address and key path with env vars, but the old
   values stay in git history and in the `legacy-agents-v0` tag. Owner
   decision: no history rewrite.
+
+## Step 1: secrets hygiene in scripts/deploy.sh
+
+- **What changed.** The hard-coded SSH key path and `user@address` are
+  replaced by required env vars `DEPLOY_KEY` and `DEPLOY_HOST`. The script
+  stops with a clear message if either is unset (`${VAR:?...}`). Nothing else
+  changed. `bash -n` passes.
+- **Rest of the repo.** A repo-wide grep finds no other real address or key
+  path: the remaining `~/.ssh/id_rsa` strings are generic defaults in
+  `.env.example`, `scripts/connect.sh` and
+  `scripts/backfill/export_backtest_data.py`.
+- **`.env.example` not touched**, per the owner's no-`.env`-changes rule.
+  `deploy.sh` moves to `legacy/` in step 4.
+- **The old values remain in git history** and in the tag `legacy-agents-v0`.
+  No history rewrite (owner decision). If that key is still valid, rotating
+  it is the only real fix.
