@@ -279,6 +279,17 @@ class IbkrXauusdSource:
                 **self.stats, **self.builder.health()}
 
 
+# Research data seal (research/SEALING.md): nothing at or after this instant may
+# be replayed. A separate constant on purpose (datafeed must not import research
+# code); tests/datafeed/test_sources.py asserts it equals research/sealing.py's
+# GLOBAL_SEAL. No override.
+SEAL_START = datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+class SealedDataError(RuntimeError):
+    """A replay window or row reaches the sealed period."""
+
+
 def _utc_or_none(s):
     if not s:
         return None
@@ -294,6 +305,10 @@ class ReplaySource:
     are published, in timestamp order. The parquet's vendor volume is not
     published.
 
+    Seal guard: a window ending after SEAL_START (or an open end) is refused
+    before anything is published, and any row at or after SEAL_START stops the
+    run with SealedDataError. No override.
+
     Env: DATAFEED_REPLAY_PARQUET (required), DATAFEED_REPLAY_START (inclusive),
     DATAFEED_REPLAY_END (exclusive), DATAFEED_REPLAY_BARS_PER_S (0 = as fast
     as possible, the default). Dates are UTC."""
@@ -306,6 +321,9 @@ class ReplaySource:
                  bars_per_s: float = 0.0, sleep=_time.sleep) -> None:
         self.path, self.symbol = path, symbol
         self.start, self.end = _utc_or_none(start), _utc_or_none(end)
+        if self.end is None or self.end > SEAL_START:
+            raise SealedDataError(f"replay window must end on or before {SEAL_START.isoformat()} "
+                                  f"(research seal); got end={self.end}")
         self.bars_per_s, self._sleep = bars_per_s, sleep
         self.stats = dict(rows=0, published=0, invalid_bars=0)
         self.last_bar_ts: str | None = None
@@ -339,6 +357,8 @@ class ReplaySource:
         gap = 1.0 / self.bars_per_s if self.bars_per_s > 0 else 0.0
         for ts, o, h, l, c in self.rows():
             self.stats["rows"] += 1
+            if ts >= SEAL_START:
+                raise SealedDataError(f"row {ts.isoformat()} is in the sealed period")
             if not _valid_bar(ts, o, h, l, c):
                 self.stats["invalid_bars"] += 1
                 continue

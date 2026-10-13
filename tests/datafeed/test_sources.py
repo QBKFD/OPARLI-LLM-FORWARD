@@ -182,7 +182,7 @@ def small_parquet(tmp_path):
 
 def test_replay_publishes_valid_bars_in_order(small_parquet):
     out = []
-    src = xb.ReplaySource(str(small_parquet))
+    src = xb.ReplaySource(str(small_parquet), end="2026-03-03")
     src.run(out.append)
     for m in out:
         validate_message(m)
@@ -215,7 +215,8 @@ def test_replay_real_parquet_one_day():
 
 
 def test_entry_point_stdout(small_parquet):
-    env = {**os.environ, "DATAFEED_SOURCE": "replay", "DATAFEED_REPLAY_PARQUET": str(small_parquet)}
+    env = {**os.environ, "DATAFEED_SOURCE": "replay", "DATAFEED_REPLAY_PARQUET": str(small_parquet),
+           "DATAFEED_REPLAY_END": "2026-03-03"}
     env.pop("REDIS_URL", None)
     r = subprocess.run([sys.executable, "-m", "datafeed.ingest", "--stdout"], env=env,
                        capture_output=True, text=True, cwd=ROOT / "tests")
@@ -240,3 +241,32 @@ def test_live_paper_gateway_manual():
     src.run(out.append)
     assert any(m["history"] for m in out)
     print(json.dumps(src.health(), indent=1))
+
+
+# ── seal guard ──────────────────────────────────────────────────────────────
+def test_seal_constant_equals_research_seal():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_research_sealing", ROOT / "research/sealing.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert pd.Timestamp(xb.SEAL_START) == mod.GLOBAL_SEAL
+
+
+@pytest.mark.parametrize("end", [None, "2026-10-01 00:00:01", "2027-01-01"])
+def test_replay_window_into_seal_refused(small_parquet, end):
+    with pytest.raises(xb.SealedDataError):
+        xb.ReplaySource(str(small_parquet), start="2026-03-02", end=end)
+
+
+def test_replay_window_ending_at_seal_allowed(small_parquet):
+    xb.ReplaySource(str(small_parquet), start="2026-03-02", end="2026-10-01")
+
+
+def test_replay_sealed_row_stops_run(small_parquet, monkeypatch):
+    src = xb.ReplaySource(str(small_parquet), end="2026-10-01")
+    rows = [(T("2026-09-30 23:59"), 1.0, 2.0, 0.5, 1.5), (T("2026-10-01 00:00"), 1.0, 2.0, 0.5, 1.5)]
+    monkeypatch.setattr(src, "rows", lambda: iter(rows))
+    out = []
+    with pytest.raises(xb.SealedDataError):
+        src.run(out.append)
+    assert len(out) == 1

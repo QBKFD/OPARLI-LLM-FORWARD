@@ -50,6 +50,10 @@ python -m datafeed.recorder &
 python -m datafeed.ingest
 ```
 
+**Seal guard.** Replay refuses any window that ends after 2026-10-01 00:00 UTC
+(the research seal, see `research/SEALING.md`), or that has no end. A sealed
+row stops the run. There's no override.
+
 **Without anything** (prints JSON lines): `python -m datafeed.ingest --stdout`.
 
 **Live IBKR**: set `DATAFEED_SOURCE=ibkr` plus `IB_HOST`, `IB_PORT` and

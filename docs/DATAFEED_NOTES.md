@@ -455,6 +455,18 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Index test.** It now checks the plan of the SQL `bars_before` actually
     runs (captured with a trace callback), not a stand-in query.
 
+- **Fix B: seal guard on replay** (owner decision, 2026-10-13).
+  - **Constant.** `xauusd_bars.SEAL_START` = 2026-10-01 00:00 UTC. It's
+    separate from research code (datafeed doesn't import research), and a test
+    loads `research/sealing.py` by path and asserts it equals `GLOBAL_SEAL`.
+  - **Window check.** `ReplaySource` raises `SealedDataError` at construction
+    if the window has no end or ends after `SEAL_START`. Ending exactly at the
+    seal is allowed, since the end is exclusive.
+  - **Row check.** During the run, any row with `bar_ts >= SEAL_START` raises
+    before it's published. It's defence in depth: the window check already
+    excludes such rows.
+  - **No override.**
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,
