@@ -18,6 +18,13 @@ unit test in --selftest), which keeps the replay and live paths identical.
 
 Replay:   python backend/deterministic_scanner.py --date 2025-06-16
 Self-test: python backend/deterministic_scanner.py --selftest
+Live:     python backend/deterministic_scanner.py --live | --dry-live
+
+Live bar source: SCANNER_BAR_SOURCE=ibkr (default) | stream.
+  ibkr    this process's own IBKR connection (run_live). Unchanged; it is the
+          rollback.
+  stream  the datafeed stream bars.xauusd.1m via datafeed.bus, consumer group
+          "scanner" (run_live_stream). Needs REDIS_URL.
 """
 from __future__ import annotations
 
@@ -671,6 +678,179 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
         print("\nstopping."); tws.disconnect()
 
 
+# ── Stream bar source (SCANNER_BAR_SOURCE=stream) ──────────────────────────
+# Bars come from the datafeed stream instead of this process's own IBKR
+# connection. Level engine, journal and Telegram are the same code as run_live;
+# only where the bars come from changes. run_live above is left as it was: it is
+# the rollback (SCANNER_BAR_SOURCE=ibkr). datafeed is imported lazily, so the
+# ibkr path doesn't need the package installed.
+BAR_SOURCES = ("ibkr", "stream")
+STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
+STREAM_BATCH = 500               # entries per consume call
+STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
+
+
+def bar_source(env=os.environ) -> str:
+    """SCANNER_BAR_SOURCE, default ibkr. Anything else is a startup error, never a guess."""
+    s = env.get("SCANNER_BAR_SOURCE", "ibkr")
+    if s not in BAR_SOURCES:
+        raise SystemExit(f"SCANNER_BAR_SOURCE={s!r}: must be one of {', '.join(BAR_SOURCES)}")
+    return s
+
+
+class StreamFeed:
+    """bars.xauusd.1m entries -> LiveLevels.on_bar, one consume batch per step().
+
+    An entry is acked only after it has been handled: its bar fed to the level
+    engine and any alerts it produced passed to on_alert (journaled and sent).
+    A crash before the ack means the entry is redelivered to the same consumer
+    name on restart (datafeed.bus: own pending entries first)."""
+
+    def __init__(self, bus, stream: str, consumer: str, live, on_alert, *, lock=None,
+                 last_bar_ts=None, count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS):
+        import contextlib
+        self.bus, self.stream, self.consumer = bus, stream, consumer
+        self.live, self.on_alert = live, on_alert
+        self.lock = lock or contextlib.nullcontext()
+        self.count, self.block_ms = count, block_ms
+        self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
+        self.stats = dict(entries=0, live_bars=0, history_skipped=0, invalid_bars=0,
+                          not_newer=0, alerts=0)
+
+    def step(self) -> int:
+        batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
+                                 count=self.count, block_ms=self.block_ms)
+        for d in batch:
+            self._handle(d.msg)
+            self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
+            self.stats["entries"] += 1
+        return len(batch)
+
+    def _handle(self, msg: dict) -> None:
+        if msg.get("history"):                # IBKR history warm-up of the feed, never live
+            self.stats["history_skipped"] += 1
+            return
+        ts = _utc(msg["bar_ts"])
+        o, h, l, c = (float(msg[k]) for k in ("open", "high", "low", "close"))
+        if not _valid_bar(ts, o, h, l, c):
+            self.stats["invalid_bars"] += 1
+            return
+        if self.last_bar_ts is not None and ts <= self.last_bar_ts:
+            self.stats["not_newer"] += 1      # the level engine only moves forward
+            return
+        with self.lock:
+            alerts = self.live.on_bar(ts, o, h, l, c)
+            self.last_bar_ts = ts
+            self.stats["live_bars"] += 1
+            for a in alerts:
+                self.on_alert(a)
+                self.stats["alerts"] += 1
+
+
+def _handle_reply(con, lock, tg, text: str):
+    """One Telegram reply -> decision row (same handling as run_live's loop)."""
+    r = parse_reply(text)
+    if not r:
+        return
+    with lock:
+        row = con.execute("SELECT alert_ts_utc FROM alerts WHERE alert_id=?",
+                          (r["alert_id"],)).fetchone()
+        if not row:
+            _send_quietly(tg, f"unknown alert_id {r['alert_id']}")
+            return
+        record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
+                        row[0], r.get("direction"), r.get("entry"), r.get("stop"),
+                        r.get("target"), r.get("reasoning"))
+        _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
+
+
+def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
+    """Live path fed by the datafeed stream. Same journal, Telegram, replies and
+    sweeps as run_live; dry=True prints alerts instead of sending them.
+
+    Crash-only like run_live: a failing bus (Redis down) backs off and exits so
+    Docker restarts a clean cold start."""
+    import threading
+    import time as _time
+    from datafeed.bus import RedisStreamBus
+    from datafeed.ingest.xauusd_bars import STREAM
+
+    host = env.get("IB_HOST", "127.0.0.1")
+    port = int(env.get("IB_PORT", "7497"))
+    client_id = int(env.get("IB_CLIENT_ID", "11"))
+    consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
+
+    tg = None if dry else Telegram()
+    con = open_log(check_same_thread=False)
+    lock = threading.Lock()
+
+    try:
+        hist = _load_recent_history(symbol, days=10, host=host, port=port, client_id=client_id + 10)
+    except Exception as e:
+        print(f"history load failed ({e!r}); backing off then exiting for restart", flush=True)
+        _time.sleep(RECONNECT_BACKOFF_S)
+        raise SystemExit(1)
+    hist = hist[[_valid_bar(*r) for r in hist.itertuples(name=None)]]
+    live = LiveLevels(hist, pd.Timestamp.now(tz="UTC"))
+
+    def on_alert(a):
+        insert_alert(con, a); con.commit()
+        if dry:
+            print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
+        else:
+            try:
+                tg.send(format_alert(a))
+            except Exception as e:  # a send failure must not stop the feed
+                print(f"telegram send failed for {a['alert_id']}: {e}")
+
+    feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, on_alert,
+                      lock=lock, last_bar_ts=hist.index.max() if len(hist) else None)
+    fatal: list[BaseException] = []
+
+    def pump():
+        try:
+            while True:
+                feed.step()
+        except Exception as e:
+            fatal.append(e)
+
+    threading.Thread(target=pump, name="stream-feed", daemon=True).start()
+    active = sum(1 for L in build_levels(live.hist)
+                 if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
+    mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
+    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {STREAM_GROUP}, consumer "
+          f"{consumer}), {active} levels active. Ctrl-C to stop.", flush=True)
+
+    offset = 0
+    last_sweep = 0.0
+    try:
+        while True:
+            if fatal:
+                print(f"stream feed failed ({fatal[0]!r}); backing off then exiting for restart",
+                      flush=True)
+                _time.sleep(RECONNECT_BACKOFF_S)
+                raise SystemExit(1)
+            if dry:
+                _time.sleep(2)
+                continue
+            try:
+                msgs, offset = tg.poll(offset)
+            except Exception as e:
+                print(f"telegram poll failed ({e!r}); retrying", flush=True)
+                _time.sleep(5)
+                msgs = []
+            for text in msgs:
+                _handle_reply(con, lock, tg, text)
+            if _time.time() - last_sweep > 300:      # every 5 min
+                with lock:
+                    now = pd.Timestamp.now(tz="UTC")
+                    sweep_auto_missed(con, now)
+                    sweep_counterfactuals(con, live.hist.sort_index(), now)
+                last_sweep = _time.time()
+    except KeyboardInterrupt:
+        print("\nstopping.")
+
+
 # ── Self-test: no look-ahead + first-touch dedup (from the notebook) ────────
 def selftest():
     df = load_data()
@@ -807,15 +987,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="UTC day to replay, e.g. 2025-06-16")
     ap.add_argument("--db", default=None, help="write alerts+counterfactuals to this sqlite file")
-    ap.add_argument("--live", action="store_true", help="run live on IBKR + Telegram (needs TWS + env creds)")
-    ap.add_argument("--dry-live", action="store_true", help="run live on IBKR but print alerts to terminal (no Telegram)")
+    ap.add_argument("--live", action="store_true", help="run live + Telegram; bars from SCANNER_BAR_SOURCE (ibkr: needs TWS; stream: needs REDIS_URL)")
+    ap.add_argument("--dry-live", action="store_true", help="run live but print alerts to terminal (no Telegram)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
     if args.selftest:
         raise SystemExit(0 if selftest() else 1)
     if args.live or args.dry_live:
-        run_live(dry=args.dry_live)
+        if bar_source() == "stream":
+            run_live_stream(dry=args.dry_live)
+        else:
+            run_live(dry=args.dry_live)
         return
     if not args.date:
         ap.error("give --date YYYY-MM-DD, --live, --dry-live, or --selftest")
