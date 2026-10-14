@@ -227,6 +227,7 @@ class LiveLevels:
     def __init__(self, hist: pd.DataFrame, now):
         self.hist = hist
         self.filled: set = set()        # minutes added from history bars (fill)
+        self.history_touches: list = []  # rebuild-derived alerts dated on filled minutes
         # what the first warm-up pass derived but didn't emit: AlertSink.startup
         # journals the part of it that fell into a downtime
         self.warmup_alerts = self._rebuild(now)
@@ -256,6 +257,8 @@ class LiveLevels:
         warm = []
         for ts, o, h, l, c in self.hist[self.hist.index < now].itertuples(name=None):
             warm += self.scanner.on_bar(ts, o, h, l, c)
+        if self.filled:     # touches only history bars made: the caller journals them
+            self.history_touches += [a for a in warm if _utc(a["alert_ts_utc"]) in self.filled]
         return warm
 
     def on_bar(self, ts, o, h, l, c) -> list[dict]:
@@ -301,6 +304,8 @@ class AlertSink:
                   (alert_ts <= warm_end): a touch made while down, in a bucket
                   that closes after the restart.
     An alert already in the journal (same id, time and types) is not repeated.
+    missed_history() journals a touch made only on history bars (stream mode,
+    LiveLevels.fill) as 'missed_history': never sent either.
     progress() records the newest live bar, which is the next start's down_from."""
 
     def __init__(self, con, epoch: int, bar_source: str, send, *, down_from=None,
@@ -308,7 +313,7 @@ class AlertSink:
         self.con, self.epoch, self.bar_source, self.send, self.log = con, epoch, bar_source, send, log
         self.down_from = None if down_from is None else _utc(down_from)
         self.warm_end = None if warm_end is None else _utc(warm_end)
-        self.stats = dict(sent=0, missed_while_down=0, duplicate=0)
+        self.stats = dict(sent=0, missed_while_down=0, missed_history=0, duplicate=0)
 
     def _known(self, a, any_epoch: bool) -> bool:
         sql = "SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=?"
@@ -346,6 +351,25 @@ class AlertSink:
         self.log(f"missed while down (journaled, not sent): {a['alert_id']} {a['alert_ts_utc']} "
                  f"{a['level_types']} @ {a['level_price']}", flush=True)
         return "missed_while_down"
+
+    def missed_history(self, a) -> str:
+        """A level touched only on history bars. Every rebuild over the filled bars
+        derives the touch again, possibly under another id, so it is known by
+        its touch (time, types, price) within this epoch, not by its id."""
+        if self.con.execute("SELECT 1 FROM alerts WHERE alert_ts_utc=? AND level_types=? AND "
+                            "level_price=? AND epoch=?", (a["alert_ts_utc"], a["level_types"],
+                                                          a["level_price"], self.epoch)).fetchone():
+            self.stats["duplicate"] += 1
+            return "duplicate"
+        a = self._free_id(a)
+        insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source,
+                     status="missed_history")
+        self.con.commit()
+        self.stats["missed_history"] += 1
+        self.log(f"touch on history bars only (journaled as missed_history, not sent): "
+                 f"{a['alert_id']} {a['alert_ts_utc']} {a['level_types']} @ {a['level_price']}",
+                 flush=True)
+        return "missed_history"
 
     def startup(self, warmup_alerts) -> int:
         if self.down_from is None:
@@ -417,7 +441,7 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
 # use (alert_id, epoch).
 JOURNAL_VERSION = 3              # PRAGMA user_version: 1 epoch columns, 2 source_switches,
                                  # 3 alert status + scanner_state
-ALERT_STATUSES = ("sent", "missed_while_down")
+ALERT_STATUSES = ("sent", "missed_while_down", "missed_history")
 PRE_MIGRATION_EPOCH = 1          # rows written before the epoch columns existed
 
 
@@ -448,8 +472,8 @@ def _migrate_journal(con) -> None:
       2  source_switches(switch_ts_utc, from_source, to_source, epoch). A
          journal that already has alerts gets one row for its current state
          (from_source NULL, the newest alert's bar_source and epoch).
-      3  alerts.status ('sent' for every existing row; 'missed_while_down', see
-         AlertSink) and scanner_state(key, value, updated_ts_utc), which holds
+      3  alerts.status ('sent' for every existing row; 'missed_while_down' and
+         'missed_history', see AlertSink) and scanner_state(key, value, updated_ts_utc), which holds
          last_live_bar_ts, the newest bar any live scanner processed.
     Code from before step 1 can't write to a migrated journal (its INSERTs are
     positional), so roll back by switching SCANNER_BAR_SOURCE, not by an older
@@ -1129,9 +1153,10 @@ class StreamFeed:
       out_of_order     older than the newest bar seen but not seen itself; dropped,
                        because the level engine only moves forward
       live_bars        newer than everything seen: drives on_bar
-    Only live_bars reach the Scanner. An alert whose time is a history-filled
-    minute (its touch came from a history bar) is suppressed, never sent or
-    journaled (history_touch_suppressed). A live bar that skips market-open
+    Only live_bars reach the Scanner. A touch made only on history bars never
+    alerts; it goes to on_history (AlertSink.missed_history: journaled as
+    'missed_history'), whether a live bar flushes it (history_touch_suppressed)
+    or a rebuild over the filled bars derives it (LiveLevels.history_touches). A live bar that skips market-open
     minutes is also logged as a gap (minutes without ticks produce no bar, so
     short gaps are normal in quiet markets).
 
@@ -1145,7 +1170,7 @@ class StreamFeed:
                  last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
                  count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print,
                  staleness: StreamStaleness | None = None, clock=lambda: pd.Timestamp.now(tz="UTC"),
-                 progress=None):
+                 progress=None, on_history=None):
         import contextlib
         self.bus, self.stream, self.consumer = bus, stream, consumer
         self.live, self.on_alert = live, on_alert
@@ -1153,6 +1178,7 @@ class StreamFeed:
         self.sources, self.symbol = tuple(sources), symbol
         self.count, self.block_ms, self.log = count, block_ms, log
         self.staleness, self.clock, self.progress = staleness, clock, progress
+        self.on_history = on_history
         self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
         self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
         hist = getattr(live, "hist", None)
@@ -1178,6 +1204,7 @@ class StreamFeed:
         if self.stats["history_filled"] > filled_before and self.last_bar_ts is not None:
             with self.lock:                     # one rebuild per batch, not per fill
                 self.live.refresh(self.last_bar_ts + pd.Timedelta(minutes=1))
+                self._history_touches()
         if self.staleness:
             self.staleness.check(self.clock(), self.last_bar_ts)
         other = {k: n for k, n in seen.items() if k != "live_bars"}
@@ -1226,18 +1253,31 @@ class StreamFeed:
                          f"between {last} and {ts}", flush=True)
             alerts = self.live.on_bar(ts, *ohlc)
             self.last_bar_ts = ts
+            self._history_touches()             # a natural rebuild may have derived some
             filled = getattr(self.live, "filled", ())
             for a in alerts:
                 if filled and _utc(a["alert_ts_utc"]) in filled:
                     self.stats["history_touch_suppressed"] += 1
-                    self.log(f"stream: {a['alert_id']} {a['alert_ts_utc']} {a['level_types']} is a "
-                             f"touch on a history bar; never alerted", flush=True)
+                    self._history_touch(a)
                     continue
                 self.on_alert(a)
                 self.stats["alerts"] += 1
             if self.progress:
                 self.progress(ts)               # after its alerts are journaled
         return "live_bars"
+
+    def _history_touch(self, a) -> None:
+        if self.on_history:
+            self.on_history(a)
+        else:
+            self.log(f"stream: {a['alert_id']} {a['alert_ts_utc']} {a['level_types']} is a touch "
+                     f"on history bars only; never alerted", flush=True)
+
+    def _history_touches(self) -> None:
+        """Hand over the touches the last rebuilds derived from filled minutes."""
+        touches = getattr(self.live, "history_touches", None)
+        while touches:
+            self._history_touch(touches.pop(0))
 
     def _history(self, ts, ohlc) -> str:
         """A history bar: fills a minute without a bar, inside the warm-up window."""
@@ -1341,6 +1381,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
 
     feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, sink,
                       lock=lock, last_bar_ts=warm_end, progress=sink.progress,
+                      on_history=sink.missed_history,
                       staleness=StreamStaleness(notify, started=now))
     fatal: list[BaseException] = []
 

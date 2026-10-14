@@ -58,8 +58,10 @@ Any other value stops the scanner at startup with an error. `--date` and
      - `live_bars`: only these reach the level engine.
    - A live bar that skips market-open minutes is logged as a gap. That's a gap
      in live coverage, logged even when history later fills those minutes.
-   - An alert dated on a history-filled minute is suppressed
-     (`history_touch_suppressed`): never sent, never journaled.
+   - A touch made only on history bars is never sent. It is journaled as
+     `missed_history` (5e), however it surfaces: flushed by a live bar
+     (`history_touch_suppressed`), or derived by a rebuild over the filled bars
+     (`LiveLevels.history_touches`).
    - An entry is acked only after its alerts are journaled and sent.
    - Alerts go through `AlertSink` (both bar sources, 5d):
      - journaled once, so a bar redelivered after a crash doesn't resend its
@@ -220,12 +222,13 @@ Tunables are named constants in the scanner: `WARMUP_DAYS`,
   2. `source_switches(switch_ts_utc, from_source, to_source, epoch)`. A journal
      that already has alerts gets one row for its state at migration time:
      `(now, NULL, 'ibkr', 1)` for the production journal.
-  3. `alerts.status`: `'sent'` for every existing row, or
-     `'missed_while_down'`. Also
+  3. `alerts.status`: `'sent'` for every existing row, `'missed_while_down'`
+     or `'missed_history'`. Also
      `scanner_state(key, value, updated_ts_utc)`, holding `last_live_bar_ts`:
      the newest bar any live scanner processed, written after each live bar's
      alerts.
-- **Alert status.** A `missed_while_down` alert was never shown to the human.
+- **Alert status.** A `missed_while_down` or `missed_history` alert was never
+  shown to the human.
   - It gets counterfactuals.
   - It never gets an auto-MISSED decision.
   - A Telegram reply can't decide it ("unknown alert_id").
@@ -355,9 +358,17 @@ pins this. So:
   - **Rebuild.** After a batch with fills, the levels and first-touch state are
     rebuilt once from all bars before the newest live bar. A level touched only
     on a history bar is consumed silently, like a touch during warm-up.
-  - **Suppression.** An alert dated on a history-filled minute is suppressed.
-    That catches a touch from a history bar in a bucket that closes on a live
-    bar.
+  - **Journaled as `missed_history`** (owner decision 2026-10-14), like
+    `missed_while_down`: with epoch, never sent, never decidable,
+    counterfactuals computed. There are two paths:
+    - an alert dated on a filled minute that a live bar flushes;
+    - a touch a rebuild over the filled bars derives: the refresh after the
+      fills, and every later midnight or session-close rebuild.
+    Every rebuild derives the same touch again, possibly under another id, so
+    a `missed_history` row is identified by its touch (time, types, price)
+    within the epoch.
+    `test_three_rebuilds_give_exactly_one_missed_history_row` covers both
+    paths: each touch is handed over at least 3 times and journaled once.
   - **Ids.** A rebuild over fills can renumber a day's alerts, so `AlertSink`
     never reuses an id within an epoch: a taken id gets the day's next free
     number, which is logged.
@@ -437,9 +448,9 @@ pins this. So:
   Redis tests 6 passed, 1 skipped (the manual IBKR test); selftest ALL PASSED.
 - **This branch, after all owner decisions (2026-10-14):**
   - Selftest: ALL PASSED, 13 cases.
-  - Full pytest with `REDIS_TEST_URL=redis://localhost:6379/15`: 532 passed,
+  - Full pytest with `REDIS_TEST_URL=redis://localhost:6379/15`: 537 passed,
     1 skipped (the manual IBKR test), 0 failed.
-  - Without `REDIS_TEST_URL` (as the baseline): 496 passed, 37 skipped (Redis cases), 0 failed. All 393
+  - Without `REDIS_TEST_URL` (as the baseline): 501 passed, 37 skipped (Redis cases), 0 failed. All 393
     baseline tests pass.
   - Datafeed Redis tests: 6 passed, 1 skipped.
 - **Smoke test** (`--dry-live`, stream mode, local Redis, synthetic store):

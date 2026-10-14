@@ -84,7 +84,7 @@ PARQUET = Path(ds.PARQUET)
 @pytest.mark.skipif(not PARQUET.exists(), reason="historical parquet not present (untracked)")
 @pytest.mark.parametrize("kind", BUSES)
 @pytest.mark.parametrize("split", ["00:31", "00:25"])
-def test_history_bars_never_trigger_an_alert(kind, split):
+def test_history_bars_never_trigger_an_alert(kind, split, tmp_path):
     """2025-06-16: the bars from 00:00 to before `split` come only as history (as
     after a feed restart), and they hold the day's first touches (00:06
     DOPEN,WOPEN, 00:14 PDH, 00:24 PWH). Live bars follow until 08:00 (across the
@@ -92,7 +92,11 @@ def test_history_bars_never_trigger_an_alert(kind, split):
     still count for the levels (DOPEN is the 00:00 open, ASIA_H/L include
     them) and consume first touches, so everything else equals a continuous
     replay. split 00:25: the 00:24 touch is in the 00:15 bucket that the first
-    live bars close, so it reaches the suppression check."""
+    live bars close, so it reaches the suppression check.
+
+    The three touches are journaled as 'missed_history' (epoch 2), once each,
+    although the refresh after the fills and the 07:00 rebuild both derive
+    them; the rest is journaled as 'sent'."""
     df = ds.load_data()
     d = T("2025-06-16")
     win = df[(df.index >= ds.warmup_start(d)) & (df.index < T("2025-06-16 08:00"))]
@@ -101,7 +105,11 @@ def test_history_bars_never_trigger_an_alert(kind, split):
     live_bars = win[win.index >= cut]
     live = ds.LiveLevels(win[win.index < d].copy(), d)
     bus, sent = make_bus(kind), []
-    f = _feed(bus, live, on_alert=sent.append, sources=("replay",), last_bar_ts=win.index[win.index < d].max())
+    con = ds.open_log(tmp_path / "j.sqlite")
+    warm_end = win.index[win.index < d].max()
+    sink = ds.AlertSink(con, 2, "stream", sent.append, warm_end=warm_end, log=Log())
+    f = _feed(bus, live, on_alert=sink, sources=("replay",), last_bar_ts=warm_end,
+              on_history=sink.missed_history)
     for t, o, h, l, c in hist_bars.itertuples(name=None):
         bus.publish(STREAM, bar_msg(t.strftime("%Y-%m-%dT%H:%M:%S"), o, h, l, c, history=True,
                                     source="replay"))
@@ -131,6 +139,13 @@ def test_history_bars_never_trigger_an_alert(kind, split):
     gone = [a["alert_ts_utc"][11:16] + " " + a["level_types"] for a in cont
             if a["alert_ts_utc"] < cut_s]
     assert gone == ["00:06 DOPEN,WOPEN", "00:14 PDH", "00:24 PWH"]
+    rows = con.execute("SELECT alert_ts_utc, level_types, status, epoch, bar_source FROM alerts "
+                       "WHERE status = 'missed_history' ORDER BY alert_ts_utc").fetchall()
+    assert [(r[0][11:16] + " " + r[1]) for r in rows] == gone            # once each
+    assert {r[2:] for r in rows} == {("missed_history", 2, "stream")}
+    assert sink.stats["duplicate"] >= 3                                   # the 07:00 rebuild re-derived them
+    assert {r[0] for r in con.execute("SELECT status FROM alerts WHERE status != 'missed_history'")} \
+        == {"sent"}
 
 
 def test_an_alert_id_is_never_reused_in_an_epoch(tmp_path):
@@ -152,3 +167,98 @@ def test_an_alert_id_is_never_reused_in_an_epoch(tmp_path):
     ds.insert_alert(con, a1, epoch=3, bar_source="ibkr")                 # other epoch: free
     assert sorted(r[0] for r in con.execute("SELECT alert_id FROM alerts WHERE epoch = 2")) == \
         ["A20250616-001", "A20250616-002", "A20250616-003"]
+
+
+def _touch(id, ts, types="PDH", price=3400.0):
+    return dict(alert_id=id, alert_ts_utc=ts, level_types=types, level_price=price,
+                price_at_alert=price, session="ASIA", confluence_count=1)
+
+
+def test_missed_history_is_known_by_its_touch_not_its_id(tmp_path):
+    con = ds.open_log(tmp_path / "j.sqlite")
+    sent = []
+    sink = ds.AlertSink(con, 2, "stream", sent.append, log=Log())
+    assert sink.missed_history(_touch("A20250616-001", "2025-06-16 00:06:00")) == "missed_history"
+    # a later rebuild derives the same touch under another id
+    assert sink.missed_history(_touch("A20250616-004", "2025-06-16 00:06:00")) == "duplicate"
+    assert sink.missed_history(_touch("A20250616-002", "2025-06-16 00:14:00", "PDL")) == "missed_history"
+    assert sent == []
+    assert con.execute("SELECT alert_id, status, epoch FROM alerts ORDER BY rowid").fetchall() == \
+        [("A20250616-001", "missed_history", 2), ("A20250616-002", "missed_history", 2)]
+    sink3 = ds.AlertSink(con, 3, "stream", sent.append, log=Log())     # another epoch: its own record
+    assert sink3.missed_history(_touch("A20250616-001", "2025-06-16 00:06:00")) == "missed_history"
+
+
+def test_missed_history_is_never_decidable_but_gets_counterfactuals(tmp_path):
+    import threading
+    con = ds.open_log(tmp_path / "j.sqlite", check_same_thread=False)
+    sink = ds.AlertSink(con, 2, "stream", lambda a: None, warm_end=T("2025-06-16 00:00"), log=Log())
+    sink.missed_history(_touch("A20250616-001", "2025-06-16 00:06:00"))
+    sink(_touch("A20250616-002", "2025-06-16 01:30:00", "PDL"))         # a sent one
+    assert ds.undecided_alerts(con) == [("A20250616-002", "2025-06-16 01:30:00", 2)]
+    assert ds.sweep_auto_missed(con, T("2025-06-16 08:00")) == 1        # only the sent one
+    assert con.execute("SELECT alert_id FROM decisions").fetchall() == [("A20250616-002",)]
+    df = pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5, "close": 1.0},
+                      index=pd.date_range("2025-06-16", periods=600, freq="1min", tz="UTC"))
+    assert ds.sweep_counterfactuals(con, df, T("2025-06-16 08:00")) == 2
+    tg = type("Tg", (), {"sent": [], "send": lambda self, t: self.sent.append(t)})()
+    ds._handle_reply(con, threading.Lock(), tg, "A20250616-001 TAKE long 1 sl 0 tp 2 x", 2)
+    assert tg.sent == ["unknown alert_id A20250616-001"]
+
+
+def test_stream_path_wires_missed_history():
+    import inspect
+    assert "on_history=sink.missed_history" in inspect.getsource(ds.run_live_stream)
+
+
+@pytest.mark.skipif(not PARQUET.exists(), reason="historical parquet not present (untracked)")
+@pytest.mark.parametrize("split, path", [("00:31", "rebuild"), ("00:25", "live flush")])
+def test_three_rebuilds_give_exactly_one_missed_history_row(split, path, tmp_path):
+    """Both paths, then three more rebuilds. The history-only touches reach the
+    sink through the refresh after the fills (and, for split 00:25, the 00:24
+    touch through a live bucket flush). Later the natural rebuilds at 00:31 or
+    00:25 (first live bar), 07:00 and 12:00 derive them again under possibly
+    other ids. Each touch is still exactly one missed_history row."""
+    df = ds.load_data()
+    d = T("2025-06-16")
+    win = df[(df.index >= ds.warmup_start(d)) & (df.index < T("2025-06-16 12:30"))]
+    cut = T(f"2025-06-16 {split}")
+    live = ds.LiveLevels(win[win.index < d].copy(), d)
+    rebuilds = []
+    real = live._rebuild
+
+    def counting(now):
+        rebuilds.append(now)
+        return real(now)
+
+    live._rebuild = counting
+    con = ds.open_log(tmp_path / "j.sqlite")
+    warm_end = win.index[win.index < d].max()
+    seen = []
+    sink = ds.AlertSink(con, 2, "stream", lambda a: None, warm_end=warm_end, log=Log())
+
+    def on_history(a):
+        seen.append(a["alert_ts_utc"][11:16])
+        return sink.missed_history(a)
+
+    bus = make_bus("memory")
+    f = _feed(bus, live, on_alert=sink, sources=("replay",), last_bar_ts=warm_end,
+              on_history=on_history)
+    for t, o, h, l, c in win[(win.index >= d) & (win.index < cut)].itertuples(name=None):
+        bus.publish(STREAM, bar_msg(t.strftime("%Y-%m-%dT%H:%M:%S"), o, h, l, c, history=True,
+                                    source="replay"))
+    for t, o, h, l, c in win[win.index >= cut].itertuples(name=None):
+        bus.publish(STREAM, bar_msg(t.strftime("%Y-%m-%dT%H:%M:%S"), o, h, l, c, source="replay"))
+    while f.step():
+        pass
+    after_fill = [r for r in rebuilds if r >= cut - pd.Timedelta(minutes=1)]
+    assert len(after_fill) >= 4                  # refresh + first live bar + 07:00 + 12:00
+    assert {r.strftime("%H:%M") for r in after_fill} >= {"07:00", "12:00"}
+    assert f.stats["history_touch_suppressed"] == (1 if path == "live flush" else 0)
+    rows = con.execute("SELECT alert_ts_utc, level_types, COUNT(*) FROM alerts "
+                       "WHERE status = 'missed_history' GROUP BY alert_ts_utc, level_types "
+                       "ORDER BY alert_ts_utc").fetchall()
+    assert [(r[0][11:16], r[1], r[2]) for r in rows] == [
+        ("00:06", "DOPEN,WOPEN", 1), ("00:14", "PDH", 1), ("00:24", "PWH", 1)]
+    for t in ("00:06", "00:14", "00:24"):
+        assert seen.count(t) >= 3                # handed over again and again, journaled once
