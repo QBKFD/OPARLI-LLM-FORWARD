@@ -48,3 +48,26 @@ run.
    bars before t. Rows whose 21-day slice gives no valid state are skipped and
    counted. The random selection is seeded (20261014); it chooses which rows are
    checked and doesn't touch any result.
+
+## Overnight run (2026-10-15, unattended; rule: the conservative choice, logged here)
+
+9. **"The post-hoc checks" were not defined.** The repository (all branches),
+   the notes and the earlier session logs were searched, with no definition
+   found. Two checks were defined in POSTHOC.md and committed before either was
+   run:
+   - P1: a frozen model on a later era;
+   - P2: parquet calibration, which also picks the default fit.
+   They gate the datafeed change. The alternative, building nothing, was
+   rejected because it leaves the gate the instruction asked for untested.
+   Not building is still the outcome if either check fails.
+
+10. **The parquet fit uses pre-2024 rows only.** It trains from 2021-01-01, as
+    the study's DEV folds did. The parquet's 2024-01..2026-01 rows are spent
+    and were not read, which is the reading that keeps every data rule of the
+    study.
+
+11. **Tie-break for the default fit.** It goes to LONG (`XAUUSD.txt`
+    2007–2023), the fit the study validated walk-forward.
+
+12. **Local `main` is behind `origin/main`** (9042270 vs 05fe838). `main` is
+    not touched; the new branches start from `origin/main`.
