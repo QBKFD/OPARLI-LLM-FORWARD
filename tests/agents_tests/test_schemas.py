@@ -122,12 +122,13 @@ def test_snapshot_refuses_bar_at_or_after_as_of():
 
 def test_snapshot_checks_complete_flag_and_alignment():
     one = _bars_1m()
-    partial = Bar(ts=datetime(2025, 6, 11, 12, tzinfo=UTC), open=1.0, high=2.0, low=0.5, close=1.5, n_1m=150,
-                  complete=True)                                      # 12:00 + 4h > 14:30: partial
+    # 4h buckets open at NY 17/21/01/05/09/13: 13:00 UTC is 09:00 EDT, a bucket open
+    partial = Bar(ts=datetime(2025, 6, 11, 13, tzinfo=UTC), open=1.0, high=2.0, low=0.5, close=1.5, n_1m=90,
+                  complete=True)                                      # 13:00 + 4h > 14:30: partial
     with pytest.raises(ValidationError, match="complete"):
         _snap(bars={"1m": one, "4h": (partial,)})
-    misaligned = Bar(ts=datetime(2025, 6, 11, 13, tzinfo=UTC), open=1.0, high=2.0, low=0.5, close=1.5,
-                     complete=False)
+    misaligned = Bar(ts=datetime(2025, 6, 11, 12, tzinfo=UTC), open=1.0, high=2.0, low=0.5, close=1.5,
+                     complete=False)                                  # 12:00 UTC = 08:00 EDT: not an anchor
     with pytest.raises(ValidationError, match="aligned"):
         _snap(bars={"1m": one, "4h": (misaligned,)})
 

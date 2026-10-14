@@ -11,7 +11,7 @@ from datafeed.store.query import bars_before
 from agents import snapshot as snapmod
 from agents.config import SnapshotConfig
 from agents.resample import resample
-from agents.schemas import Bar, tf_delta
+from agents.schemas import Bar, bucket_end
 from agents.snapshot import SealedError, Stale, build_snapshot, floor_minute, prepare_snapshot
 from agents_testkit import make_replay_db
 
@@ -40,7 +40,8 @@ def test_resample_ohlc_gaps_and_partial():
     assert [(b.ts.strftime("%H:%M"), b.open, b.high, b.low, b.close, b.n_1m, b.complete) for b in q] == [
         ("12:45", 1, 3, 0.5, 2, 2, True), ("13:00", 2, 4, 1.8, 3.9, 2, True), ("13:15", 3.9, 4.1, 3.0, 3.1, 1, False)]
     h4 = resample(one, "4h", as_of)
-    assert [(b.ts.hour, b.n_1m, b.complete) for b in h4] == [(12, 5, False)]       # 4h buckets on the UTC epoch
+    # 4h buckets open at NY 05:00 / 09:00 EDT = 09:00 / 13:00 UTC in June
+    assert [(b.ts.hour, b.n_1m, b.complete) for b in h4] == [(9, 2, True), (13, 3, False)]
     with pytest.raises(ValueError):
         resample(one, "15m", _t("2025-06-11 13:15"))                                 # a bar at as_of
 
@@ -56,7 +57,7 @@ def test_snapshot_never_contains_a_bar_at_or_after_t(replay_db, t):
     assert snap.as_of == floor_minute(t) <= t
     for tf, b in _all_bars(snap):
         assert b.ts < snap.as_of <= t, (tf, b.ts)
-        assert b.complete == (b.ts + tf_delta(tf) <= snap.as_of)
+        assert b.complete == (bucket_end(b.ts, tf) <= snap.as_of)
 
 
 def test_forming_minute_is_excluded(replay_db):
@@ -72,11 +73,12 @@ def test_partial_buckets_use_only_bars_before_as_of(replay_db):
     snap = build_snapshot(T, CFG, replay_db)
     last_close = snap.bars["1m"][-1].close
     # as_of 14:30: the 15m bucket 14:15-14:30 has just completed; 1h and 4h are still forming
+    # (4h opened at 13:00 UTC = 09:00 EDT)
     assert [(snap.bars[tf][-1].ts.strftime("%H:%M"), snap.bars[tf][-1].complete) for tf in ("15m", "1h", "4h")] \
-        == [("14:15", True), ("14:00", False), ("12:00", False)]
+        == [("14:15", True), ("14:00", False), ("13:00", False)]
     assert all(snap.bars[tf][-1].close == last_close for tf in ("15m", "1h", "4h"))
-    # the 4h bucket 12:00-16:00 has at most the 150 minutes 12:00..14:29 in it
-    assert snap.bars["4h"][-1].ts == _t("2025-06-11 12:00") and snap.bars["4h"][-1].n_1m <= 150
+    # the 4h bucket 13:00-17:00 UTC has at most the 90 minutes 13:00..14:29 in it
+    assert snap.bars["4h"][-1].ts == _t("2025-06-11 13:00") and snap.bars["4h"][-1].n_1m <= 90
 
 
 def test_kept_counts(replay_db):
@@ -88,12 +90,13 @@ def test_kept_counts(replay_db):
 
 def test_fetch_window_is_aligned_to_largest_timeframe(replay_db):
     # Keep everything: the oldest 4h bucket of a 1-day fetch must equal the same
-    # bucket inside a 2-day fetch (not cut at as_of - 1 day = 14:30).
+    # bucket inside a 2-day fetch (not cut at as_of - 1 day = 14:30; its bucket
+    # opened at 13:00 UTC = 09:00 EDT).
     keep = {"1m": 10_000, "4h": 1_000}
     one = build_snapshot(T, SnapshotConfig(mode="replay", fetch_lookback=timedelta(days=1), keep=keep), replay_db)
     two = build_snapshot(T, SnapshotConfig(mode="replay", fetch_lookback=timedelta(days=2), keep=keep), replay_db)
     first = one.bars["4h"][0]
-    assert first.ts == _t("2025-06-10 12:00")
+    assert first.ts == _t("2025-06-10 13:00")
     assert first == next(b for b in two.bars["4h"] if b.ts == first.ts)
     assert one.bars["4h"] == two.bars["4h"][-len(one.bars["4h"]):]
 

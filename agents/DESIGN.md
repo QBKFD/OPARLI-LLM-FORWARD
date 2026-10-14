@@ -809,3 +809,44 @@ else `none`. Confidence is ignored. Test the abstain cases.
     none, and confidence is ignored (one vote at confidence 1.0 is still
     `none`).
 - **Result:** tests/agents_tests 197 passed.
+
+### D4: 4h candles on the NY trading day
+
+Owner: change it. 4h candles are anchored to the NY 17:00 trading-day open
+(17, 21, 01, 05, 09, 13 America/New_York), DST-safe. Test across a DST change.
+
+- **`schemas.bucket_start(ts, tf)` / `bucket_end(start, tf)`** replace the
+  epoch-only arithmetic, everywhere: resampling, the Snapshot validator
+  (alignment and the `complete` flag), the fetch-window start, and evidence
+  refs.
+  - 15m and 1h stay on the UTC epoch, which is the same as NY alignment because
+    NY offsets are whole hours.
+  - 4h is computed in NY wall-clock time: start = local hour −
+    `(hour − 17) mod 4`. End = start + 4 h, wall clock.
+- **UTC opens move with DST.** They're 21/01/05/09/13/17 UTC in summer and
+  22/02/06/10/14/18 UTC in winter.
+- **A bucket spanning a DST change** lasts 3 h (spring, 01:00 EST → 05:00 EDT)
+  or 5 h (autumn, 01:00 EDT → 05:00 EST). Both fall early on Sunday, NY time,
+  while the market is closed. The ambiguous autumn 01:00 is the first one
+  (EDT), so both 01:xx hours fall in one bucket.
+- **The week's first 4h bucket** is Sunday 17:00 NY. The market opens at 18:00,
+  so that bucket holds at most 3 h of bars.
+- **Tests** (`test_four_hour.py`, 11):
+  - continuous 1m data across 2025-03-09 and 2025-11-02:
+    - every open is on a NY anchor;
+    - buckets tile time with no gap or overlap;
+    - the only bucket that isn't 4 h is the DST one, 3 h or 5 h, with n_1m
+      equal to its minutes;
+    - the UTC opens switch between the summer and winter sets;
+  - `bucket_start` spot cases, including the repeated 01:xx hour;
+  - 15m/1h unchanged;
+  - a replay snapshot Thu–Tue across 2025-11-02:
+    - Friday's 13:00 EDT bucket is complete;
+    - Sunday's 17:00 EST bucket (22:00 UTC) holds ≤ 180 bars;
+    - no bucket over the weekend;
+    - opens are summer before and winter after;
+  - evidence refs: a NY-anchored open resolves, including one written as a
+    `-05:00` timestamp; an old epoch-anchored open doesn't.
+  - Four earlier tests had UTC 4h opens (12:00 UTC); they now expect the NY
+    anchors (13:00 UTC = 09:00 EDT).
+- **Result:** tests/agents_tests 208 passed.

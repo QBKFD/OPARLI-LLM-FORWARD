@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
@@ -31,10 +32,19 @@ def _utc(v: datetime) -> datetime:
 
 UtcDatetime = Annotated[AwareDatetime, AfterValidator(_utc)]
 
-# Bar timeframes and their length in minutes. Buckets are aligned to the UTC
-# epoch, so 4h bars open at 00, 04, 08, 12, 16 and 20 UTC.
+# Bar timeframes and their nominal length in minutes.
+# - 1m, 15m, 1h: buckets aligned to the UTC epoch. NY offsets are whole hours,
+#   so these are aligned in New York time too.
+# - 4h (owner decision 2026-10-14): anchored to the NY 17:00 trading-day open.
+#   Buckets open at 17, 21, 01, 05, 09 and 13 America/New_York wall-clock time,
+#   so the UTC opens shift by an hour with DST (summer 21, 01, 05, 09, 13,
+#   17 UTC; winter 22, 02, 06, 10, 14, 18 UTC). A 4h bucket that spans a DST
+#   change lasts 3 h or 5 h of real time. That only happens early on Sunday
+#   (NY), while the market is closed.
 TIMEFRAMES: dict[str, int] = {"1m": 1, "15m": 15, "1h": 60, "4h": 240}
 EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+NY = ZoneInfo("America/New_York")
+NY_4H_ANCHOR_HOUR = 17          # 4h buckets open at local hours = 17 (mod 4), i.e. 1, 5, 9, 13, 17, 21
 
 Direction = Literal["long", "short", "none"]
 Role = Literal["bull", "bear"]
@@ -46,11 +56,35 @@ ROLE_ORDER: dict[str, int] = {"bull": 0, "bear": 1}
 
 
 def tf_delta(tf: str) -> timedelta:
+    """Nominal length. For 4h use bucket_end: a DST bucket is 3 h or 5 h."""
     return timedelta(minutes=TIMEFRAMES[tf])
 
 
+def _ny_wall(local: datetime) -> datetime:
+    """A NY wall-clock time -> UTC. Ambiguous times (the repeated 01:xx hour at
+    the end of DST) take the first occurrence. Bucket starts never fall in the
+    skipped spring hour."""
+    return local.replace(fold=0).astimezone(timezone.utc)
+
+
+def bucket_start(ts: datetime, tf: str) -> datetime:
+    """Open time (UTC) of the tf bucket that contains ts."""
+    if tf == "4h":
+        local = ts.astimezone(NY)
+        hour = local.replace(minute=0, second=0, microsecond=0)
+        return _ny_wall(hour - timedelta(hours=(local.hour - NY_4H_ANCHOR_HOUR) % 4))
+    return ts - (ts - EPOCH) % tf_delta(tf)
+
+
+def bucket_end(start: datetime, tf: str) -> datetime:
+    """End (UTC, exclusive) of the bucket that opens at start: the next bucket's open."""
+    if tf == "4h":
+        return _ny_wall(start.astimezone(NY) + timedelta(hours=4))     # wall-clock arithmetic
+    return start + tf_delta(tf)
+
+
 def is_aligned(ts: datetime, tf: str) -> bool:
-    return (ts - EPOCH) % tf_delta(tf) == timedelta(0)
+    return bucket_start(ts, tf) == ts
 
 
 def outcome_to_direction(outcome: str) -> str:
@@ -131,7 +165,7 @@ class Snapshot(_Frozen):
         for tf, series in self.bars.items():
             if tf not in TIMEFRAMES:
                 raise ValueError(f"unknown timeframe {tf!r}")
-            step, prev = tf_delta(tf), None
+            prev = None
             for b in series:
                 if b.ts >= self.as_of:
                     raise ValueError(f"{tf} bar {b.ts} is not before as_of {self.as_of}")
@@ -139,7 +173,7 @@ class Snapshot(_Frozen):
                     raise ValueError(f"{tf} bar {b.ts} is not aligned")
                 if prev is not None and b.ts <= prev:
                     raise ValueError(f"{tf} bars are not strictly increasing at {b.ts}")
-                if b.complete != (b.ts + step <= self.as_of):
+                if b.complete != (bucket_end(b.ts, tf) <= self.as_of):
                     raise ValueError(f"{tf} bar {b.ts}: complete={b.complete} is wrong")
                 if tf == "1m" and b.n_1m != 1:
                     raise ValueError("a 1m bar has n_1m == 1")
