@@ -381,7 +381,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     - `bars_before(symbol, t, lookback, db=None, known_by=None)` returns one bar
       per minute with `bar_ts` strictly `< t`, live preferred and history as
       fallback, each row with its `kind`. `lookback` is an int (count) or a
-      timedelta (window).
+      timedelta (window). (Fix D tightened this to `bar_ts + 1 min <= t`.)
     - Optional `known_by`: also requires `ingest_ts <= known_by`, so a later
       backfill can't leak into a simulated live view.
     - `latest_bar_ts(symbol, kind=None)` for staleness checks.
@@ -411,17 +411,19 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Crash after COMMIT, before ack.** Redelivery, and identical values are a
     no-op, so no duplicate rows and no conflicts.
   - **Invalid message** (missing common or bar fields, bad timestamps). It can
-    never succeed, so it's logged, counted as `rejected` and acked.
+    never succeed, so it's logged, counted as `rejected` and acked. (Fix F
+    also stores it in `rejected_messages`.)
   - **Store error.** Rollback, `errors += 1`, pause 5 s; the batch is retried
     as pending.
   - **Ack error** propagates (crash-only).
   - **Health.** `last_recorded_bar_ts`; `lag_s` = now − (newest bar_ts + 60 s),
-    i.e. measured from when that bar completed; `error_count` / `last_error`;
+    i.e. measured from when that bar completed (Fix G: per kind, and from the
+    newest live bar only); `error_count` / `last_error`;
     counts of inserted / duplicate / conflict / rejected / batches.
     `python -m datafeed.recorder` logs it every 60 s.
   - **Not covered.** A message the store keeps failing on (not a validation
     error) is retried forever and shows up only in `error_count`. No
-    dead-letter stream in v1.
+    dead-letter stream in v1. (Fixed later by Fix E.)
 
 - **Step 7: local run.**
   - **Files.** `deploy/datafeed/docker-compose.yml` (header: "Not deployed.
@@ -481,6 +483,99 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Other parquet files.** `coverage=` is a parameter. Tests pass the small
     fixture's coverage, and other files need their own.
   - **Docs.** Coverage and window are in `health()` and the README.
+
+- **Fix D: `bars_before` returns only completed bars** (owner go,
+  2026-10-14). Found while verifying the phase 1 cleanup.
+  - **Bug.** The filter was `bar_ts < t`. For a mid-minute t (10:07:30) that
+    returned the 10:07 bar, which only completes at 10:08:00. For replay,
+    history and backfilled bars, whose stored values are the final ones, that
+    was up to 59 s of look-ahead. The step 5 test even asserted it (at
+    10:01:59.999 it expected the 10:01 bar).
+  - **Fix.** The filter is now `bar_ts + 1 min <= t`, i.e. the bar had ended
+    by t. On a minute boundary the result is unchanged, so every caller that
+    passes whole minutes (all current tests and the step 7 end-to-end run)
+    sees the same bars. Live bars were never affected in practice: they reach
+    the store only after their minute ends.
+  - **Timedelta lookback.** Unchanged rule (`bar_ts >= t - lookback`). With
+    the new end rule it keeps the bars that lie wholly inside
+    `[t - lookback, t]`.
+  - **Also.** `t` may now be an ISO string with an offset for a timedelta
+    lookback too (it was parsed only for a count lookback before). A naive
+    datetime still raises.
+  - **Tests.** The step 5 assertion is corrected. A new test covers
+    mid-minute t for live, history and replay, the bar appearing exactly at
+    its end, a string t with a non-UTC offset, the timedelta window and a
+    naive t. Both tests fail on the old code. tests/datafeed: 77 passed,
+    7 skipped (was 76 + 7).
+
+- **Fix E: poison messages** (owner request, 2026-10-14).
+  - **Problem.** A message that passes validation but makes the store write
+    fail (e.g. `open: null` → NOT NULL) rolled back its whole batch, and the
+    batch was redelivered and failed forever: the recorder was stuck.
+  - **Rule.** Every failed batch counts a failure against each of its
+    entries. Once an entry has failed `MAX_BATCH_FAILURES` = 3 times, its batch
+    is reprocessed one message per transaction. A message that still fails is
+    written to `rejected_messages` (stage `poison`) and acked; the rest are
+    recorded and acked one by one.
+  - **Failing store is not poison.** If the `rejected_messages` row can't be
+    written either, the store itself is failing (disk full, locked). Nothing
+    more is acked, the error is counted and the batch is retried after 5 s.
+    Bars are never given up on because of a broken store.
+  - **Failure counts are in memory.** After a restart a batch gets 3 fresh
+    attempts.
+  - **Migration 0003: `rejected_messages`.** Columns `stream`, `stream_id`,
+    `raw` (message JSON), `error`, `stage` (`invalid` | `poison`),
+    `first_seen` (first failure). Primary key `(stream, stream_id)`; a
+    redelivery after a crash between COMMIT and ack is a no-op.
+  - **Health.** New counters `poison` and `split_batches`.
+  - **Tests.** One bad message in a batch of 10: three batch failures, then
+    9 recorded, 1 in `rejected_messages`, all 10 acked, and later messages go
+    through as normal batches. A failing store (insert and reject both fail)
+    records nothing, gives up on nothing and records everything once it
+    recovers. `reject_message` is idempotent per stream id.
+
+- **Fix F: validation rejects are stored too** (owner request, 2026-10-14).
+  - **Rule.** A message that fails validation is written to
+    `rejected_messages` (stage `invalid`, `first_seen` = when the recorder
+    saw it) inside the batch's own transaction, then acked with the batch
+    after the COMMIT. Before, it was only logged and counted.
+  - **Atomic with the batch.** If the batch rolls back, the rejection row
+    rolls back with it and nothing is acked. A crash after the COMMIT but
+    before the ack redelivers the entry, and the second rejection is a no-op.
+  - **Tests.** Both invalid messages are stored with stage, error, raw JSON
+    and `first_seen`. A rolled-back batch leaves no rejection row; a crash
+    between COMMIT and ack leaves exactly one. Both tests fail without the
+    fix.
+
+- **Fix G: recorder lag from live bars only** (owner request, 2026-10-14).
+  - **Problem.** `lag_s` used the newest bar of any kind. At feed start the
+    history warm-up is published up to the forming minute, so it is fresh by
+    construction: a live feed that stopped right after start showed a lag of
+    seconds.
+  - **Rule.** `health()` tracks the newest recorded bar_ts per kind:
+    `last_live_bar_ts`, `last_history_bar_ts`, `last_replay_bar_ts`
+    (replacing `last_recorded_bar_ts`). `lag_s` = now − (newest live bar_ts +
+    60 s), and None until a live bar has been recorded.
+  - **Tests.** Live up to 10:02 and history up to 10:19, checked at 10:20:05:
+    `lag_s` is 1,025 s (from the live bar), not 5 s. History and replay only:
+    `lag_s` is None, and both per-kind timestamps are reported.
+
+- **Fix H: autocommit connections, now tested** (owner request, 2026-10-14).
+  - **Confirmed.** `schema.connect()` opens both the writer and the
+    read-only connection with `isolation_level=None`; the recorder and
+    `python -m datafeed.recorder` get their connection from it. No code
+    change.
+  - **Why it matters.** Under sqlite3's default, a write outside an explicit
+    `BEGIN` silently opens a transaction. It holds the write lock until
+    something commits, and the next explicit `BEGIN` fails with "cannot start
+    a transaction within a transaction". Explicit `BEGIN` itself still works
+    under the default; the danger is any stray write.
+  - **Test.** Both connections have `isolation_level is None`; `migrate()`
+    leaves no open transaction; a write outside `BEGIN` is committed at once
+    and visible to a reader; explicit `BEGIN`/`COMMIT` works. A control shows
+    the default connection leaving the transaction open and the next `BEGIN`
+    failing. With `isolation_level=None` removed from `connect()`, the test
+    fails.
 
 ## Scanner bugs to fix at switch time (new journal epoch)
 
@@ -596,6 +691,6 @@ Also not run: `docker compose -f deploy/datafeed/docker-compose.yml up`
    switch time" (#1, #2, #4) and the behaviour changes #3 and #7 change which
    bars the scanner sees.
 5. **Staleness.** Replace the scanner's silence heartbeat with
-   `latest_bar_ts` + recorder `lag_s`.
+   `latest_bar_ts(kind="live")` + recorder `lag_s` (live only, Fix G).
 6. **Run the six Redis tests** above, and a paper-gateway smoke test of the
    feed.

@@ -1,5 +1,6 @@
 """Step 5: store schema, idempotent writes, conflicts, point-in-time reads."""
 
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -40,10 +41,10 @@ def write(con, msgs):
 
 def test_schema_version_and_wal(db):
     path, con = db
-    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 2
+    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 3
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con2 = schema.connect(path)                     # re-open: migrations not re-applied
-    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 2
+    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 3
     con2.close()
 
 
@@ -79,12 +80,33 @@ def test_strict_before_t(db):
     got = bars_before("XAUUSD", T("2026-03-02 10:02"), 10, db=path)
     assert [r["bar_ts"] for r in got] == ["2026-03-02T10:00:00+00:00", "2026-03-02T10:01:00+00:00"]
     got = bars_before("XAUUSD", T("2026-03-02 10:01:59.999"), 10, db=path)
-    assert [r["bar_ts"][11:16] for r in got] == ["10:00", "10:01"]
+    assert [r["bar_ts"][11:16] for r in got] == ["10:00"]          # 10:01 ends at 10:02
     assert bars_before("XAUUSD", T("2026-03-02 10:00"), 10, db=path) == []
     # lookback as a count keeps the most recent, as a timedelta keeps a window
     assert [r["open"] for r in bars_before("XAUUSD", T("2026-03-02 11:00"), 2, db=path)] == [2.0, 3.0]
     assert [r["open"] for r in bars_before("XAUUSD", T("2026-03-02 10:03"), timedelta(minutes=2),
                                            db=path)] == [2.0, 3.0]
+
+
+def test_mid_minute_t_excludes_forming_bar(db):
+    # a bar is complete only at bar_ts + 1 min, for every kind
+    path, con = db
+    write(con, [msg("2026-03-02 10:00", 1.0), msg("2026-03-02 10:01", 2.0, history=True),
+                msg("2026-03-02 10:02", 3.0, history=True),
+                msg("2026-03-02 10:00", 1.0, source="replay"), msg("2026-03-02 10:01", 2.0, source="replay")])
+    for t in (T("2026-03-02 10:01:30"), T("2026-03-02 10:01:00.5"), "2026-03-02T11:01:30+01:00"):
+        assert [r["bar_ts"][11:16] for r in bars_before("XAUUSD", t, 10, db=path)] == ["10:00"]
+        assert [r["bar_ts"][11:16] for r in bars_before("XAUUSD", t, 10, db=path,
+                                                         kinds=("replay",))] == ["10:00"]
+    # visible exactly when it ends, and from then on
+    for t in (T("2026-03-02 10:02"), T("2026-03-02 10:02:00.5"), T("2026-03-02 10:02:59")):
+        got = bars_before("XAUUSD", t, 10, db=path)
+        assert [(r["bar_ts"][11:16], r["kind"]) for r in got] == [("10:00", "live"), ("10:01", "history")]
+    # a timedelta window keeps the bars that lie wholly inside [t - lookback, t]
+    got = bars_before("XAUUSD", T("2026-03-02 10:03:30"), timedelta(minutes=2), db=path)
+    assert [r["bar_ts"][11:16] for r in got] == ["10:02"]
+    with pytest.raises(ValueError):
+        bars_before("XAUUSD", datetime(2026, 3, 2, 10, 1, 30), 10, db=path)   # naive t
 
 
 def test_live_preferred_history_fills_gaps(db):
@@ -215,8 +237,50 @@ def test_migration_2_moves_v1_replay_rows(tmp_path):
                      m["open"], m["high"], m["low"], m["close"], m["n_ticks"], m["source"],
                      1, schema.canonical(m["ingest_ts"]), "2026-03-02T12:00:00+00:00"))
     con.execute("COMMIT")
-    assert schema.migrate(con) == 2
+    assert schema.migrate(con) == len(schema.MIGRATIONS)
     got = {(r["bar_ts"][11:16], r["kind"], r["source"]) for r in con.execute("SELECT * FROM bars")}
     assert got == {("10:00", "replay", "replay"), ("10:00", "history", "ibkr"), ("10:01", "live", "ibkr")}
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("INSERT INTO bars VALUES ('X','t','bogus',1,1,1,1,NULL,'s',1,'t','t')")
+
+
+def test_reject_message_idempotent_per_stream_id(db):
+    import sqlite3
+    path, con = db
+    bad = dict(msg("2026-03-02 10:00", 1.0), open=None)
+    con.execute("BEGIN")
+    schema.reject_message(con, "s", "7-0", bad, "IntegrityError('x')", "poison", T("2026-03-02 10:05"))
+    schema.reject_message(con, "s", "7-0", bad, "again", "poison", T("2026-03-02 11:00"))  # redelivery
+    schema.reject_message(con, "other", "7-0", bad, "y", "invalid", T("2026-03-02 10:06"))
+    con.execute("COMMIT")
+    got = [dict(r) for r in con.execute("SELECT * FROM rejected_messages ORDER BY stream")]
+    assert [(r["stream"], r["stage"], r["first_seen"], r["error"]) for r in got] == [
+        ("other", "invalid", "2026-03-02T10:06:00+00:00", "y"),
+        ("s", "poison", "2026-03-02T10:05:00+00:00", "IntegrityError('x')")]
+    assert json.loads(got[1]["raw"]) == bad
+    with pytest.raises(sqlite3.IntegrityError):
+        schema.reject_message(con, "s", "8-0", bad, "e", "bogus", T("2026-03-02 10:05"))
+
+
+def test_connections_are_autocommit(tmp_path):
+    # isolation_level=None keeps the explicit BEGIN/COMMIT (migrate, recorder) the only
+    # transactions. Under sqlite3's default, a write outside BEGIN silently opens a
+    # transaction that holds the write lock, and the next explicit BEGIN fails.
+    import sqlite3
+    path = str(tmp_path / "s.sqlite")
+    w, r = schema.connect(path), schema.connect(path, readonly=True)
+    assert w.isolation_level is None and r.isolation_level is None
+    assert not w.in_transaction                                    # migrate() left nothing open
+    schema.insert_bar(w, msg("2026-03-02 10:00", 1.0))             # a write outside BEGIN ...
+    assert not w.in_transaction                                    # ... is committed at once
+    assert r.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 1
+    w.execute("BEGIN")
+    w.execute("COMMIT")
+    # control: the same write on a default connection leaves a transaction open
+    d = sqlite3.connect(path)
+    schema.insert_bar(d, msg("2026-03-02 10:01", 2.0))
+    assert d.in_transaction
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        d.execute("BEGIN")
+    d.rollback()
+    d.close()

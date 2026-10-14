@@ -22,6 +22,12 @@ bars
 
 bar_conflicts
     Append-only log of rejected different-value writes.
+
+rejected_messages
+    Bus entries the recorder gave up on and acked without a bar row: stage
+    'invalid' (failed validation) or 'poison' (passed validation but kept
+    failing the store write). The raw message JSON is kept, so a bar wrongly
+    given up on can be fixed and re-published. One row per (stream, stream_id).
 """
 
 from __future__ import annotations
@@ -92,6 +98,18 @@ MIGRATIONS: list[tuple[int, str]] = [
         FROM bars;
     DROP TABLE bars;
     ALTER TABLE bars_v2 RENAME TO bars;
+    """),
+    (3, """
+    -- bus entries the recorder acked without a bar row (see recorder.py)
+    CREATE TABLE rejected_messages (
+        stream          TEXT    NOT NULL,   -- bus stream name
+        stream_id       TEXT    NOT NULL,   -- bus entry id
+        raw             TEXT    NOT NULL,   -- the message as received, JSON
+        error           TEXT    NOT NULL,
+        stage           TEXT    NOT NULL CHECK (stage IN ('invalid', 'poison')),
+        first_seen      TEXT    NOT NULL,   -- when the recorder first failed on it
+        PRIMARY KEY (stream, stream_id)
+    );
     """),
 ]
 
@@ -177,3 +195,13 @@ def insert_bar(con: sqlite3.Connection, msg: dict) -> str:
                 (*key, json.dumps(dict(row)), json.dumps(msg), _now()))
     log.warning("store: conflicting %s bar %s %s kept as first recorded", key[2], key[0], key[1])
     return "conflict"
+
+
+def reject_message(con: sqlite3.Connection, stream: str, stream_id: str, msg, error: str,
+                   stage: str, first_seen) -> None:
+    """Log a bus entry the recorder gives up on (it acks it after the COMMIT).
+    A redelivery of the same entry (crash between COMMIT and ack) is a no-op,
+    so the first row and its first_seen are kept. Does not commit."""
+    con.execute("INSERT INTO rejected_messages (stream, stream_id, raw, error, stage, first_seen) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT (stream, stream_id) DO NOTHING",
+                (stream, stream_id, json.dumps(msg), error, stage, canonical(first_seen)))
