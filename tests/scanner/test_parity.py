@@ -85,7 +85,7 @@ def stream_day(day: str, bus, tmp_path):
     Recorder(bus, schema.connect(store), STREAM, block_ms=None, sleep=lambda s: None).run(
         stop_when_idle=True)
     hist, path, detail = ds.stream_warmup(now, db=store, kinds=("replay",))
-    live = ds.StreamLevels(hist, now)
+    live = ds.LiveLevels(hist, now)
     con = ds.open_log(tmp_path / "journal.sqlite")
     got = []
 
@@ -178,26 +178,30 @@ def test_gap_day_logs_the_gap(tmp_path_factory):
                and "gap of 241 " in g for g in gaps), gaps
 
 
-@pytest.mark.parametrize("start", ["00:00:00", "00:00:30"])
+@pytest.mark.parametrize("start", ["00:00:00", "00:00:30", "00:01:10"])
 def test_start_before_the_days_first_bar(start):
-    """StreamLevels started between midnight and the day's first bar emits what a
-    continuous replay emits. LiveLevels (the ibkr path, left unchanged) misses
-    the day's levels until the 07:00 rebuild: this pins that known ibkr-path
-    bug; fixing it there is an open decision (docs/SCANNER_SWITCH_NOTES.md)."""
+    """LiveLevels (both bar sources) started between midnight and the day's
+    first bar emits what a continuous replay emits. Before the fix it missed
+    the day's levels until the 07:00 rebuild: 00:06 DOPEN,WOPEN, 00:14 PDH and
+    00:24 PWH on 2025-06-16. 00:01:10 is a start after the 00:00 bar ended,
+    which behaved correctly before and must still.
+
+    A bar is known once its minute has ended: at start S the warm-up holds the
+    bars with bar_ts + 1 min <= S, and the rest arrive live."""
     df = ds.load_data()
     d = pd.Timestamp("2025-06-16", tz="UTC")
     win = df[(df.index >= ds.warmup_start(d)) & (df.index < d + pd.Timedelta(days=1))]
     now = d + pd.Timedelta(start)
+    known = win.index + pd.Timedelta(minutes=1) <= now
     sc, rep = ds.Scanner(ds.build_levels(win)), []
-    for r in win.itertuples(name=None):
+    for (r, k) in zip(win.itertuples(name=None), known):
         out = sc.on_bar(*r)
-        if r[0] >= d:
+        if not k:
             rep += out
-    got = {}
-    for cls in (ds.StreamLevels, ds.LiveLevels):
-        live, got[cls] = cls(win[win.index < d].copy(), now), []
-        for r in win[win.index >= d].itertuples(name=None):
-            got[cls] += live.on_bar(*r)
-    assert rep and got[ds.StreamLevels] == rep
-    missed = [a["alert_ts_utc"][11:16] + " " + a["level_types"] for a in rep if a not in got[ds.LiveLevels]]
-    assert missed == ["00:06 DOPEN,WOPEN", "00:14 PDH", "00:24 PWH"]
+    live, got = ds.LiveLevels(win[known].copy(), now), []
+    for r in win[~known].itertuples(name=None):
+        got += live.on_bar(*r)
+    assert rep and got == rep
+    if start != "00:01:10":
+        assert [a["alert_ts_utc"][11:16] + " " + a["level_types"] for a in got][:3] == \
+            ["00:06 DOPEN,WOPEN", "00:14 PDH", "00:24 PWH"]

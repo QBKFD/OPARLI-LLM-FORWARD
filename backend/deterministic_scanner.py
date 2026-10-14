@@ -226,6 +226,15 @@ class LiveLevels:
     def __init__(self, hist: pd.DataFrame, now):
         self.hist = hist
         self._rebuild(now)
+        # Compare against the epoch of the newest bar the levels were built from,
+        # not of `now`. Started after an epoch boundary but before that epoch's
+        # first bar (e.g. 00:00:30, before the 00:00 bar), the first bar is in
+        # now's epoch and wouldn't rebuild, so the day's levels (DOPEN, WOPEN,
+        # PDH, PDL, PWH, PWL; build_levels creates them only for days with bars)
+        # would be missing until the next session close. On 2025-06-16 that lost
+        # the 00:06, 00:14 and 00:24 alerts.
+        built = hist.index[hist.index < now]
+        self.epoch = self._epoch(built.max()) if len(built) else None
 
     @staticmethod
     def _epoch(ts):
@@ -846,25 +855,6 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
     return hist[cols], "ibkr", f"{reason}; IBKR history instead: {len(hist)} bars {span}"
 
 
-class StreamLevels(LiveLevels):
-    """LiveLevels for the stream path, with one fix.
-
-    LiveLevels takes the epoch of `now`. Started after an epoch boundary but
-    before that epoch's first bar (e.g. at 00:00:30, before the 00:00 bar),
-    the first bar is in the same epoch, so it doesn't rebuild. The day's levels
-    (DOPEN, WOPEN, PDH, PDL, PWH, PWL, which build_levels creates only for days
-    that have bars) are then missing until the next session close: on
-    2025-06-16 that loses the 00:06, 00:14 and 00:24 alerts. Here the epoch is
-    that of the newest bar the levels were built from, so the first bar of a new
-    epoch always rebuilds, as in a continuous run. run_live keeps LiveLevels
-    unchanged (it is the rollback); see docs/SCANNER_SWITCH_NOTES.md."""
-
-    def __init__(self, hist: pd.DataFrame, now):
-        super().__init__(hist, now)
-        built = hist.index[hist.index < now]
-        self.epoch = self._epoch(built.max()) if len(built) else None
-
-
 class StreamStaleness:
     """One message when no new live bar has arrived for `n` market-open minutes,
     one recovery message when bars resume.
@@ -1101,7 +1091,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
         _time.sleep(RECONNECT_BACKOFF_S)
         raise SystemExit(1)
     print(f"warm-up via {path}: {detail}", flush=True)
-    live = StreamLevels(hist, now)
+    live = LiveLevels(hist, now)
 
     def on_alert(a):
         if not _journal_new_alert(con, a):
@@ -1338,6 +1328,22 @@ def selftest():
             and dec == [(1, "SKIP"), (2, "MISSED")] and cfe == [(1,), (2,)]):
         fails.append(f"journal epoch: rows={rows} kids={kids} ver={ver} missed={n_missed} "
                      f"cf={n_cf} dec={dec} cfe={cfe}")
+
+    # 13) live started between UTC midnight and the day's first bar still builds
+    #     the day's levels on that first bar (it used to wait for 07:00)
+    d = pd.Timestamp("2025-06-16", tz="UTC")
+    win = df[(df.index >= d - pd.Timedelta(days=14)) & (df.index < d + pd.Timedelta(hours=8))]
+    sc, rep = Scanner(build_levels(win)), []
+    for ts, o, h, l, c in win.itertuples(name=None):
+        out = sc.on_bar(ts, o, h, l, c)
+        if ts >= d:
+            rep += out
+    for start in (d, d + pd.Timedelta(seconds=30)):
+        live, got = LiveLevels(win[win.index < d].copy(), start), []
+        for ts, o, h, l, c in win[win.index >= d].itertuples(name=None):
+            got += live.on_bar(ts, o, h, l, c)
+        if not rep or got != rep:
+            fails.append(f"live start at {start.time()}: {len(got)} live vs {len(rep)} replay alerts")
 
     print("SELFTEST:", "ALL PASSED" if not fails else f"FAILED {fails}")
     return not fails

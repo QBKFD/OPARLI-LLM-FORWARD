@@ -30,8 +30,8 @@ Any other value stops the scanner at startup with an error. `--date` and
      why.
    - If the fallback also fails, the scanner backs off 20 s and exits 1
      (crash-only).
-2. **Levels**: `StreamLevels`, which is `LiveLevels` plus one start-up fix
-   (see 5b).
+2. **Levels**: `LiveLevels`, the same class as the ibkr path (it includes the
+   start-up fix, 5b).
 3. **Consumption** (`StreamFeed`).
    - Every entry is classified once:
      - `invalid_msg`
@@ -60,7 +60,7 @@ Expected differences from the ibkr path:
 - The bar contract deviations #1–#7 in `docs/DATAFEED_NOTES.md`: no stale-close
   fallback, late ticks dropped, a timer close at minute end + 2 s, and so on.
   Live bars, and so a few alerts, can differ slightly.
-- The `StreamLevels` start-up fix (5b) and the longer warm-up window (5c).
+- The longer warm-up window (5c).
 
 ## 2. What the compose stack needs
 
@@ -157,14 +157,16 @@ pins this. So:
     and 04:23. Both were touched on July 3 (12:30, 12:08).
   - `test_date_replay_difference_2025_07_04` asserts exactly that
     difference, and its cause.
-- **b. ibkr-path start-up bug (left in place).**
-  - `LiveLevels` started between 00:00 UTC and the day's first bar doesn't
-    rebuild on that bar. The day's DOPEN, WOPEN, PDH, PDL, PWH and PWL are
-    missing until 07:00. On 2025-06-16 that loses 3 alerts.
-  - `StreamLevels` fixes this for stream mode. The fix for `run_live` is the
-    same one line. A test pins the current ibkr behaviour.
-  - The window is small in production: a restart between 00:00 and the
-    00:00 bar.
+- **b. Start-up bug: fixed in both paths, 2026-10-14.**
+  - The bug: `LiveLevels` started between 00:00 UTC and the day's first bar
+    didn't rebuild on that bar. The day's DOPEN, WOPEN, PDH, PDL, PWH and PWL
+    were then missing until 07:00. On 2025-06-16 that lost 3 alerts.
+  - The fix: `LiveLevels` now compares against the epoch of the newest bar its
+    levels were built from.
+  - This changes the ibkr path too. Only a start inside that window behaves
+    differently; it now matches a continuous replay.
+  - Covered by selftest case 13 and `test_start_before_the_days_first_bar`.
+    Both fail on the old code.
 - **c. Warm-up window.** "Last 10 days" is implemented as 10 days, extended to
   the previous ISO week's Monday. From Thursday to Sunday a plain 10-day window
   starts inside last week, and PWH/PWL would come from part of it.
