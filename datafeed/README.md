@@ -172,7 +172,7 @@ Later tables follow the same append-only, `ingest_ts`-versioned pattern
 | `store/schema.py`, `store/query.py` | v1 |
 | `ingest/gold_options.py` | planned, later PR |
 | `ingest/calendar.py` | planned, later PR |
-| `features/vol_block.py` | planned, later PR |
+| `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store; sigma over H minutes (engineering decision). Needs numpy and pandas |
 | `features/exposures.py` | planned, later PR |
 | `store/sealed.py` | planned, later PR |
 | `store/manifest.py` | planned, later PR |
