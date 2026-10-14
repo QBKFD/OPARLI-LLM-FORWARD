@@ -9,8 +9,11 @@
 # ---------------------------------------------------------------------------
 set -e
 
-KEY=~/.ssh/oracle_new_key
-SRV=root@46.225.218.50
+# Server and key come from the environment (never hard-code them here):
+#   DEPLOY_HOST  ssh destination, user@host
+#   DEPLOY_KEY   path to the private key for that host
+KEY="${DEPLOY_KEY:?set DEPLOY_KEY to the SSH private key path}"
+SRV="${DEPLOY_HOST:?set DEPLOY_HOST to user@host}"
 APP=/opt/oparli
 
 cd "$(dirname "$0")/.."          # repo root

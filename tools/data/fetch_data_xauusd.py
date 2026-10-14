@@ -5,7 +5,7 @@ Fetch XAUUSD 1-min MIDPOINT data from TWS and append to XAUUSD_COMPLETE.csv.
 Automatically detects last date in the CSV and fetches up to END_DATE.
 
 Usage:
-    python scripts/backfill/fetch_data_xauusd.py
+    python tools/data/fetch_data_xauusd.py
 
 Requirements:
     - IB Gateway or TWS running on 127.0.0.1:7497
