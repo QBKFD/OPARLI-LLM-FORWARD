@@ -693,6 +693,7 @@ STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is i
 WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
 WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's market-open minutes
 WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
+STREAM_STALE_MIN = 10            # no new live bar for this many market-open minutes -> one Telegram alert
 
 
 def bar_source(env=os.environ) -> str:
@@ -790,6 +791,44 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
     return hist[cols], "ibkr", f"{reason}; IBKR history instead: {len(hist)} bars {span}"
 
 
+class StreamStaleness:
+    """One message when no new live bar has arrived for `n` market-open minutes,
+    one recovery message when bars resume.
+
+    Silence is counted in complete market-open minutes (_open_minutes) since
+    the newest live bar ended (bar_ts + 1 min), or since the feed started if it
+    has seen none, so weekends and the daily break never count. Bars the feed
+    skips (history, duplicates, other sources) don't reset it."""
+
+    def __init__(self, notify, started, n: int = STREAM_STALE_MIN):
+        self.notify, self.started, self.n = notify, _utc(started), n
+        self.alerted_at_bar = None      # newest bar when the alert went out; None = not alerted
+        self.alerted = False
+
+    def _silent(self, now, last_bar_ts) -> int:
+        since = self.started if last_bar_ts is None else last_bar_ts + pd.Timedelta(minutes=1)
+        return len(_open_minutes(since, now))
+
+    def check(self, now, last_bar_ts) -> None:
+        if self.alerted:
+            return
+        silent = self._silent(now, last_bar_ts)
+        if silent >= self.n:
+            last = "none since start" if last_bar_ts is None else f"last bar {last_bar_ts}"
+            self.notify(f"scanner: no new XAUUSD bar from the datafeed stream for {silent} "
+                        f"market-open minutes ({last}) - check the datafeed")
+            self.alerted, self.alerted_at_bar = True, last_bar_ts
+
+    def bar(self, ts) -> None:
+        """A new live bar reached the level engine."""
+        if not self.alerted:
+            return
+        silent = self._silent(ts, self.alerted_at_bar)
+        self.notify(f"scanner: XAUUSD bars from the datafeed stream resumed (bar {ts}) after "
+                    f"{silent} market-open minutes without one")
+        self.alerted, self.alerted_at_bar = False, None
+
+
 class StreamFeed:
     """bars.xauusd.1m entries -> LiveLevels.on_bar, one consume batch per step().
 
@@ -817,13 +856,15 @@ class StreamFeed:
 
     def __init__(self, bus, stream: str, consumer: str, live, on_alert, *, lock=None,
                  last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
-                 count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print):
+                 count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print,
+                 staleness: StreamStaleness | None = None, clock=lambda: pd.Timestamp.now(tz="UTC")):
         import contextlib
         self.bus, self.stream, self.consumer = bus, stream, consumer
         self.live, self.on_alert = live, on_alert
         self.lock = lock or contextlib.nullcontext()
         self.sources, self.symbol = tuple(sources), symbol
         self.count, self.block_ms, self.log = count, block_ms, log
+        self.staleness, self.clock = staleness, clock
         self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
         self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
         hist = getattr(live, "hist", None)
@@ -843,6 +884,10 @@ class StreamFeed:
             self.stats[kind] += 1
             self.stats["entries"] += 1
             seen[kind] = seen.get(kind, 0) + 1
+            if kind == "live_bars" and self.staleness:
+                self.staleness.bar(self.last_bar_ts)
+        if self.staleness:
+            self.staleness.check(self.clock(), self.last_bar_ts)
         other = {k: n for k, n in seen.items() if k != "live_bars"}
         if other:
             self.log(f"stream: batch of {len(batch)}: "
@@ -992,8 +1037,15 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
             except Exception as e:  # a send failure must not stop the feed
                 print(f"telegram send failed for {a['alert_id']}: {e}")
 
+    def notify(text):
+        if dry:
+            print("FEED   " + text, flush=True)
+        else:
+            _send_quietly(tg, text)
+
     feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, on_alert,
-                      lock=lock, last_bar_ts=hist.index.max() if len(hist) else None)
+                      lock=lock, last_bar_ts=hist.index.max() if len(hist) else None,
+                      staleness=StreamStaleness(notify, started=now))
     fatal: list[BaseException] = []
 
     def pump():
