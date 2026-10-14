@@ -642,3 +642,46 @@ details:
   post-`as_of` knowledge, and define the JSON output. Placeholders come from
   the DebaterView only.
 - **Tests:** test_debate.py: 53 passed. tests/agents_tests: 130 passed.
+
+### Step 6: agent store and config
+
+`agents/store/sqlite.py` (`SqliteAgentStore`) and `agents/config.example.toml`.
+
+- **Its own SQLite.** The path comes from `$AGENTS_DB` (or `path=`). WAL,
+  `synchronous=NORMAL`, `foreign_keys=ON`, numbered migrations in
+  `MIGRATIONS` (one so far), and a `schema_version` table. It has no `bars`
+  table. A test checks that the datafeed store file is byte-identical after a
+  run.
+- **Tables:**
+
+  | Table | Key | Content |
+  |---|---|---|
+  | `snapshots` | snapshot_hash | symbol, as_of, kinds, known_by, newest_bar_ts, canonical `content_json`, model columns |
+  | `runs` | run_id | trigger source/id/t/payload, as_of, status, skip_reason (set exactly when skipped), snapshot_hash (FK, null when stale), config JSON + hash, code_version |
+  | `votes` | (run_id, round, agent) | Vote fields, `round` (1 = blind), model columns |
+  | `debate_turns` | (run_id, round, role) | `claims_json` (each claim with `valid` / `invalid_reason`), n_claims, n_valid, conceded, error, model columns |
+  | `decisions` | (run_id, arm) | arm blind/debate, snapshot_hash (FK), direction, reason, decided_by, entry/sl/tp/size/sigma (null), model columns, plus `debate_outcome` (long/short/hold) and `debate_max_rounds` on the debate row only |
+
+  `model_id`, `prompt_hash`, `tokens_in`, `tokens_out` and `latency_ms` are on
+  snapshots, votes, debate_turns and decisions ("all", as specified). On
+  snapshots they stay null, because code builds snapshots.
+- **Append-only.** `BEFORE UPDATE` / `BEFORE DELETE` triggers on all five
+  tables abort with "<table> is append-only".
+- **Atomic.** A run is written once, in one `BEGIN IMMEDIATE` transaction. A
+  repeated run_id, a key violation or an FK violation rolls the whole run back,
+  and a test shows that no partial rows remain.
+- **Snapshots.** A snapshot is written in its own transaction, before any agent
+  runs. The same hash with the same content is a no-op. The same hash with
+  different content raises `StoreConflict`.
+- **Thread safety.** Writes are serialised with a lock, because graph nodes can
+  run on worker threads.
+- **Reads.**
+  - `load_snapshot(hash)` re-validates, so a tampered row fails on load.
+  - `load_run(run_id)` rebuilds RunRecord, Votes, Decisions and the full
+    DebateResult. A round-trip test compares them with the objects the graph
+    produced.
+- **Config.** `AgentsConfig.from_toml(path)`. `agents/config.example.toml`
+  equals the defaults (tested): `debate.enabled = false`,
+  `debate.max_rounds = 2`, `debate.judge = "code_v0"`. Unknown keys are
+  refused, so a typo like `enabeld` raises instead of being ignored.
+- **Tests:** test_agent_store.py: 19 passed. tests/agents_tests: 149 passed.

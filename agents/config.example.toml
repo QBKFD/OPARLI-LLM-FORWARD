@@ -1,0 +1,33 @@
+# Example agents config. Load with AgentsConfig.from_toml(path).
+# Durations: seconds, or ISO-8601 ("PT5M", "P30D").
+# The agent store path comes from $AGENTS_DB (or SqliteAgentStore(path=...)),
+# the datafeed store from $DATAFEED_DB.
+
+node_timeout_s = 120            # per round-1 agent call; a timeout is an abstain
+
+[snapshot]
+mode = "replay"                 # "live" or "replay"; required, no default
+symbol = "XAUUSD"
+fetch_lookback = "P30D"
+max_staleness = "PT5M"
+
+[snapshot.keep]                 # bars kept per timeframe
+"1m" = 240
+"15m" = 192
+"1h" = 120
+"4h" = 120
+
+[gate]
+require_market_open = true
+
+[gate.min_bars]                 # v0 placeholder: at least one bar per timeframe
+"1m" = 1
+"15m" = 1
+"1h" = 1
+"4h" = 1
+
+[debate]
+enabled = false                 # round 2 (bull vs bear) is off by default
+max_rounds = 2                  # opening + one rebuttal
+judge = "code_v0"               # placeholder judge; an LLM judge is a later slot
+turn_timeout_s = 60
