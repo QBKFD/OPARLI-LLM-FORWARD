@@ -9,8 +9,8 @@ datafeed stream `bars.xauusd.1m` instead of its own IBKR connection:
 
 | `SCANNER_BAR_SOURCE` | Live path | Bars from |
 |---|---|---|
-| `ibkr` (default, also when unset) | `run_live`, unchanged | its own IBKR connection (clientId 11, history 21) |
-| `stream` | `run_live_stream` | `bars.xauusd.1m` via `datafeed.bus`, consumer group `scanner` |
+| `ibkr` (default, also when unset) | `run_live`, the rollback | its own IBKR connection (clientId 11, history 21) |
+| `stream` | `run_live_stream` | `bars.xauusd.1m` via `datafeed.bus`, consumer group `scanner`. **Never connects to IBKR**: the datafeed feed is the only client of the production gateway. |
 
 Any other value stops the scanner at startup with an error. `--date` and
 `--selftest` ignore the switch.
@@ -24,12 +24,19 @@ Any other value stops the scanner at startup with an error. `--date` and
      00:00 UTC of the previous ISO week when that is earlier (see 5c).
    - The store is used only if it holds ≥ 80 % of the window's market-open
      minutes **and** its newest bar ended ≤ 5 market-open minutes ago.
-   - Otherwise it uses the IBKR history load `run_live` uses (clientId
-     `IB_CLIENT_ID + 10`), minus the forming minute.
-   - The log line `warm-up via store|ibkr: ...` says which path was used and
-     why.
-   - If the fallback also fails, the scanner backs off 20 s and exits 1
-     (crash-only).
+   - There is **no IBKR fallback** (owner decision 2026-10-14). While the
+     store is unusable (missing, too thin or stale), `wait_for_store` reads it
+     again every `STORE_RETRY_S` = 30 s and logs the reason each time:
+     `warm-up: <reason>; scanner not started, retrying in 30s`.
+   - Once the store has been unusable for `STREAM_STALE_MIN` = 10 market-open
+     minutes since the wait began, Telegram gets one message. When it becomes
+     usable after that, a second message says the scanner is starting.
+     Weekends and the daily break don't count.
+   - Then the log shows `warm-up via store: ...`.
+   - While it waits, the scanner isn't running: no alerts, no Telegram reply
+     polling. Replies sent meanwhile are read once it starts, and their
+     decision time is when they're read. The ibkr path has the same behaviour
+     during a restart.
 2. **Levels**: `LiveLevels`, the same class as the ibkr path (it includes the
    start-up fix, 5b).
 3. **Consumption** (`StreamFeed`).
@@ -70,14 +77,15 @@ Stream mode needs three more services and some image changes.
 | Service | What | Notes |
 |---|---|---|
 | `redis` | `redis:7.4.x` | Decide on persistence (5g). Healthcheck `redis-cli ping`. |
-| `feed` | `python -m datafeed.ingest`, `DATAFEED_SOURCE=ibkr` | `IB_HOST=ibgateway`, `IB_PORT=4004`, `IB_CLIENT_ID` **unused elsewhere** (taken: 11, 21, 996 watchdog probe, 999 entrypoint probe; e.g. 31). `restart: unless-stopped` (crash-only). See 5f: the datafeed docs currently forbid the production gateway. |
+| `feed` | `python -m datafeed.ingest`, `DATAFEED_SOURCE=ibkr` | **The only client of the production gateway** in stream mode (5f). `IB_HOST=ibgateway`, `IB_PORT=4004`, `IB_CLIENT_ID` unused elsewhere (taken: 11 and 21 by the ibkr-mode scanner, 996 by the watchdog probe, 999 by the entrypoint probe; e.g. 31). `restart: unless-stopped` (crash-only). |
 | `recorder` | `python -m datafeed.recorder` | `DATAFEED_DB=/data/datafeed.sqlite` on a `datafeed_store` volume, `DATAFEED_RECORDER_CONSUMER=recorder-1` |
 | `scanner` | as today, plus the env below | mount `datafeed_store` (see below) |
 
 **Scanner image** (`deploy/scanner/Dockerfile`):
 - Add the `datafeed` package and `redis`: `COPY pyproject.toml` and
   `datafeed/`, then `pip install --no-deps .` and `redis==5.2.1`.
-  - `ib_insync` stays: the IBKR fallback and the entrypoint probe use it.
+  - `ib_insync` stays: the ibkr mode (the rollback) and the entrypoint probe
+    use it. Stream mode doesn't import it.
   - `pandas` and `tzdata` are already there.
   - `pyarrow` is only needed for `--date` and `--selftest`.
 - Python 3.12 is fine (`requires-python >= 3.12`).
@@ -88,20 +96,25 @@ volume **read-write** and rely on `mode=ro`, or verify a `:ro` mount on the
 host before relying on it. This hasn't been tested here, because Docker isn't
 installed on this machine.
 
-**Entrypoint** (`deploy/scanner/entrypoint.sh`): it waits for the gateway API,
-then runs `--live`.
-- That still works in stream mode: the fallback needs the gateway anyway.
-- But it ties the scanner's start to the gateway, which stream mode is meant to
-  remove. Suggest: when `SCANNER_BAR_SOURCE=stream`, wait for Redis instead (and
-  optionally the store file), not the gateway.
+**Entrypoint** (`deploy/scanner/entrypoint.sh`): today it waits for the gateway
+API with a handshake (clientId 999), then runs `--live`.
+- **It must change for stream mode**. Otherwise the scanner still opens
+  gateway connections, and its start still depends on the gateway.
+- When `SCANNER_BAR_SOURCE=stream`, wait for Redis instead
+  (`redis-cli -u $REDIS_URL ping`, or a Python `redis` ping). The store needs
+  no wait: `wait_for_store` handles it.
 
 **Watchdog** (`deploy/scanner/watchdog.sh`):
 - It checks the gateway and scanner restarts.
 - In stream mode, a dead feed is reported by the scanner's own staleness
   message. A dead Redis makes the scanner crash-loop, which the watchdog's
   restart counter reports.
-- Nothing watches the recorder. Its lag only matters at a scanner restart: a
-  stale store means the IBKR fallback, which is logged.
+- Nothing watches the recorder directly. Its lag only matters at a scanner
+  restart, where a stale store makes the scanner wait. After 10 market-open
+  minutes that wait sends a Telegram message.
+- The watchdog's gateway probe (clientId 996, a handshake every 5 minutes) is
+  monitoring, not a bar client. It is the one gateway connection besides the
+  feed.
 - Consider adding `feed` and `recorder` restart counts.
 
 ## 3. Environment
@@ -110,14 +123,14 @@ then runs `--live`.
 |---|---|---|
 | `SCANNER_BAR_SOURCE` | both | `ibkr` (default) or `stream` |
 | `REDIS_URL` | stream | the bus, e.g. `redis://redis:6379/0` |
-| `DATAFEED_DB` | stream | store path, e.g. `/datafeed/datafeed.sqlite`. Unset or unreadable means the IBKR fallback, logged. |
+| `DATAFEED_DB` | stream | store path, e.g. `/datafeed/datafeed.sqlite`. Unset or unreadable means the scanner waits (§1, point 1), logged. |
 | `SCANNER_STREAM_CONSUMER` | stream | consumer name in group `scanner`, default `scanner-1`. **Keep it stable across restarts**: unacked entries are redelivered to the same name. |
 | `SCANNER_DB` | both | journal (unchanged) |
-| `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` | both | ibkr: as today. stream: only for the warm-up fallback (clientId + 10). |
+| `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` | ibkr | as today; stream mode doesn't read them |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | both | unchanged (not needed with `--dry-live`) |
 
 Tunables are named constants in the scanner: `WARMUP_DAYS`,
-`WARMUP_MIN_COVERAGE`, `WARMUP_MAX_STALE_MIN`, `STREAM_STALE_MIN`,
+`WARMUP_MIN_COVERAGE`, `WARMUP_MAX_STALE_MIN`, `STORE_RETRY_S`, `STREAM_STALE_MIN`,
 `STREAM_BATCH`, `STREAM_BLOCK_MS`, `JOURNAL_EPOCHS`.
 
 ## 4. Journal migration (happens in both modes)
@@ -195,7 +208,7 @@ pins this. So:
     trading days give about two weeks back.
   - Also: right after the feed first starts, the store holds only the feed's
     IBKR history. A 13-day window on Thu–Sun may then fall below 80 %
-    coverage, and the scanner waits (see 1.1). Flip on Mon–Wed, or once the
+    coverage, and the scanner waits (§1, point 1). Flip on Mon–Wed, or once the
     store holds two weeks.
 - **d. Restart semantics.**
   - Touches during scanner downtime aren't alerted. The warm-up covers them
@@ -207,9 +220,15 @@ pins this. So:
     alerts.
 - **e.** History-flagged entries are ignored. They are not merged into the
   levels' history, even when they fill minutes the scanner missed.
-- **f.** `deploy/datafeed` and `datafeed/README.md` say the feed must never point
-  at the production gateway. Stream mode needs exactly that. The rule has to be
-  changed explicitly in the deployment PR.
+- **f. Gateway rule: decided 2026-10-14.**
+  - With stream mode, the feed is the **only** client of the production
+    gateway. The scanner in stream mode never connects: it has no IBKR
+    fallback and waits for the store instead (§1, point 1).
+  - Development and tests still use a local paper gateway only.
+  - Updated in `datafeed/README.md`, `datafeed/ingest/ibkr.py`,
+    `datafeed/ingest/__main__.py`, `deploy/datafeed/docker-compose.yml` and
+    `docs/DATAFEED_NOTES.md`.
+  - A test checks that the stream path references no IBKR code.
 - **g. Redis persistence.**
   - The stream is transport, not storage: the store is the record.
   - Without persistence, a Redis restart loses both groups' positions and
@@ -242,8 +261,9 @@ pins this. So:
    `DATAFEED_DB` and `SCANNER_STREAM_CONSUMER`. Then run
    `docker compose up -d scanner`.
 5. Check the scanner log:
-   - `warm-up via store: ...`, not `ibkr` (if `ibkr`, the reason is on the same
-     line);
+   - `warm-up via store: ...`. If you see `warm-up: ...; scanner not started,
+     retrying in 30s` instead, the reason is on the same line (usually the
+     recorder is behind or the store is still too thin);
    - `scanning XAUUSD from stream bars.xauusd.1m (group scanner, consumer ...)`;
    - after the first-start backlog summary, no `out_of_order` or `conflict`
      lines.
@@ -284,8 +304,8 @@ pins this. So:
   - a gap logged;
   - one alert journaled as epoch 2, `stream`;
   - a restart with nothing redelivered and no duplicate alert;
-  - a missing store with a failing IBKR fallback: exit 1 after the backoff;
+  - a missing store with a failing IBKR fallback: exit 1 after the backoff
+    (this was the build before item 4 removed the fallback);
   - Redis down: exit 1 after the backoff;
   - a bad `SCANNER_BAR_SOURCE`: exit 1.
-- **Not tested:** no IBKR gateway (the fallback was only tested failing), no
-  Telegram, no Docker build.
+- **Not tested:** no IBKR gateway, no Telegram, no Docker build.

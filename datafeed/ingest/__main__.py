@@ -5,8 +5,10 @@
 
     --stdout   print messages as JSON lines instead of publishing (no Redis)
 
-The ibkr source reads IB_HOST / IB_PORT / IB_CLIENT_ID and must only ever
-point at a local paper gateway. Exit status is non-zero on any fatal error
+The ibkr source reads IB_HOST / IB_PORT / IB_CLIENT_ID. In development and
+tests point it only at a local paper gateway. In production with the scanner in
+stream mode it is the ONLY client of the production gateway (the scanner never
+connects); see datafeed/README.md. Exit status is non-zero on any fatal error
 (crash-only: the container restarts the process).
 """
 

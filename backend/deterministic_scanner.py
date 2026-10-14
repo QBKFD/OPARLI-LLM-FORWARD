@@ -24,7 +24,8 @@ Live bar source: SCANNER_BAR_SOURCE=ibkr (default) | stream.
   ibkr    this process's own IBKR connection (run_live). Unchanged; it is the
           rollback.
   stream  the datafeed stream bars.xauusd.1m via datafeed.bus, consumer group
-          "scanner" (run_live_stream). Needs REDIS_URL.
+          "scanner" (run_live_stream). Needs REDIS_URL and DATAFEED_DB. Never
+          connects to IBKR: the datafeed feed is the only gateway client.
 """
 from __future__ import annotations
 
@@ -758,6 +759,7 @@ WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
 WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's market-open minutes
 WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
 STREAM_STALE_MIN = 10            # no new live bar for this many market-open minutes -> one Telegram alert
+STORE_RETRY_S = 30               # unusable store at start: check it again this often
 
 
 def bar_source(env=os.environ) -> str:
@@ -808,51 +810,71 @@ def _store_bars(now, start, db, symbol, kinds) -> pd.DataFrame:
     return df
 
 
-def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
-                  ibkr_history=None):
-    """Bars that warm LiveLevels before the stream takes over. Returns
-    (hist, path, detail); hist has open/high/low/close, only _valid_bar rows.
+class StoreNotReady(Exception):
+    """The datafeed store can't warm the scanner yet (missing, too thin or stale)."""
 
-    path "store": datafeed.store.query.bars_before over [warmup_start(now), now)
-        (one bar per minute: live preferred, history as fallback). Used when it
-        holds >= WARMUP_MIN_COVERAGE of that window's market-open minutes and
-        its newest bar ended <= WARMUP_MAX_STALE_MIN market-open minutes ago.
-    path "ibkr": otherwise ibkr_history() (run_live's IBKR history load),
-        minus the still-forming minute, as the store read never returns it.
-        Its exceptions propagate (the caller takes the crash-only exit)."""
+
+def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history")):
+    """Bars that warm LiveLevels before the stream takes over, from the datafeed
+    store only: stream mode never opens an IBKR connection. Returns
+    (hist, detail); hist has open/high/low/close, only _valid_bar rows.
+
+    Reads datafeed.store.query.bars_before over [warmup_start(now), now) (one bar
+    per minute: live preferred, history as fallback). Raises StoreNotReady unless
+    it holds >= WARMUP_MIN_COVERAGE of that window's market-open minutes and its
+    newest bar ended <= WARMUP_MAX_STALE_MIN market-open minutes ago."""
     now = _utc(now)
     start = warmup_start(now)
-    cols = ["open", "high", "low", "close"]
     try:
         df = _store_bars(now, start, db, symbol, kinds)
     except Exception as e:
-        reason = f"store unavailable ({e!r})"
-    else:
-        df = _only_valid(df)
-        expected = len(_open_minutes(start, now))
-        cov = len(df) / expected if expected else 0.0
-        if df.empty:
-            reason = f"store has no bars since {start}"
-        elif cov < WARMUP_MIN_COVERAGE:
-            reason = (f"store too thin: {len(df)} bars = {cov:.1%} of {expected} market-open "
-                      f"minutes since {start} (< {WARMUP_MIN_COVERAGE:.0%})")
-        else:
-            stale = len(_open_minutes(df.index[-1] + pd.Timedelta(minutes=1), now))
-            if stale > WARMUP_MAX_STALE_MIN:
-                reason = (f"store stale: newest bar {df.index[-1]} ended {stale} market-open "
-                          f"minutes before now (> {WARMUP_MAX_STALE_MIN})")
-            else:
-                kinds_n = ", ".join(f"{k} {n}" for k, n in df["kind"].value_counts().sort_index().items())
-                return df[cols], "store", (f"store: {len(df)} bars ({kinds_n}) {df.index[0]} .. "
-                                           f"{df.index[-1]}, {cov:.1%} of market-open minutes, "
-                                           f"newest bar {stale} market-open min old")
-    if ibkr_history is None:
-        raise RuntimeError(f"{reason}; no IBKR fallback configured")
-    hist = ibkr_history()
-    hist = hist[hist.index < now.floor("min")]
-    hist = _only_valid(hist)
-    span = f"{hist.index[0]} .. {hist.index[-1]}" if len(hist) else "empty"
-    return hist[cols], "ibkr", f"{reason}; IBKR history instead: {len(hist)} bars {span}"
+        raise StoreNotReady(f"store unavailable ({e!r})") from e
+    df = _only_valid(df)
+    expected = len(_open_minutes(start, now))
+    cov = len(df) / expected if expected else 0.0
+    if df.empty:
+        raise StoreNotReady(f"store has no bars since {start}")
+    if cov < WARMUP_MIN_COVERAGE:
+        raise StoreNotReady(f"store too thin: {len(df)} bars = {cov:.1%} of {expected} market-open "
+                            f"minutes since {start} (< {WARMUP_MIN_COVERAGE:.0%})")
+    stale = len(_open_minutes(df.index[-1] + pd.Timedelta(minutes=1), now))
+    if stale > WARMUP_MAX_STALE_MIN:
+        raise StoreNotReady(f"store stale: newest bar {df.index[-1]} ended {stale} market-open "
+                            f"minutes before now (> {WARMUP_MAX_STALE_MIN})")
+    kinds_n = ", ".join(f"{k} {n}" for k, n in df["kind"].value_counts().sort_index().items())
+    return df[["open", "high", "low", "close"]], (
+        f"store: {len(df)} bars ({kinds_n}) {df.index[0]} .. {df.index[-1]}, "
+        f"{cov:.1%} of market-open minutes, newest bar {stale} market-open min old")
+
+
+def wait_for_store(notify, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
+                   clock=lambda: pd.Timestamp.now(tz="UTC"), sleep=None,
+                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print):
+    """stream_warmup, retried every retry_s until the store is usable. Returns
+    (hist, now, detail), where now is the moment of the successful read.
+
+    One notify() message once the store has been unusable for `n` market-open
+    minutes since the wait began (weekends and the daily break don't count),
+    and one more when it becomes usable after that message."""
+    import time as _time
+    sleep = sleep or _time.sleep
+    began, warned = _utc(clock()), False
+    while True:
+        now = _utc(clock())
+        try:
+            hist, detail = stream_warmup(now, db=db, symbol=symbol, kinds=kinds)
+        except StoreNotReady as e:
+            waited = len(_open_minutes(began, now))
+            log(f"warm-up: {e}; scanner not started, retrying in {retry_s:g}s", flush=True)
+            if not warned and waited >= n:
+                notify(f"scanner: datafeed store unusable for {waited} market-open minutes "
+                       f"({e}) - scanner not started, check the datafeed")
+                warned = True
+            sleep(retry_s)
+            continue
+        if warned:
+            notify(f"scanner: datafeed store usable again, scanner starting ({detail})")
+        return hist, now, detail
 
 
 class StreamStaleness:
@@ -1061,36 +1083,29 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     """Live path fed by the datafeed stream. Same journal, Telegram, replies and
     sweeps as run_live; dry=True prints alerts instead of sending them.
 
-    Crash-only like run_live: a failing bus (Redis down) backs off and exits so
-    Docker restarts a clean cold start."""
+    Never connects to IBKR: the datafeed feed is the only gateway client. The
+    warm-up comes from the datafeed store; while it is unusable the scanner
+    waits (wait_for_store). Crash-only like run_live: a failing bus (Redis down)
+    backs off and exits so Docker restarts a clean cold start."""
     import threading
     import time as _time
     from datafeed.bus import RedisStreamBus
     from datafeed.ingest.xauusd_bars import STREAM
 
-    host = env.get("IB_HOST", "127.0.0.1")
-    port = int(env.get("IB_PORT", "7497"))
-    client_id = int(env.get("IB_CLIENT_ID", "11"))
     consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
     lock = threading.Lock()
 
-    # warm-up: the datafeed store first, IBKR history (separate short-lived
-    # connection, distinct clientId, as in run_live) if the store is unusable.
-    # A failed fallback takes the crash-only exit.
-    now = pd.Timestamp.now(tz="UTC")
-    try:
-        hist, path, detail = stream_warmup(
-            now, db=env.get("DATAFEED_DB"), symbol=symbol,
-            ibkr_history=lambda: _load_recent_history(symbol, days=10, host=host, port=port,
-                                                      client_id=client_id + 10))
-    except Exception as e:
-        print(f"warm-up failed ({e!r}); backing off then exiting for restart", flush=True)
-        _time.sleep(RECONNECT_BACKOFF_S)
-        raise SystemExit(1)
-    print(f"warm-up via {path}: {detail}", flush=True)
+    def notify(text):
+        if dry:
+            print("FEED   " + text, flush=True)
+        else:
+            _send_quietly(tg, text)
+
+    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol)
+    print(f"warm-up via {detail}", flush=True)
     live = LiveLevels(hist, now)
 
     def on_alert(a):
@@ -1105,12 +1120,6 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
                 tg.send(format_alert(a))
             except Exception as e:  # a send failure must not stop the feed
                 print(f"telegram send failed for {a['alert_id']}: {e}")
-
-    def notify(text):
-        if dry:
-            print("FEED   " + text, flush=True)
-        else:
-            _send_quietly(tg, text)
 
     feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, on_alert,
                       lock=lock, last_bar_ts=hist.index.max() if len(hist) else None,
@@ -1353,7 +1362,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="UTC day to replay, e.g. 2025-06-16")
     ap.add_argument("--db", default=None, help="write alerts+counterfactuals to this sqlite file")
-    ap.add_argument("--live", action="store_true", help="run live + Telegram; bars from SCANNER_BAR_SOURCE (ibkr: needs TWS; stream: needs REDIS_URL)")
+    ap.add_argument("--live", action="store_true", help="run live + Telegram; bars from SCANNER_BAR_SOURCE (ibkr: needs TWS; stream: needs REDIS_URL + DATAFEED_DB)")
     ap.add_argument("--dry-live", action="store_true", help="run live but print alerts to terminal (no Telegram)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()

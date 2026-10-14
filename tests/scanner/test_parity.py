@@ -32,8 +32,8 @@ Added after the first run, because 2025-11-02 has no bars at all in the parquet
 The stream-mode scanner comes online right after the newest bar before the
 day (at its end, bar_ts + 1 min): D 00:00 midweek, Friday 21:00 for a Monday.
 Starting at D 00:00 on 2025-11-03 would find the store "stale" (the parquet
-lacks Sunday 23:00-23:59) and take the IBKR fallback, which isn't available
-offline; that rule is covered by test_warmup.py.
+lacks Sunday 23:00-23:59), and the scanner would wait for the store
+(wait_for_store) instead of starting; that rule is covered by test_warmup.py.
 """
 
 from pathlib import Path
@@ -74,7 +74,8 @@ def _first_bar_after(t):
 
 
 def stream_day(day: str, bus, tmp_path):
-    """Run one day through the stream-mode path. Returns (alerts of that day, feed, warm-up path)."""
+    """Run one day through the stream-mode path. Returns (alerts of that day, feed, warm-up detail).
+    The warm-up raises StoreNotReady unless the store is usable."""
     d = pd.Timestamp(day, tz="UTC")
     now = _last_bar_before(d) + pd.Timedelta(minutes=1)        # the scanner comes online
     start = ds.warmup_start(now)
@@ -84,7 +85,7 @@ def stream_day(day: str, bus, tmp_path):
     store = str(tmp_path / "store.sqlite")
     Recorder(bus, schema.connect(store), STREAM, block_ms=None, sleep=lambda s: None).run(
         stop_when_idle=True)
-    hist, path, detail = ds.stream_warmup(now, db=store, kinds=("replay",))
+    hist, detail = ds.stream_warmup(now, db=store, kinds=("replay",))
     live = ds.LiveLevels(hist, now)
     con = ds.open_log(tmp_path / "journal.sqlite")
     got = []
@@ -104,7 +105,7 @@ def stream_day(day: str, bus, tmp_path):
         lambda m: bus.publish(STREAM, m))
     while feed.step():
         pass
-    return [a for a in got if a["alert_ts_utc"][:10] == day], feed, path
+    return [a for a in got if a["alert_ts_utc"][:10] == day], feed, detail
 
 
 _runs: dict = {}
@@ -142,8 +143,8 @@ def _continuous(day):
 def test_stream_mode_matches_continuous_replay(day, kind, tmp_path_factory):
     """THE parity requirement: stream mode == continuous replay, exactly."""
     want = [a for a in _continuous(day) if a["alert_ts_utc"][:10] == day]
-    got, feed, path = _run(day, kind, tmp_path_factory)
-    assert path == "store"
+    got, feed, detail = _run(day, kind, tmp_path_factory)
+    assert detail.startswith("store: ")
     assert feed.stats["live_bars"] > 0 and feed.stats["out_of_order"] == 0
     assert feed.stats["conflict"] == 0 and feed.stats["invalid_bars"] == 0
     assert got == want, _diff(_key(want), _key(got))
