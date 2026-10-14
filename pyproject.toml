@@ -1,0 +1,36 @@
+# Packaging for the root-level `datafeed` package only. Flat layout: the repo
+# root also holds backend/, research/, scripts/, deploy/ and tests/, which are
+# not part of this distribution, so package discovery is explicit.
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datafeed"
+version = "0.1.0"
+description = "XAUUSD 1-min bar feed: IBKR ingest, Redis stream bus, point-in-time SQLite store"
+# The backend venv runs 3.13; the scanner image runs python:3.12-slim. Allow
+# both so the scanner can later import this package inside its own image.
+requires-python = ">=3.12"
+dependencies = ["tzdata==2025.3"]  # zoneinfo data for _market_open (slim images ship none); bus, store, query are otherwise stdlib only
+
+[project.optional-dependencies]
+# Pinned to the versions the scanner image and backend venv already use.
+feed = ["ib_insync==0.9.86", "redis==5.2.1"]
+# Replay source reads the historical parquet.
+replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0"]
+dev = ["pytest==9.1.1"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["datafeed*"]
+
+[tool.pytest.ini_options]
+# A bare `pytest` at the root collects the research suites and the datafeed
+# tests only. The old agent tests in tests/ (outside tests/datafeed) are not
+# collected; run them explicitly with `pytest tests/test_*.py`.
+testpaths = ["research", "tests/datafeed"]
+markers = [
+    "ibkr: needs a live IBKR gateway; manual only, skipped by default",
+    "redis: needs a reachable Redis server; skipped when unavailable",
+]
