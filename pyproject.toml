@@ -1,6 +1,7 @@
-# Packaging for the root-level `datafeed` package only. Flat layout: the repo
-# root also holds backend/, research/, tools/, legacy/, deploy/ and tests/,
-# which are not part of this distribution, so package discovery is explicit.
+# Packaging for the root-level `datafeed` and `agents` packages only. Flat
+# layout: the repo root also holds backend/, research/, tools/, legacy/,
+# deploy/ and tests/, which are not part of this distribution, so package
+# discovery is explicit.
 [build-system]
 requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
@@ -19,19 +20,35 @@ dependencies = ["tzdata==2025.3"]  # zoneinfo data for _market_open (slim images
 feed = ["ib_insync==0.9.86", "redis==5.2.1"]
 # Replay source reads the historical parquet.
 replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0"]
-dev = ["pytest==9.1.1"]
+dev = ["pytest==9.1.1", "pytest-timeout==2.4.0"]
+# The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
+# least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
+agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
+# Everything research/ imports (numpy, pandas, scipy, matplotlib, numba, pytest),
+# plus pyarrow for pandas' parquet I/O. Pinned to the old backend venv
+# (algo_project/backend/venv, Python 3.13.1), where the research baseline of
+# 80 passed was run.
+research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1", "matplotlib==3.10.8",
+            "numba==0.61.2", "pytest==9.1.1"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["datafeed*"]
+include = ["datafeed*", "agents*"]
+
+[tool.setuptools.package-data]
+agents = ["prompts/*.md", "config.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
 
 [tool.pytest.ini_options]
-# A bare `pytest` at the root collects research/ and tests/ only. legacy/ is
-# never collected: it is listed in norecursedirs (with pytest's own defaults),
-# so it is skipped even when a parent directory is collected.
-testpaths = ["research", "tests"]
+# A bare `pytest` at the root collects research/, tests/datafeed and
+# tests/agents_tests only. legacy/ is never collected: it is listed in
+# norecursedirs (with pytest's own defaults), so it is skipped even when a
+# parent directory is collected.
+testpaths = ["research", "tests/datafeed", "tests/agents_tests"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
+# pytest-timeout: fail any single test that runs longer than this (seconds).
+# The slowest test (one replayed parquet day through the graph) takes ~10 s.
+timeout = 120
 markers = [
     "ibkr: needs a live IBKR gateway; manual only, skipped by default",
     "redis: needs a reachable Redis server; skipped when unavailable",
