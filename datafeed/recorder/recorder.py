@@ -10,10 +10,12 @@ transaction, COMMIT, and only then ack. The two crash windows:
   ack                          insert_bar sees identical values -> "duplicate"
                                no-op, so nothing is doubled
 
-A message that fails validation can never succeed, so it is counted, logged
-and acked (otherwise it would be redelivered forever). A store error rolls
-the batch back, is counted, and the batch is retried after a pause. An ack
-error propagates: crash-only, the restart redelivers.
+A message that fails validation can never succeed, so it is written to
+rejected_messages (stage 'invalid') in the batch's own transaction, counted,
+logged and acked with the batch (otherwise it would be redelivered forever).
+If the batch rolls back, its rejection rows roll back with it. A store error
+rolls the batch back, is counted, and the batch is retried after a pause. An
+ack error propagates: crash-only, the restart redelivers.
 
 POISON MESSAGES
     A message that passes validation but makes the store write fail would
@@ -84,6 +86,8 @@ class Recorder:
                     raise ValueError(f"bar message missing {f}")
             ts = schema.canonical(d.msg["bar_ts"])
         except (ValueError, TypeError) as e:
+            schema.reject_message(self.con, self.stream, d.id, d.msg, repr(e), "invalid",
+                                  self._first_seen.get(d.id) or self.clock())
             log.error("recorder: rejected %s: %s", d.id, e)
             return "rejected", None
         return schema.insert_bar(self.con, d.msg), ts

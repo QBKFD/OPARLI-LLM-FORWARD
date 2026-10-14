@@ -411,7 +411,8 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Crash after COMMIT, before ack.** Redelivery, and identical values are a
     no-op, so no duplicate rows and no conflicts.
   - **Invalid message** (missing common or bar fields, bad timestamps). It can
-    never succeed, so it's logged, counted as `rejected` and acked.
+    never succeed, so it's logged, counted as `rejected` and acked. (Fix F
+    also stores it in `rejected_messages`.)
   - **Store error.** Rollback, `errors += 1`, pause 5 s; the batch is retried
     as pending.
   - **Ack error** propagates (crash-only).
@@ -531,6 +532,19 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     through as normal batches. A failing store (insert and reject both fail)
     records nothing, gives up on nothing and records everything once it
     recovers. `reject_message` is idempotent per stream id.
+
+- **Fix F: validation rejects are stored too** (owner request, 2026-10-14).
+  - **Rule.** A message that fails validation is written to
+    `rejected_messages` (stage `invalid`, `first_seen` = when the recorder
+    saw it) inside the batch's own transaction, then acked with the batch
+    after the COMMIT. Before, it was only logged and counted.
+  - **Atomic with the batch.** If the batch rolls back, the rejection row
+    rolls back with it and nothing is acked. A crash after the COMMIT but
+    before the ack redelivers the entry, and the second rejection is a no-op.
+  - **Tests.** Both invalid messages are stored with stage, error, raw JSON
+    and `first_seen`. A rolled-back batch leaves no rejection row; a crash
+    between COMMIT and ack leaves exactly one. Both tests fail without the
+    fix.
 
 ## Scanner bugs to fix at switch time (new journal epoch)
 

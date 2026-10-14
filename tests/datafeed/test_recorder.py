@@ -200,9 +200,46 @@ def test_invalid_message_rejected_and_acked(env):
     bus.publish(STREAM, good[0])
     bus.publish(STREAM, {k: v for k, v in good[1].items() if k != "source"})
     bus.publish(STREAM, dict(good[1], bar_ts="not a time"))
-    rec = recorder(bus, path)
+    rec = recorder(bus, path, clock=lambda: T0 + timedelta(minutes=5))
     rec.run(stop_when_idle=True)
     assert rec.stats["rejected"] == 2 and rec.stats["inserted"] == 1
+    assert bus.consume(STREAM, GROUP, "recorder-1") == []
+    got = rejected(path)
+    assert [(r["stream"], r["stage"], r["first_seen"]) for r in got] == [
+        (STREAM, "invalid", "2026-03-02T10:05:00+00:00")] * 2
+    assert "source" in got[0]["error"] and "not a time" in got[1]["error"]
+    assert json.loads(got[1]["raw"]) == dict(good[1], bar_ts="not a time")
+
+
+def test_invalid_message_row_shares_the_batch_transaction(env, monkeypatch):
+    bus, path = env
+    good = bars(3)
+    bad = {k: v for k, v in good[0].items() if k != "source"}
+    ids = [bus.publish(STREAM, m) for m in (bad, good[1], good[2])]
+    rec = recorder(bus, path)
+    real, fail = schema.insert_bar, {"left": 1}
+
+    def flaky(con, msg):                          # the batch fails after the reject row was written
+        if fail["left"]:
+            fail["left"] -= 1
+            raise RuntimeError("disk full")
+        return real(con, msg)
+    monkeypatch.setattr(schema, "insert_bar", flaky)
+    rec.step()
+    assert rejected(path) == [] and rows(path) == []      # rolled back together, nothing acked
+
+    def dying_ack(*a):
+        raise Crash()
+    bus_ack, bus.ack = bus.ack, dying_ack
+    with pytest.raises(Crash):
+        rec.step()                                # committed (reject row + 2 bars), not acked
+    rec.con.close()
+    bus.ack = bus_ack
+    assert [r["stream_id"] for r in rejected(path)] == [ids[0]] and len(rows(path)) == 2
+
+    rec2 = recorder(bus, path)                    # restart: redelivered, no second reject row
+    rec2.run(stop_when_idle=True)
+    assert [r["stream_id"] for r in rejected(path)] == [ids[0]] and len(rows(path)) == 2
     assert bus.consume(STREAM, GROUP, "recorder-1") == []
 
 
