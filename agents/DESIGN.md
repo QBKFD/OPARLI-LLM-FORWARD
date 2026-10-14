@@ -56,7 +56,7 @@ agents/
     schema.py             numbered migrations, connect() ($AGENTS_DB, its own SQLite)
     writer.py             save_snapshot(), save_run()
 tests/agents_tests/       (not tests/agents/: see step 4)
-  conftest.py             drops backend/ from sys.path (as tests/datafeed does); replay store fixture
+  conftest.py             replay store fixture; slow-exit watchdog
   agents_testkit.py       synthetic replay data through the datafeed replay path
   agents_fakes.py         FakeBull, FakeBear, raising/slow agents and debaters (tests only)
   test_*.py
@@ -65,14 +65,27 @@ tests/agents_tests/       (not tests/agents/: see step 4)
 The fake debaters live in `tests/agents_tests/agents_fakes.py`, so the package
 itself contains no fake decision code.
 
-### 0.2 Name collision: `backend/agents/`
+### 0.2 Name collision with the old `agents` package
 
-`backend/agents/` is a package (docs/REPO_MAP.md), and `tests/conftest.py` puts
-`backend/` at `sys.path[0]`. Under pytest, `import agents` could therefore load
-the old package. `tests/agents/conftest.py` removes `backend/` from the path,
-and a guard test asserts that `agents.__file__` is the repo-root package. The
-collision goes away once `backend/` moves, but the guard stays. (Step 4 found a
-second collision, with the test directory itself; see there.)
+**Current layout** (since main's cleanup, merged as 2b5d479):
+- The old agent code lives in `legacy/backend_v0/agents/`.
+- The old shared conftest lives in `legacy/tests_agents/conftest.py`.
+- `backend/` holds only the scanner (`deterministic_scanner.py`,
+  `services/`).
+- `legacy/` is never collected (`norecursedirs`) and never on `sys.path`.
+
+So `import agents` can only load the repo-root package. The guard test
+(`test_agents_package.py::test_agents_is_the_repo_root_package`) asserts that
+`agents.__file__` is the repo-root package, and it stays.
+
+**History.** Before the cleanup:
+- `backend/agents/` was a package too, and `tests/conftest.py` put `backend/`
+  at `sys.path[0]`, so under pytest `import agents` could have loaded the old
+  code.
+- The agents test conftest removed `backend/` from the path. That code was
+  deleted once it was dead (see "Layout after the cleanup merge").
+- Step 4 found a second collision, with the test directory itself; see
+  there.
 
 ### 0.3 Snapshot: what was knowable at t
 
@@ -457,8 +470,9 @@ details:
   - datetimes as UTC `+00:00`;
   - tuples become lists;
   - anything else (sets, bytes, naive datetimes, non-str keys) raises.
-- **Tests:** `tests/agents/conftest.py` takes `backend/` off `sys.path`.
-  `testpaths` gains `tests/agents`. `test_schemas.py`: 23 passed.
+- **Tests:** `tests/agents/conftest.py` takes `backend/` off `sys.path`
+  (later removed: after the cleanup merge nothing puts `backend/` there; see
+  0.2). `testpaths` gains `tests/agents`. `test_schemas.py`: 23 passed.
 
 ### Step 3: snapshot builder
 
@@ -562,6 +576,10 @@ details:
     share one module namespace: `from conftest import …` was fragile too.
   - `test_agents_package.py` asserts that `agents.__file__` is the repo-root
     package.
+  - Current layout: since the cleanup merge (2b5d479), `tests/conftest.py`
+    is `legacy/tests_agents/conftest.py`, so pytest no longer puts `tests/`
+    on `sys.path`. The rename stays as a safeguard, so the shadow can't
+    return if a `tests/conftest.py` is added again.
 - **Boundary tests** (`test_agents_package.py`):
   - `agents/` imports nothing from backend, legacy, services, ib_insync, redis,
     psycopg2 or any LLM SDK;
@@ -1008,3 +1026,35 @@ must show research 80 passed with the baseline per-suite counts.
   - datafeed: 84 passed, 7 skipped (the merged `feat/datafeed-v1` @
     5f285d3).
   - agents: 229 passed.
+
+### Layout after the cleanup merge
+
+Owner: tidy the comments to the current layout (the backend/ agent code now
+lives in legacy/). Keep the guard test. Remove the backend/ path-stripping
+code only if the guard test still passes without it.
+
+- **Current layout.** `main`'s cleanup (01244b9, merged as 2b5d479) moved:
+  - `backend/agents/` → `legacy/backend_v0/agents/`;
+  - `tests/conftest.py` → `legacy/tests_agents/conftest.py`.
+
+  `backend/` now holds only the scanner. `legacy/` is in `norecursedirs`.
+- **Checked before removing anything.** A probe test in a full run (research +
+  tests/datafeed + tests/agents_tests) printed:
+  - `sys.path` (repo entries): only the venv, `research/` and its study
+    directories, `tests/agents_tests` and `tests/datafeed`. No `backend/`, no
+    `tests/`, no `legacy/`.
+  - `agents.__file__` = `<repo>/agents/__init__.py`.
+  - No module loaded from `legacy/` or `backend/`.
+- **Removed:** the `backend/` path-stripping lines in
+  `tests/agents_tests/conftest.py`. They had nothing left to strip.
+- **Kept:**
+  - the guard test, which passes on its own and in the full run;
+  - the `tests/agents_tests` name and the unique helper module names.
+- **Comments updated:** the docstring of `tests/agents_tests/conftest.py`; the
+  layout listing and section 0.2 here (rewritten for the current layout, with
+  the history kept); the step 2 and step 4 notes (annotated, not rewritten).
+- **Not touched:** `tests/datafeed/conftest.py` has the same now-dead
+  `backend/` stripping, and `tests/datafeed/test_package.py` asserts that no
+  `backend` path is on `sys.path`. Both belong to datafeed and are outside
+  this change.
+

@@ -1,25 +1,30 @@
-"""tests/agents_tests runs under tests/, so pytest also loads tests/conftest.py,
-which puts backend/ first on sys.path for the old tests. backend/agents/ is a
-package too, so `import agents` could load the old code. Take backend/ off the
-path, as tests/datafeed does. test_agents_package.py checks which `agents`
-package was loaded.
+"""Shared fixtures for the agents tests: the synthetic replay store, and a
+watchdog for slow interpreter exits.
 
-Naming. This directory is NOT called tests/agents: pytest's default import mode
-puts tests/ on sys.path (because of tests/conftest.py), and a tests/agents/
-directory then shadows the real package as a namespace package `agents`.
-Helper modules have unique names (agents_testkit, agents_fakes) for the same
-reason: every test directory shares one module namespace."""
+Layout notes:
+- The old agent code, formerly backend/agents/ (also a package named
+  `agents`), now lives in legacy/backend_v0/agents/. legacy/ is never
+  collected (norecursedirs in pyproject.toml) and never on sys.path, so
+  `import agents` can only load the repo-root package.
+  test_agents_package.py::test_agents_is_the_repo_root_package checks this on
+  every run.
+- This directory is tests/agents_tests, not tests/agents. While
+  tests/conftest.py existed (now legacy/tests_agents/conftest.py), pytest put
+  tests/ on sys.path, and a tests/agents/ directory shadowed the real package
+  as a namespace package. The name stays, so the shadow can't return if a
+  tests/conftest.py is added again.
+- pytest's default import mode puts each test directory (no __init__.py) on
+  sys.path, so all test directories share one module namespace. Helper modules
+  therefore have unique names (agents_testkit, agents_fakes), and test module
+  names must not clash with tests/datafeed (no test_package.py, test_store.py
+  or test_end_to_end.py here)."""
 
 import faulthandler
 import sys
-from pathlib import Path
 
 import pytest
 
-_BACKEND = str(Path(__file__).resolve().parents[2] / "backend")
-sys.path[:] = [p for p in sys.path if p != _BACKEND]
-
-from agents_testkit import make_replay_db  # noqa: E402
+from agents_testkit import make_replay_db
 
 
 # Slow-exit watchdog. Once, a run printed its summary and then took over 3 min
