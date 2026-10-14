@@ -56,3 +56,17 @@ markers = [
     "ibkr: needs a live IBKR gateway; manual only, skipped by default",
     "redis: needs a reachable Redis server; skipped when unavailable",
 ]
+
+[tool.ruff]
+# CI (.github/workflows/ci.yml) runs ruff twice: errors only (E9, F63, F7, F82)
+# on the whole repo, and the default rules on the maintained packages (agents,
+# risk, tools, datafeed). legacy/ is never linted.
+extend-exclude = ["legacy"]
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# `frames` is deleted (del frames) only after the last call of the closure that
+# appends to it, so F821 is a static false positive there, not a runtime bug.
+# The study's code is left as it was run.
+"research/levels/run_levels.py" = ["F821"]
+
