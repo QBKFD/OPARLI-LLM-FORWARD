@@ -260,6 +260,17 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
 
 
 # ── Append-only SQLite log ─────────────────────────────────────────────────
+# Journal epochs. An epoch is one measurement regime of the TAKE-vs-SKIP
+# experiment; analysis must not pool epochs without saying so. Epoch 1 is every
+# row written before the epoch migration (all from the IBKR live path) and what
+# the ibkr bar source keeps writing; the stream bar source writes epoch 2.
+# Alert ids are numbered per day from the bars, so two epochs can reuse an id on
+# a switch day: every child row (decision, outcome, counterfactual) carries the
+# epoch of its alert, and joins use (alert_id, epoch).
+JOURNAL_EPOCHS = {"ibkr": 1, "stream": 2}
+JOURNAL_VERSION = 1              # PRAGMA user_version once the epoch columns exist
+
+
 def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
     con = sqlite3.connect(str(path), check_same_thread=check_same_thread)
     con.executescript("""
@@ -276,19 +287,42 @@ def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
         alert_id TEXT, fwd_high_1h REAL, fwd_low_1h REAL, mfe_up_1h REAL, mfe_dn_1h REAL,
         fwd_high_4h REAL, fwd_low_4h REAL, mfe_up_4h REAL, mfe_dn_4h REAL, computed_ts_utc REAL);
     """)
+    _migrate_journal(con)
     return con
 
 
-def insert_alert(con, a: dict):
-    con.execute("INSERT INTO alerts VALUES(?,?,?,?,?,?,?,datetime('now'))",
+def _migrate_journal(con) -> None:
+    """Version 1: epoch on every table, bar_source on alerts. Existing rows get
+    epoch 1 and bar_source 'ibkr' (the column defaults). One transaction, and a
+    no-op once PRAGMA user_version says it ran. Code from before this migration
+    can't write to a migrated journal (its INSERTs are positional), so roll back
+    by switching SCANNER_BAR_SOURCE, not by an older image."""
+    if con.execute("PRAGMA user_version").fetchone()[0] >= JOURNAL_VERSION:
+        return
+    have = {t: {r[1] for r in con.execute(f"PRAGMA table_info({t})")}
+            for t in ("alerts", "decisions", "outcomes", "counterfactuals")}
+    ddl = [f"ALTER TABLE {t} ADD COLUMN epoch INTEGER NOT NULL DEFAULT {JOURNAL_EPOCHS['ibkr']}"
+           for t, cols in have.items() if "epoch" not in cols]
+    if "bar_source" not in have["alerts"]:
+        ddl.append("ALTER TABLE alerts ADD COLUMN bar_source TEXT NOT NULL DEFAULT 'ibkr'")
+    con.executescript("BEGIN; " + "; ".join(ddl + [f"PRAGMA user_version = {JOURNAL_VERSION}"])
+                      + "; COMMIT;")
+
+
+def insert_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["ibkr"], bar_source: str = "ibkr"):
+    con.execute("INSERT INTO alerts (alert_id, alert_ts_utc, level_types, level_price, "
+                "price_at_alert, session, confluence_count, inserted_ts_utc, epoch, bar_source) "
+                "VALUES(?,?,?,?,?,?,?,datetime('now'),?,?)",
                 (a["alert_id"], a["alert_ts_utc"], a["level_types"], a["level_price"],
-                 a["price_at_alert"], a["session"], a["confluence_count"]))
+                 a["price_at_alert"], a["session"], a["confluence_count"], epoch, bar_source))
 
 
-def insert_counterfactual(con, alert_id: str, cf: dict):
-    con.execute("INSERT INTO counterfactuals VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))",
+def insert_counterfactual(con, alert_id: str, cf: dict, epoch: int = JOURNAL_EPOCHS["ibkr"]):
+    con.execute("INSERT INTO counterfactuals (alert_id, fwd_high_1h, fwd_low_1h, mfe_up_1h, "
+                "mfe_dn_1h, fwd_high_4h, fwd_low_4h, mfe_up_4h, mfe_dn_4h, computed_ts_utc, epoch) "
+                "VALUES(?,?,?,?,?,?,?,?,?,datetime('now'),?)",
                 (alert_id, cf["fwd_high_1h"], cf["fwd_low_1h"], cf["mfe_up_1h"], cf["mfe_dn_1h"],
-                 cf["fwd_high_4h"], cf["fwd_low_4h"], cf["mfe_up_4h"], cf["mfe_dn_4h"]))
+                 cf["fwd_high_4h"], cf["fwd_low_4h"], cf["mfe_up_4h"], cf["mfe_dn_4h"], epoch))
 
 
 def _utc(ts) -> pd.Timestamp:
@@ -297,28 +331,48 @@ def _utc(ts) -> pd.Timestamp:
     return t.tz_localize("UTC") if t.tz is None else t.tz_convert("UTC")
 
 
+def _alert_epoch(con, alert_id, alert_ts=None) -> int:
+    """Epoch of the alert row (newest one if the id exists in several epochs)."""
+    sql, args = "SELECT epoch FROM alerts WHERE alert_id=?", [alert_id]
+    if alert_ts is not None:
+        sql += " AND alert_ts_utc=?"
+        args.append(str(alert_ts))
+    row = con.execute(sql + " ORDER BY rowid DESC LIMIT 1", args).fetchone()
+    return row[0] if row else JOURNAL_EPOCHS["ibkr"]
+
+
 def record_decision(con, alert_id, decision, decision_ts, alert_ts, direction=None,
-                    entry=None, stop=None, target=None, reasoning="", source="telegram"):
+                    entry=None, stop=None, target=None, reasoning="", source="telegram",
+                    epoch: int | None = None):
     """Append a decision. reasoning_ts == decision_ts, which is the proof that the
-    reasoning was recorded at decision time, not reconstructed with hindsight."""
+    reasoning was recorded at decision time, not reconstructed with hindsight.
+    epoch: the decided alert's epoch; None looks it up from (alert_id, alert_ts)."""
+    if epoch is None:
+        epoch = _alert_epoch(con, alert_id, alert_ts)
     mins = (_utc(decision_ts) - _utc(alert_ts)).total_seconds() / 60
-    con.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT INTO decisions (alert_id, decision, decision_ts_utc, minutes_from_alert, "
+                "direction, entry, stop, target, reasoning, reasoning_ts_utc, source, epoch) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (alert_id, decision, str(decision_ts), round(mins, 2), direction,
-                 entry, stop, target, reasoning, str(decision_ts), source))
+                 entry, stop, target, reasoning, str(decision_ts), source, epoch))
     con.commit()
 
 
-def record_outcome(con, alert_id, exit_price, r_multiple, exit_type):
-    con.execute("INSERT INTO outcomes VALUES(?,?,?,?,datetime('now'))",
-                (alert_id, exit_price, r_multiple, exit_type))
+def record_outcome(con, alert_id, exit_price, r_multiple, exit_type, epoch: int | None = None):
+    if epoch is None:
+        epoch = _alert_epoch(con, alert_id)
+    con.execute("INSERT INTO outcomes (alert_id, exit_price, r_multiple, exit_type, "
+                "filled_ts_utc, epoch) VALUES(?,?,?,?,datetime('now'),?)",
+                (alert_id, exit_price, r_multiple, exit_type, epoch))
     con.commit()
 
 
 def undecided_alerts(con):
-    """alert rows that have no decision row yet, with their alert timestamp."""
+    """(alert_id, alert_ts, epoch) of alert rows with no decision row in their epoch."""
     return con.execute(
-        "SELECT a.alert_id, a.alert_ts_utc FROM alerts a "
-        "LEFT JOIN decisions d ON a.alert_id = d.alert_id WHERE d.alert_id IS NULL"
+        "SELECT a.alert_id, a.alert_ts_utc, a.epoch FROM alerts a "
+        "LEFT JOIN decisions d ON a.alert_id = d.alert_id AND a.epoch = d.epoch "
+        "WHERE d.alert_id IS NULL"
     ).fetchall()
 
 
@@ -327,10 +381,11 @@ def sweep_auto_missed(con, now_utc) -> int:
     it is excluded from the TAKE-vs-SKIP comparison rather than polluting it."""
     now = _utc(now_utc)
     n = 0
-    for alert_id, alert_ts in undecided_alerts(con):
+    for alert_id, alert_ts, epoch in undecided_alerts(con):
         if (now - _utc(alert_ts)).total_seconds() >= MISSED_AFTER_H * 3600:
             record_decision(con, alert_id, "MISSED", now, alert_ts,
-                            reasoning=f"auto: no reply within {MISSED_AFTER_H}h", source="auto")
+                            reasoning=f"auto: no reply within {MISSED_AFTER_H}h", source="auto",
+                            epoch=epoch)
             n += 1
     return n
 
@@ -338,11 +393,13 @@ def sweep_auto_missed(con, now_utc) -> int:
 def alerts_needing_counterfactual(con, now_utc):
     """Alerts old enough that a full 4h forward window exists but with no
     counterfactual row yet — the SKIP/MISSED 'what would have happened' data
-    can't be computed at alert time, only once the future bars arrive."""
+    can't be computed at alert time, only once the future bars arrive.
+    Rows are (alert_id, alert_ts, price_at_alert, epoch)."""
     now = _utc(now_utc)
     rows = con.execute(
-        "SELECT a.alert_id, a.alert_ts_utc, a.price_at_alert FROM alerts a "
-        "LEFT JOIN counterfactuals cf ON a.alert_id = cf.alert_id WHERE cf.alert_id IS NULL"
+        "SELECT a.alert_id, a.alert_ts_utc, a.price_at_alert, a.epoch FROM alerts a "
+        "LEFT JOIN counterfactuals cf ON a.alert_id = cf.alert_id AND a.epoch = cf.epoch "
+        "WHERE cf.alert_id IS NULL"
     ).fetchall()
     horizon = max(CF_HORIZONS.values())
     return [r for r in rows if (now - _utc(r[1])).total_seconds() >= horizon * 60]
@@ -352,9 +409,9 @@ def sweep_counterfactuals(con, df, now_utc) -> int:
     """Fill forward MFE/MAE for alerts whose 4h window has elapsed, from the
     accumulated live bar frame. Runs live so the experiment data is captured."""
     n = 0
-    for alert_id, alert_ts, price in alerts_needing_counterfactual(con, now_utc):
+    for alert_id, alert_ts, price, epoch in alerts_needing_counterfactual(con, now_utc):
         cf = counterfactual(df, alert_ts, price)
-        insert_counterfactual(con, alert_id, cf)
+        insert_counterfactual(con, alert_id, cf, epoch=epoch)
         n += 1
     if n:
         con.commit()
@@ -470,7 +527,7 @@ def replay_day(date: str, con=None) -> pd.DataFrame:
     for a in alerts:
         cf = counterfactual(df, a["alert_ts_utc"], a["price_at_alert"])
         if con is not None:
-            insert_alert(con, a)
+            insert_alert(con, a, bar_source="parquet")
             insert_counterfactual(con, a["alert_id"], cf)
         rows.append({**a, **{k: v for k, v in cf.items() if k != "alert_id"}})
     if con is not None:
@@ -688,8 +745,6 @@ BAR_SOURCES = ("ibkr", "stream")
 STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
 STREAM_BATCH = 500               # entries per consume call
 STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
-
-
 WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
 WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's market-open minutes
 WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
@@ -959,32 +1014,37 @@ class StreamFeed:
         return kind
 
 
-def _journal_new_alert(con, a: dict) -> bool:
-    """Insert the alert unless this exact alert is already journaled, which
-    happens when a bar is redelivered after a crash between the journal commit
-    and the ack. Returns True if it was inserted (and so should be sent)."""
-    if con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=?",
-                   (a["alert_id"], a["alert_ts_utc"], a["level_types"])).fetchone():
+def _journal_new_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["stream"],
+                       bar_source: str = "stream") -> bool:
+    """Insert the alert unless this exact alert is already journaled in this
+    epoch, which happens when a bar is redelivered after a crash between the
+    journal commit and the ack. Returns True if it was inserted (and so should
+    be sent)."""
+    if con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=? "
+                   "AND epoch=?", (a["alert_id"], a["alert_ts_utc"], a["level_types"],
+                                   epoch)).fetchone():
         return False
-    insert_alert(con, a)
+    insert_alert(con, a, epoch=epoch, bar_source=bar_source)
     con.commit()
     return True
 
 
-def _handle_reply(con, lock, tg, text: str):
-    """One Telegram reply -> decision row (same handling as run_live's loop)."""
+def _handle_reply(con, lock, tg, text: str, epoch: int = JOURNAL_EPOCHS["stream"]):
+    """One Telegram reply -> decision row (same handling as run_live's loop).
+    An id that exists in several epochs (a switch day) means this epoch's alert."""
     r = parse_reply(text)
     if not r:
         return
     with lock:
-        row = con.execute("SELECT alert_ts_utc FROM alerts WHERE alert_id=?",
-                          (r["alert_id"],)).fetchone()
+        row = con.execute("SELECT alert_ts_utc, epoch FROM alerts WHERE alert_id=? "
+                          "ORDER BY epoch = ? DESC, rowid DESC LIMIT 1",
+                          (r["alert_id"], epoch)).fetchone()
         if not row:
             _send_quietly(tg, f"unknown alert_id {r['alert_id']}")
             return
         record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
                         row[0], r.get("direction"), r.get("entry"), r.get("stop"),
-                        r.get("target"), r.get("reasoning"))
+                        r.get("target"), r.get("reasoning"), epoch=row[1])
         _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
 
 
@@ -1219,6 +1279,46 @@ def selftest():
     if ok != {"2026-09-28 10:00": True, "2026-09-28 10:01": False, "2026-09-28 10:02": False,
               "2026-09-27 18:07": False, "2026-07-14 21:30": False}:
         fails.append(f"live bar filter: {ok}")
+
+    # 12) journal epoch migration: a pre-migration journal (old DDL, old
+    #     positional INSERTs) keeps its rows as epoch 1 / bar_source ibkr; stream
+    #     rows are epoch 2; an alert id reused by both epochs stays two alerts
+    jp = Path(tempfile.mkdtemp()) / "old.sqlite"
+    old = sqlite3.connect(str(jp))
+    old.executescript("""
+      CREATE TABLE alerts(alert_id TEXT, alert_ts_utc TEXT, level_types TEXT, level_price REAL,
+        price_at_alert REAL, session TEXT, confluence_count INTEGER, inserted_ts_utc TEXT);
+      CREATE TABLE decisions(alert_id TEXT, decision TEXT, decision_ts_utc TEXT,
+        minutes_from_alert REAL, direction TEXT, entry REAL, stop REAL, target REAL,
+        reasoning TEXT, reasoning_ts_utc TEXT, source TEXT);
+      CREATE TABLE outcomes(alert_id TEXT, exit_price REAL, r_multiple REAL, exit_type TEXT,
+        filled_ts_utc TEXT);
+      CREATE TABLE counterfactuals(alert_id TEXT, fwd_high_1h REAL, fwd_low_1h REAL,
+        mfe_up_1h REAL, mfe_dn_1h REAL, fwd_high_4h REAL, fwd_low_4h REAL, mfe_up_4h REAL,
+        mfe_dn_4h REAL, computed_ts_utc REAL);
+      INSERT INTO alerts VALUES('A20251014-001','2025-10-14 01:00:00','PDH',1,1,'ASIA',1,'x');
+      INSERT INTO decisions VALUES('A20251014-001','SKIP','2025-10-14 01:05:00',5,NULL,NULL,
+        NULL,NULL,'r','2025-10-14 01:05:00','telegram');
+      INSERT INTO counterfactuals VALUES('A20251014-001',1,1,0,0,1,1,0,0,'x');
+    """)
+    old.close()
+    con = open_log(jp)
+    open_log(jp).close()                                   # idempotent
+    rows = con.execute("SELECT alert_id, epoch, bar_source FROM alerts").fetchall()
+    kids = [con.execute(f"SELECT epoch FROM {t}").fetchall() for t in ("decisions", "counterfactuals")]
+    ver = con.execute("PRAGMA user_version").fetchone()[0]
+    _journal_new_alert(con, dict(alert_id="A20251014-001", alert_ts_utc="2025-10-14 09:00:00",
+                                 level_types="NY_L", level_price=2.0, price_at_alert=2.0,
+                                 session="LONDON", confluence_count=1))
+    n_missed = sweep_auto_missed(con, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
+    n_cf = sweep_counterfactuals(con, fdf, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
+    dec = con.execute("SELECT epoch, decision FROM decisions ORDER BY rowid").fetchall()
+    cfe = con.execute("SELECT epoch FROM counterfactuals ORDER BY rowid").fetchall()
+    if not (rows == [("A20251014-001", 1, "ibkr")] and kids == [[(1,)], [(1,)]]
+            and ver == JOURNAL_VERSION and n_missed == 1 and n_cf == 1
+            and dec == [(1, "SKIP"), (2, "MISSED")] and cfe == [(1,), (2,)]):
+        fails.append(f"journal epoch: rows={rows} kids={kids} ver={ver} missed={n_missed} "
+                     f"cf={n_cf} dec={dec} cfe={cfe}")
 
     print("SELFTEST:", "ALL PASSED" if not fails else f"FAILED {fails}")
     return not fails
