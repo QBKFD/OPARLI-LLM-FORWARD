@@ -202,6 +202,7 @@ API with a handshake (clientId 999), then runs `--live`.
 | `SCANNER_BAR_SOURCE` | both | `ibkr` (default) or `stream` |
 | `REDIS_URL` | stream | the bus, e.g. `redis://redis:6379/0` |
 | `DATAFEED_DB` | stream | store path, e.g. `/datafeed/datafeed.sqlite`. Unset or unreadable means the scanner waits (§1, point 1), logged. |
+| `SCANNER_STREAM_GROUP` | stream | consumer group, default `scanner`. Only a parallel dry run uses another one. |
 | `SCANNER_STREAM_CONSUMER` | stream | consumer name in group `scanner`, default `scanner-1`. **Keep it stable across restarts**: unacked entries are redelivered to the same name. |
 | `SCANNER_DB` | both | journal (unchanged) |
 | `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID` | ibkr | as today; stream mode doesn't read them |
@@ -408,8 +409,11 @@ pins this. So:
    - Check `recorder` health lines: `lag_s` is small and `last_live_bar_ts`
      advances.
    - Optional: run a second scanner with `--dry-live` and
-     `SCANNER_BAR_SOURCE=stream`, with **another consumer name, its own
+     `SCANNER_BAR_SOURCE=stream`, with **its own `SCANNER_STREAM_GROUP` (e.g.
+     `scanner-dry`; consumers of one group split the entries, so another
+     consumer name alone would take bars from production), its own
      `SCANNER_DB` (never the production journal, §4) and no Telegram**.
+     `docs/DEPLOY_RUNBOOK.md` has the command.
      Compare its printed alerts with the live ones.
 4. Set `SCANNER_BAR_SOURCE=stream` for `scanner` and add `REDIS_URL`,
    `DATAFEED_DB` and `SCANNER_STREAM_CONSUMER`. Then run

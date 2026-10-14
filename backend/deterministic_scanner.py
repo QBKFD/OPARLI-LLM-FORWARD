@@ -990,6 +990,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 # ibkr path doesn't need the package installed.
 BAR_SOURCES = ("ibkr", "stream")
 STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
+                                 # (SCANNER_STREAM_GROUP overrides it, e.g. for a parallel dry run: consumers
+                                 # of ONE group split the entries, separate groups each get all of them)
 STREAM_BATCH = 500               # entries per consume call
 STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
 WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
@@ -1192,7 +1194,7 @@ class StreamFeed:
                  last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
                  count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print,
                  staleness: StreamStaleness | None = None, clock=lambda: pd.Timestamp.now(tz="UTC"),
-                 progress=None, on_history=None):
+                 progress=None, on_history=None, group: str = STREAM_GROUP):
         import contextlib
         self.bus, self.stream, self.consumer = bus, stream, consumer
         self.live, self.on_alert = live, on_alert
@@ -1201,6 +1203,7 @@ class StreamFeed:
         self.count, self.block_ms, self.log = count, block_ms, log
         self.staleness, self.clock, self.progress = staleness, clock, progress
         self.on_history = on_history
+        self.group = group
         self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
         self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
         hist = getattr(live, "hist", None)
@@ -1211,13 +1214,13 @@ class StreamFeed:
              "out_of_order", "gaps", "gap_minutes", "alerts", "history_touch_suppressed"), 0)
 
     def step(self) -> int:
-        batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
+        batch = self.bus.consume(self.stream, self.group, self.consumer,
                                  count=self.count, block_ms=self.block_ms)
         seen: dict[str, int] = {}
         filled_before = self.stats["history_filled"]
         for d in batch:
             kind = self._handle(d)
-            self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
+            self.bus.ack(self.stream, self.group, d.id)        # only after it was handled
             self.stats[kind] += 1
             self.stats["entries"] += 1
             seen[kind] = seen.get(kind, 0) + 1
@@ -1380,6 +1383,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     from datafeed.ingest.xauusd_bars import STREAM
 
     consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
+    group = env.get("SCANNER_STREAM_GROUP", STREAM_GROUP)         # a dry run alongside: its own group
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
@@ -1405,7 +1409,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
 
     feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, sink,
                       lock=lock, last_bar_ts=warm_end, progress=sink.progress,
-                      on_history=sink.missed_history,
+                      on_history=sink.missed_history, group=group,
                       staleness=StreamStaleness(notify, started=now))
     fatal: list[BaseException] = []
 
@@ -1420,7 +1424,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     active = sum(1 for L in build_levels(live.hist)
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
-    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {STREAM_GROUP}, consumer "
+    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {group}, consumer "
           f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
 
     offset = 0
