@@ -685,3 +685,36 @@ details:
   `debate.max_rounds = 2`, `debate.judge = "code_v0"`. Unknown keys are
   refused, so a typo like `enabeld` raises instead of being ignored.
 - **Tests:** test_agent_store.py: 19 passed. tests/agents_tests: 149 passed.
+
+### Step 7: acceptance tests on replay data
+
+`tests/agents_tests/test_acceptance.py` runs each item through the full graph
+and the SQLite agent store. Assertions read the stored rows and reload
+snapshots from the store; they don't use the in-memory objects.
+
+| # | Requirement | Test | Result |
+|---|---|---|---|
+| A1 | a snapshot never contains a bar ≥ t | triggers every 37 min 13 s, off the minute, across the synthetic data and 2 h past its end; every stored snapshot reloaded and checked | pass |
+| A2 | same inputs → same snapshot hash | two agent stores, two datafeed stores rebuilt from the same parquet, t 28 s apart in the same minute → equal hash and byte-equal `content_json`; next minute → different hash | pass |
+| A3 | a node that raises → abstain, graph finishes | technical voter raises → stored vote `abstain=1, direction none, confidence 0, "error: RuntimeError: boom"`; run `done`; blind decision stored | pass |
+| A4 | debate disabled → only blind | decisions rows = [blind], no debate_turns, debaters never called | pass |
+| A5 | debate enabled → two decisions on one snapshot; round-1 rows unchanged | blind + debate rows with the run's snapshot_hash; vote rows and blind decision row identical to a debate-disabled run on the same snapshot | pass |
+| A6 | nonexistent evidence_ref → invalid and ignored | bull 6 claims/round (5 unsupported) vs bear 2 supported: 10 bull claims stored with `valid:false` + reason; the judge saw only valid claims; bear wins 4–2 | pass |
+| A7 | tie → hold; debater error → debate finishes | 4–4 → `hold`, direction none, reason `tie: bull 4, bear 4 valid claims`; raising bull → 2 empty bull turns with the error, 4 turns stored, run done | pass |
+| A8 | a debater sees nothing outside snapshot + round-1 votes + opponent's previous turn | recorded calls: one positional `DebaterView`, exactly 5 fields, snapshot == stored snapshot, votes == stored votes (content only), opponent turn == stored r−1 turn (content only), None in round 1 | pass |
+| A9 | same snapshot + same fakes → identical DebateResult | two stores, two rebuilt datafeed stores; the DebateResults loaded back from SQLite are equal | pass |
+| — | real parquet day | 2025-06-04..11 replayed through datafeed into a temp store; 48 triggers on 2025-06-11 (every 30 min, +17 s), debate on with fakes; 45 done, 3 skipped. 21:00 is the gate (market closed); 21:30 and 22:00 are stale; 22:00 is right after the reopen, when the newest bar is still 20:59. Every stored snapshot < t, and both arms stored | pass |
+
+- **Full run.** `pytest tests/datafeed tests/agents_tests`: **236 passed, 7
+  skipped**. That's datafeed 76 passed + 7 skipped (6 Redis, 1 manual IBKR),
+  exactly the datafeed step 8 baseline, plus agents 160 passed.
+- **Research suites** weren't run: this venv has no scipy (bare `pytest`
+  collection errors on 9 research modules, all "No module named 'scipy'"). The
+  branch doesn't change `research/` (`git diff c3d25fb..HEAD -- research` is
+  empty).
+- **Protected paths.** `git diff c3d25fb..HEAD -- datafeed backend deploy
+  research legacy` is empty.
+- **Packaging.** A wheel built from the branch contains `agents/` with the
+  debate, nodes, prompts, store and voters subpackages,
+  `prompts/bull.md`, `prompts/bear.md` and `config.example.toml`.
+- **README.** `agents/README.md`; its usage example was run as written.
