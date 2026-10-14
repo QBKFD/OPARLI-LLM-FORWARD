@@ -568,3 +568,77 @@ details:
   12 s), but the process took over 3 minutes to exit. Two reruns of the full
   suite exited in ~12 s, and the cause wasn't found. If it comes back, the
   first suspect is the daemon thread a timed-out voter leaves behind.
+
+### Step 5: debate subgraph
+
+`agents/debate/` (`debaters.py`, `evidence.py`, `judges.py`, `subgraph.py`),
+`agents/prompts/bull.md` and `bear.md`, and `DebateConfig` (`enabled=False`,
+`max_rounds=2`, `judge="code_v0"`, `turn_timeout_s=60`).
+
+- **Subgraph.** `START → bull | bear → next_round → (bull | bear again, or
+  judge) → END`.
+  - Rounds are simultaneous (Q3 default). The bull/bear join waits for both
+    sides every round; tested for 1, 2 and 3 rounds.
+  - The recursion limit is `2 × max_rounds + 5`, and `max_rounds` is capped at
+    10.
+- **Inputs.** The run graph's `debate` node passes the snapshot, the round-1
+  votes, and the blind decision's direction. Only the judge gets the
+  direction. Nothing else from the run state goes in.
+- **DebaterView** has exactly `role`, `round`, `snapshot` (a deep copy),
+  `round1_votes` and `opponent_previous_turn` (None in round 1). A test checks
+  the field set, that each debater is called with exactly one argument, and
+  that the opponent turn is the opponent's r−1 turn.
+- **Found and fixed:** the view now carries content only. A test with a real
+  clock showed that round-2 views carried the opponent's `latency_ms`. The view
+  hash (`prompt_hash`) and a future rendered prompt therefore changed with
+  timing. `content_only()` now blanks `model_id`, `prompt_hash`, tokens and
+  latency on the votes and on the opponent turn the debater sees. The stored
+  turns keep their own measurements.
+- **Evidence check.**
+  - Implemented in code, right after each turn. It uses the grammar in
+    section 0.5 and accepts `Z` or `+00:00`; naive timestamps are invalid.
+  - For `bars:` refs, both ends must be bar open times present in that
+    timeframe's series.
+  - Flags a debater sets itself are dropped, so a debater can't self-certify.
+  - Invalid claims stay in the `DebateResult` with an `invalid_reason`. The
+    judge gets a `JudgeInput` whose turns hold **only valid claims**. That's
+    enforced for any judge, not left to the judge's own code.
+- **`safe_turn`.** These all become an empty turn with `error`, and the debate
+  continues:
+  - an exception or a timeout;
+  - None, a wrong type, a wrong role/round, non-list claims, a claim without
+    `evidence_ref`;
+  - a debater-reported `error`.
+- **`prompt_hash`** is the view hash unless the debater sets its own (an LLM
+  debater would set the hash of the rendered prompt).
+- **Judges.**
+  - `JUDGES = {"code_v0": CodeJudgeV0}`. `make_judge(name)` runs in
+    `build_graph` even when the debate is disabled, so an unknown name fails at
+    build time.
+  - `safe_judge`: an exception or an invalid verdict → `hold`, with the
+    reason.
+  - The LLM judge slot is a registry entry, not implemented.
+- **CodeJudgeV0** works as specified:
+  - a tie → `hold` (`tie: bull 2, bear 2 valid claims`);
+  - more valid claims and agreeing with the round-1 direction → that
+    direction;
+  - otherwise → `hold`.
+  - Concessions are recorded on the turn but not used by v0.
+- **Graph.**
+  - `debate.enabled=False`: no `debate` node is built, and the debaters are
+    never called, even if passed.
+  - `enabled=True` with no debaters: `build_graph` raises (no real debaters
+    ship).
+  - Otherwise the `debate` Decision is added under arm `debate`, with
+    `decided_by` = the judge name and hold mapped to `none`.
+- **Fakes** (tests only, `tests/agents_tests/agents_fakes.py`).
+  `FakeBull` / `FakeBear` are deterministic: they make n claims citing the
+  newest 1m bars, plus m claims with refs that don't resolve. Their text
+  depends on the view. Also raising, slow, returns-anything and recording
+  debaters, and spy / raising / returns judges.
+- **Prompts.** `agents/prompts/bull.md` and `bear.md` aren't called anywhere.
+  They require an `evidence_ref` from the grammar on every claim, say that
+  invalid claims are discarded, allow conceding, forbid using remembered
+  post-`as_of` knowledge, and define the JSON output. Placeholders come from
+  the DebaterView only.
+- **Tests:** test_debate.py: 53 passed. tests/agents_tests: 130 passed.

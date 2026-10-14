@@ -8,7 +8,7 @@
                   |  fan-in (waits for all)
               aggregator -> blind Decision
                   |
-           [debate, if config.debate.enabled] -> debate Decision      (step 5)
+           [debate, if config.debate.enabled] -> debate Decision
                   |
                  risk (stub, pass-through)
                   |
@@ -33,6 +33,7 @@ from langgraph.graph import END, START, StateGraph
 
 from agents import __version__
 from agents.config import AgentsConfig
+from agents.debate import make_debate_node, make_judge
 from agents.nodes import gate
 from agents.nodes.aggregator import aggregate_v0
 from agents.nodes.risk import apply_risk
@@ -71,14 +72,24 @@ class RunState(TypedDict, total=False):
 
 def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 voters: Mapping[str, object] | None = None,
-                clock: Callable[[], float] = time.monotonic,
-                debate_node: Callable | None = None):
+                debaters: Mapping[str, object] | None = None,
+                judge=None,
+                clock: Callable[[], float] = time.monotonic):
     """db: the datafeed store (path or sqlite3.Connection; default $DATAFEED_DB).
     voters: name -> VoteAgent (default: the three stubs).
-    debate_node: state -> update, inserted between aggregator and risk."""
+    debaters: {"bull": Debater, "bear": Debater}. Needed only when
+        config.debate.enabled; no real debaters ship yet.
+    judge: default make_judge(config.debate.judge). The name is checked even
+        when the debate is disabled, so a bad config fails at build time."""
     voters = dict(default_voters() if voters is None else voters)
     if not voters:
         raise ValueError("at least one voter")
+    judge = judge if judge is not None else make_judge(config.debate.judge)
+    debate_node = None
+    if config.debate.enabled:
+        if debaters is None:
+            raise ValueError("debate.enabled needs debaters (bull, bear); none ship in agents/ yet")
+        debate_node = make_debate_node(debaters, judge, config.debate, clock)
     names = sorted(voters)
     config_json, config_hash = config.to_json(), config.config_hash()
 
