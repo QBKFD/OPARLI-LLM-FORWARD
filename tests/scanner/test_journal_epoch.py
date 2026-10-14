@@ -53,11 +53,11 @@ def _switches(con):
 # ── migration ───────────────────────────────────────────────────────────────
 def test_fresh_journal_has_the_columns_and_no_switch_yet(tmp_path):
     con = ds.open_log(tmp_path / "j.sqlite")
-    assert _cols(con, "alerts")[-2:] == ["epoch", "bar_source"]
+    assert _cols(con, "alerts")[-3:] == ["epoch", "bar_source", "status"]
     for t in ("decisions", "outcomes", "counterfactuals"):
         assert _cols(con, t)[-1] == "epoch"
     assert _cols(con, "source_switches") == ["switch_ts_utc", "from_source", "to_source", "epoch"]
-    assert con.execute("PRAGMA user_version").fetchone()[0] == ds.JOURNAL_VERSION == 2
+    assert con.execute("PRAGMA user_version").fetchone()[0] == ds.JOURNAL_VERSION == 3
     assert _switches(con) == []
 
 
@@ -119,7 +119,7 @@ def test_pre_migration_code_cannot_write_a_migrated_journal(tmp_path):
     """Pins the rollback rule in docs/SCANNER_SWITCH_NOTES.md: the old image's
     positional INSERT fails on a migrated journal, so roll back with the switch."""
     con = ds.open_log(tmp_path / "j.sqlite")
-    with pytest.raises(sqlite3.OperationalError, match="10 columns but 8 values"):
+    with pytest.raises(sqlite3.OperationalError, match="11 columns but 8 values"):
         con.execute("INSERT INTO alerts VALUES(?,?,?,?,?,?,?,datetime('now'))",
                     ("A1", "t", "PDH", 1.0, 1.0, "ASIA", 1))
 
