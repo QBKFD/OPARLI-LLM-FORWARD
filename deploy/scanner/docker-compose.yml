@@ -1,9 +1,25 @@
-# Always-on deterministic scanner on Oracle (or any Docker host).
+# Always-on deterministic scanner (any Docker host; deployed on one EC2 instance).
 #   ibgateway : IB Gateway + IBC (headless, auto-login, auto-daily-restart)
-#   scanner   : deterministic_scanner.py --live, connects to ibgateway
+#   scanner   : deterministic_scanner.py --live
+#
+# Profile "stream" (COMPOSE_PROFILES=stream in .env, or --profile stream) adds
+# the datafeed, started in this order through healthchecks:
+#   redis -> feed (with SCANNER_BAR_SOURCE=stream, the ONLY gateway client)
+#         -> recorder -> (the scanner waits for Redis and the store itself)
+# SCANNER_BAR_SOURCE (default ibkr) picks where the scanner's bars come from.
+# Flip / roll back / restore: docs/DEPLOY_RUNBOOK.md.
 #
 # Deploy:  cp .env.example .env  &&  edit .env  &&  docker compose up -d --build
-# The gnzsnz/ib-gateway image is multi-arch (works on Oracle Ampere / arm64).
+# The gnzsnz/ib-gateway image is multi-arch (works on arm64 too).
+
+# One image for scanner, feed and recorder (feed and recorder override the
+# entrypoint). Same build and tag on each, so whichever builds first serves all.
+x-app: &app
+  build:
+    context: ../..                 # repo root, so the Dockerfile can COPY backend/ and datafeed/
+    dockerfile: deploy/scanner/Dockerfile
+  image: oparli-scanner:local
+  networks: [scannernet]
 
 services:
   ibgateway:
@@ -33,26 +49,110 @@ services:
     networks: [scannernet]
 
   scanner:
-    build:
-      context: ../..                 # repo root, so the Dockerfile can COPY backend/
-      dockerfile: deploy/scanner/Dockerfile
+    <<: *app
     restart: unless-stopped
+    # No dependency on the stream services, on purpose: a datafeed problem must
+    # never keep the ibkr-mode scanner (the rollback) from starting. In stream
+    # mode the entrypoint waits for Redis and the scanner waits for the store.
     depends_on: [ibgateway]
     environment:
       IB_HOST: ibgateway
       # IB Gateway only accepts API clients from its own 127.0.0.1; the image's
       # socat relay publishes it to other containers on 4004 (paper) / 4003 (live).
       IB_PORT: ${IB_PORT:-4004}       # 4004 paper / 4003 live — match TRADING_MODE
-      IB_CLIENT_ID: ${IB_CLIENT_ID:-11}
+      IB_CLIENT_ID: ${IB_CLIENT_ID:-11}   # ibkr mode only (history load uses +10)
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       SCANNER_DB: /data/scanner_decisions.sqlite
+      SCANNER_BAR_SOURCE: ${SCANNER_BAR_SOURCE:-ibkr}
+      SCANNER_HEARTBEAT: /data/heartbeat
+      # stream mode only
+      REDIS_URL: redis://redis:6379/0
+      DATAFEED_DB: /datafeed/datafeed.sqlite
+      SCANNER_STREAM_CONSUMER: ${SCANNER_STREAM_CONSUMER:-scanner-1}
     volumes:
       - scanner_data:/data            # append-only decision journal persists here
-    networks: [scannernet]
+      # read-write mount on purpose: the scanner opens the store mode=ro, but a
+      # WAL reader must be able to write the -shm file
+      - datafeed_store:/datafeed
+    healthcheck:
+      # the main loop rewrites the heartbeat at least every ~70 s (Telegram long
+      # poll); 300 s without one means it is hung
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(0 if time.time() - os.path.getmtime('/data/heartbeat') < 300 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+  redis:
+    image: redis:7.4.2-alpine
+    profiles: [stream]
+    restart: unless-stopped
+    # AOF fsync every second on a volume: pending entries and group positions
+    # survive a restart. noeviction: when full, writes fail (the feed exits and
+    # the scanner's staleness alert fires) rather than silently dropping
+    # entries. Size comes from stream trimming (~34 MB for 100k entries).
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [scannernet]            # no published port
+
+  feed:
+    <<: *app
+    profiles: [stream]
+    restart: unless-stopped           # crash-only: exits on any gateway problem
+    entrypoint: ["python", "-m", "datafeed.ingest"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      ibgateway:
+        condition: service_started
+    environment:
+      DATAFEED_SOURCE: ibkr
+      REDIS_URL: redis://redis:6379/0
+      IB_HOST: ibgateway
+      IB_PORT: ${IB_PORT:-4004}
+      IB_CLIENT_ID: ${FEED_IB_CLIENT_ID:-31}   # unused elsewhere: 11/21 scanner, 996 watchdog, 999 entrypoint
+    healthcheck:
+      # healthy once it has published: it starts with 10 D of IBKR history
+      test: ["CMD", "python", "-c", "import os, sys, redis; sys.exit(0 if redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=5).xlen('bars.xauusd.1m') else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 120s
+
+  recorder:
+    <<: *app
+    profiles: [stream]
+    restart: unless-stopped
+    entrypoint: ["python", "-m", "datafeed.recorder"]
+    depends_on:
+      feed:
+        condition: service_healthy
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATAFEED_DB: /datafeed/datafeed.sqlite
+      DATAFEED_RECORDER_CONSUMER: recorder-1    # stable across restarts
+    volumes:
+      - datafeed_store:/datafeed
+    healthcheck:
+      # healthy once the store has bars
+      test: ["CMD", "python", "-c", "import sqlite3, sys; c = sqlite3.connect('file:/datafeed/datafeed.sqlite?mode=ro', uri=True); sys.exit(0 if c.execute('SELECT COUNT(*) FROM bars').fetchone()[0] else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 30s
 
 networks:
   scannernet:
 
 volumes:
   scanner_data:
+  datafeed_store:
+  redis_data:
