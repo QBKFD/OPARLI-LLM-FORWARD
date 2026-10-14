@@ -707,8 +707,10 @@ def _open_minutes(start, end) -> pd.DatetimeIndex:
     """Complete market-open minutes between start and end: minute opens m with
     start <= m, m + 1 min <= end and _market_open(m). A vectorised copy of
     _market_open (New York weekday and hour); a test pins the two together."""
-    idx = pd.date_range(_utc(start).ceil("min"), _utc(end).floor("min"), freq="1min",
-                        inclusive="left")
+    a, b = _utc(start).ceil("min"), _utc(end).floor("min")
+    if b <= a:                   # date_range(a, a, inclusive="left") would still return [a]
+        return pd.DatetimeIndex([], tz="UTC")
+    idx = pd.date_range(a, b, freq="1min", inclusive="left")
     et = idx.tz_convert("America/New_York")
     wd, h = et.weekday, et.hour
     closed = (wd == 5) | ((wd == 6) & (h < 18)) | ((wd == 4) & (h >= 17)) | (h == 17)
@@ -791,50 +793,137 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
 class StreamFeed:
     """bars.xauusd.1m entries -> LiveLevels.on_bar, one consume batch per step().
 
+    Each entry is classified once (the counter of the same name in stats):
+      invalid_msg      malformed or not schema_version 1 / this symbol
+      history_skipped  history=True: the feed's IBKR warm-up, never live
+      wrong_source     source not in `sources` (default ibkr; a replay feed on
+                       the production stream must never reach Telegram)
+      invalid_bars     fails _valid_bar
+      before_warmup    older than the warm-up's first bar (backlog of a new group)
+      duplicate        bar_ts already seen with the same OHLC
+      conflict         bar_ts already seen with other OHLC; the first one is kept
+      out_of_order     older than the newest bar seen but not seen itself; dropped,
+                       because the level engine only moves forward
+      live_bars        newer than everything seen: drives on_bar
+    Only live_bars reach the level engine. A live bar that skips market-open
+    minutes is also logged as a gap (minutes without ticks produce no bar, so
+    short gaps are normal in quiet markets).
+
     An entry is acked only after it has been handled: its bar fed to the level
     engine and any alerts it produced passed to on_alert (journaled and sent).
-    A crash before the ack means the entry is redelivered to the same consumer
-    name on restart (datafeed.bus: own pending entries first)."""
+    An exception propagates without the ack, so on restart the same consumer
+    name gets the entry back first (datafeed.bus: own pending entries first)
+    and the new warm-up decides whether it is a duplicate or still new."""
 
     def __init__(self, bus, stream: str, consumer: str, live, on_alert, *, lock=None,
-                 last_bar_ts=None, count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS):
+                 last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
+                 count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print):
         import contextlib
         self.bus, self.stream, self.consumer = bus, stream, consumer
         self.live, self.on_alert = live, on_alert
         self.lock = lock or contextlib.nullcontext()
-        self.count, self.block_ms = count, block_ms
+        self.sources, self.symbol = tuple(sources), symbol
+        self.count, self.block_ms, self.log = count, block_ms, log
         self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
-        self.stats = dict(entries=0, live_bars=0, history_skipped=0, invalid_bars=0,
-                          not_newer=0, alerts=0)
+        self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
+        hist = getattr(live, "hist", None)
+        self.first_ts = hist.index.min() if hist is not None and len(hist) else None
+        self.stats = dict.fromkeys(
+            ("entries", "live_bars", "history_skipped", "wrong_source", "invalid_msg",
+             "invalid_bars", "before_warmup", "duplicate", "conflict", "out_of_order",
+             "gaps", "gap_minutes", "alerts"), 0)
 
     def step(self) -> int:
         batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
                                  count=self.count, block_ms=self.block_ms)
+        seen: dict[str, int] = {}
         for d in batch:
-            self._handle(d.msg)
+            kind = self._handle(d)
             self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
+            self.stats[kind] += 1
             self.stats["entries"] += 1
+            seen[kind] = seen.get(kind, 0) + 1
+        other = {k: n for k, n in seen.items() if k != "live_bars"}
+        if other:
+            self.log(f"stream: batch of {len(batch)}: "
+                     + ", ".join(f"{n} {k}" for k, n in sorted(other.items())), flush=True)
         return len(batch)
 
-    def _handle(self, msg: dict) -> None:
-        if msg.get("history"):                # IBKR history warm-up of the feed, never live
-            self.stats["history_skipped"] += 1
-            return
-        ts = _utc(msg["bar_ts"])
-        o, h, l, c = (float(msg[k]) for k in ("open", "high", "low", "close"))
-        if not _valid_bar(ts, o, h, l, c):
-            self.stats["invalid_bars"] += 1
-            return
-        if self.last_bar_ts is not None and ts <= self.last_bar_ts:
-            self.stats["not_newer"] += 1      # the level engine only moves forward
-            return
+    def _parse(self, msg):
+        if msg.get("schema_version") != 1:
+            raise ValueError(f"schema_version {msg.get('schema_version')!r}")
+        if msg.get("symbol") != self.symbol:
+            raise ValueError(f"symbol {msg.get('symbol')!r}")
+        if not isinstance(msg.get("history"), bool):
+            raise ValueError(f"history {msg.get('history')!r}")
+        ts = pd.Timestamp(msg["bar_ts"])
+        if ts.tz is None:
+            raise ValueError(f"bar_ts {msg['bar_ts']!r} has no UTC offset")
+        return ts.tz_convert("UTC"), tuple(float(msg[k]) for k in ("open", "high", "low", "close"))
+
+    def _handle(self, d) -> str:
+        msg = d.msg
+        try:
+            ts, ohlc = self._parse(msg)
+        except (KeyError, TypeError, ValueError) as e:
+            self.log(f"stream: invalid entry {d.id} skipped ({e!r}): {str(msg)[:200]}", flush=True)
+            return "invalid_msg"
+        if msg["history"]:
+            return "history_skipped"
+        if msg.get("source") not in self.sources:
+            if self.stats["wrong_source"] % 1000 == 0:
+                self.log(f"stream: entry {d.id} from source {msg.get('source')!r} ignored "
+                         f"(accepting {', '.join(self.sources)})", flush=True)
+            return "wrong_source"
+        if not _valid_bar(ts, *ohlc):
+            return "invalid_bars"
         with self.lock:
-            alerts = self.live.on_bar(ts, o, h, l, c)
+            last = self.last_bar_ts
+            if last is not None and ts <= last:
+                return self._old(d.id, ts, ohlc)
+            missing = len(_open_minutes(last + pd.Timedelta(minutes=1), ts)) if last is not None else 0
+            if missing:
+                self.stats["gaps"] += 1
+                self.stats["gap_minutes"] += missing
+                self.log(f"stream: gap of {missing} market-open minute(s) without a bar "
+                         f"between {last} and {ts}", flush=True)
+            alerts = self.live.on_bar(ts, *ohlc)
             self.last_bar_ts = ts
-            self.stats["live_bars"] += 1
             for a in alerts:
                 self.on_alert(a)
                 self.stats["alerts"] += 1
+        return "live_bars"
+
+    def _old(self, id, ts, ohlc) -> str:
+        """Classify an entry that is not newer than the newest bar seen."""
+        if self.first_ts is not None and ts < self.first_ts:
+            return "before_warmup"
+        hist = getattr(self.live, "hist", None)
+        if hist is not None and ts in hist.index:
+            row = hist.loc[ts]
+            stored = tuple(float(x) for x in row[["open", "high", "low", "close"]])
+            kind = "duplicate" if stored == ohlc else "conflict"
+        else:
+            stored, kind = None, "out_of_order"
+        # entries up to the warm-up end are the backlog and only go in the batch
+        # summary; after it, every conflict or late bar is worth a line of its own
+        if kind != "duplicate" and (self.start_ts is None or ts > self.start_ts):
+            what = (f"conflicts with the bar already used {stored}; first one kept"
+                    if kind == "conflict" else f"arrived after {self.last_bar_ts}; dropped")
+            self.log(f"stream: {kind} entry {id} bar {ts} {ohlc} {what}", flush=True)
+        return kind
+
+
+def _journal_new_alert(con, a: dict) -> bool:
+    """Insert the alert unless this exact alert is already journaled, which
+    happens when a bar is redelivered after a crash between the journal commit
+    and the ack. Returns True if it was inserted (and so should be sent)."""
+    if con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=?",
+                   (a["alert_id"], a["alert_ts_utc"], a["level_types"])).fetchone():
+        return False
+    insert_alert(con, a)
+    con.commit()
+    return True
 
 
 def _handle_reply(con, lock, tg, text: str):
@@ -891,7 +980,10 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     live = LiveLevels(hist, now)
 
     def on_alert(a):
-        insert_alert(con, a); con.commit()
+        if not _journal_new_alert(con, a):
+            print(f"alert {a['alert_id']} already journaled (redelivered bar); not sent again",
+                  flush=True)
+            return
         if dry:
             print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
         else:

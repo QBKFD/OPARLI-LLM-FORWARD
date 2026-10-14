@@ -35,14 +35,28 @@ def make_bus(kind):
 
 
 class FakeLive:
-    """Stands in for LiveLevels: records bars, returns scripted alerts per bar_ts."""
+    """Stands in for LiveLevels: records bars, returns scripted alerts per bar_ts.
+    Like LiveLevels it keeps every bar it has seen in .hist (warm-up included)."""
 
-    def __init__(self, alerts_at=None):
+    def __init__(self, alerts_at=None, hist=None):
+        import pandas as pd
         self.bars, self.alerts_at = [], alerts_at or {}
+        self.hist = hist if hist is not None else pd.DataFrame(
+            columns=["open", "high", "low", "close"], dtype=float,
+            index=pd.DatetimeIndex([], tz="UTC"))
 
     def on_bar(self, ts, o, h, l, c):
         self.bars.append((ts.isoformat(), o, h, l, c))
+        self.hist.loc[ts] = [o, h, l, c]
         return list(self.alerts_at.get(ts.isoformat(), []))
+
+
+class Log(list):
+    def __call__(self, *a, **k):
+        self.append(" ".join(map(str, a)))
+
+    def having(self, s):
+        return [x for x in self if s in x]
 
 
 def fill_store(path, minutes, *, kind="history", price=3400.0):
