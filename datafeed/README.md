@@ -83,6 +83,7 @@ crash-only: on any connection problem it backs off 20 s and exits non-zero.
 | `DATAFEED_DB` | recorder, query | SQLite store path |
 | `DATAFEED_RECORDER_CONSUMER` | recorder | consumer name, stable across restarts |
 | `REDIS_TEST_URL` | tests | a **throwaway** Redis; tests flush it |
+| `DATAFEED_SIGMA_MODEL` | `vol_block.load_sigma_model` | `txt2007_2023` (default) or `parquet2021_2023`, see `features/DECISIONS.md` |
 | `DATAFEED_IBKR_LIVE=1` | tests | enables the manual paper-gateway test |
 
 ## Message schema: stream `bars.xauusd.1m`, schema_version 1
@@ -174,7 +175,7 @@ Later tables follow the same append-only, `ingest_ts`-versioned pattern
 | `store/schema.py`, `store/query.py` | v1 |
 | `ingest/gold_options.py` | planned, later PR |
 | `ingest/calendar.py` | planned, later PR |
-| `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store; sigma over H minutes (engineering decision). Needs numpy and pandas |
+| `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store. `sigma_over` = HAR sigma over the next H market-open minutes (H = 60, 240) from a shipped model in `features/models/`, SHA-256 pinned (research/sigma_compare); the former plug-in is `sigma_plugin`. Needs numpy and pandas |
 | `features/exposures.py` | planned, later PR |
 | `store/sealed.py` | planned, later PR |
 | `store/manifest.py` | planned, later PR |

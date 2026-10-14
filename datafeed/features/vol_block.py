@@ -29,26 +29,40 @@ AS OF t (state_at, read_state)
     does not reach the first row of the input, which may be partial; otherwise
     the state is NaN with reason "insufficient_history".
 
-SIGMA OVER H MINUTES: ENGINEERING DECISION, NOT A RESEARCH RESULT
-    (owner, 2026-10-14.) No pre-registered study tested it.
-        sigma_ret² = exp(L) × Σ profile[bucket(u)]
-                     over the minutes u opening in [t, t+H) that are market-open
-        sigma_px   = close_ref × sigma_ret
-    exp(L) is the mean deseasonalized 1-min variance of the last 24 rows, so
-    this assumes today's level persists and follows the usual time-of-day
-    shape. It has no fitted coefficients and ignores S_hd and T. Gap returns
-    are dropped by the definitions above, so sigma holds no daily-break or
-    weekend gap: closed minutes count zero, and `crosses_close` says the window
-    contains some. Whether such a trade is allowed is the caller's decision.
-    Calibration against realised moves (pre-2024): tools/sigma_calibration/.
+SIGMA OVER H MINUTES: sigma_over IS HAR (research/sigma_compare)
+        var(t, H) = P(t, H) × exp(β · [1, L, S_hd, T]) × c
+        P(t, H)   = Σ profile[bucket(u)] over the first H market-open minutes u >= t
+        sigma_ret = √var,  sigma_px = close_ref × sigma_ret
+    β and c per H come from a shipped model file (models/), whose SHA-256 is
+    checked against a value pinned here on every load. Only H = 60 and 240 were
+    fitted; any other H raises. The model carries its own VolParams: compute the
+    state with model.params (state_at / read_state).
+    Evidence: the pre-registered study research/sigma_compare (PREREG c75b24f)
+    chose HAR over the plug-in (QLIKE -18 % / -16 % on 2007-2020, 24/24 folds).
+    Post-hoc checks (its POSTHOC_RESULT.md): frozen on 2007-2020, HAR is still
+    better on 2021-2023, and its calibration on 2022-2023 lies within [0.9, 1.1].
+    Gap returns are dropped by the definitions above, so sigma holds no
+    daily-break or weekend gap; `crosses_close` says the window spans a close.
+    Whether such a trade is allowed is the caller's decision.
+    Two fits ship, chosen by name or $DATAFEED_SIGMA_MODEL: txt2007_2023
+    (default: the fit the parquet calibration check favoured) and
+    parquet2021_2023 (lower QLIKE on 2022-2023). See features/DECISIONS.md.
+
+    sigma_plugin is the former plug-in, an engineering decision (owner,
+    2026-10-14): exp(L) × the profile summed over the market-open minutes of
+    the calendar window [t, t+H), closed minutes counting zero. It is kept for
+    monitoring and comparison. Its calibration check: tools/sigma_calibration/.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -274,13 +288,13 @@ class Sigma:
     H: int                 # horizon, minutes
     sigma_ret: float       # log-return units
     sigma_px: float        # price units: close_ref × sigma_ret
-    open_minutes: int      # minutes of [t, t+H) inside market hours
-    crosses_close: bool    # the window holds closed minutes; gap risk is not in sigma
+    open_minutes: int      # market-open minutes the window covers (H for sigma_over)
+    crosses_close: bool    # the window spans closed minutes; gap risk is not in sigma
 
 
-def sigma_over(params: VolParams, state: VolState, H: int) -> Sigma:
-    """Sigma over the minutes opening in [state.t, state.t + H). Engineering
-    decision, see the module docstring. Raises without a usable state."""
+def sigma_plugin(params: VolParams, state: VolState, H: int) -> Sigma:
+    """The former plug-in: sigma over the minutes opening in [state.t, state.t + H).
+    Engineering decision, see the module docstring. Raises without a usable state."""
     if isinstance(H, bool) or not isinstance(H, int) or H <= 0:
         raise ValueError(f"H must be a positive int (minutes), got {H!r}")
     if state.reason is not None or not (math.isfinite(state.L) and math.isfinite(state.close_ref)):
@@ -295,3 +309,99 @@ def sigma_over(params: VolParams, state: VolState, H: int) -> Sigma:
     sigma_ret = math.sqrt(var)
     return Sigma(H=H, sigma_ret=sigma_ret, sigma_px=state.close_ref * sigma_ret,
                  open_minutes=len(open_idx), crosses_close=len(open_idx) < H)
+
+
+# ---------------------------------------------------------------- sigma: HAR
+
+MODELS_DIR = Path(__file__).resolve().parent / "models"
+SIGMA_MODEL_ENV = "DATAFEED_SIGMA_MODEL"
+# name -> (file, SHA-256 of the canonical JSON of every field except "sha256"),
+# as research/sigma_compare wrote them. Pinned here, so a file that is edited
+# and re-hashed still fails to load.
+SIGMA_MODELS = {
+    "txt2007_2023": ("sigma_har_txt2007_2023_v1.json",
+                     "1af79da80ce8ae4de483ff09113150ed361e7d95221f00385e361f2bdbffc1cd"),
+    "parquet2021_2023": ("sigma_har_parquet2021_2023_v1.json",
+                         "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"),
+}
+# The fit the parquet calibration check favoured (POSTHOC_RESULT.md, P2: score
+# 0.018 vs 0.022). The parquet fit had the lower QLIKE on 2022-2023; select it
+# with DATAFEED_SIGMA_MODEL=parquet2021_2023.
+DEFAULT_SIGMA_MODEL = "txt2007_2023"
+MAX_WINDOW_SEARCH = timedelta(days=7)      # longer than any closure in the calendar
+
+
+@dataclass(frozen=True)
+class SigmaModel:
+    name: str
+    version: int
+    sha256: str
+    params: VolParams          # compute the state with these
+    horizons: dict             # H -> ((b0, bL, bS_hd, bT), smear_c)
+
+
+def _canonical(payload: dict) -> bytes:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def sigma_model_from_file(path, expected_sha256: str, name: str = "") -> SigmaModel:
+    """Load a HAR model file. Raises unless the SHA-256 of its content equals both
+    the value stated in the file and expected_sha256."""
+    d = json.loads(Path(path).read_text())
+    stated = d.pop("sha256", None)
+    got = hashlib.sha256(_canonical(d)).hexdigest()
+    if got != stated or got != expected_sha256:
+        raise ValueError(f"{path}: SHA-256 check failed (content {got}, stated {stated}, "
+                         f"expected {expected_sha256})")
+    if d.get("model") != "sigma_har":
+        raise ValueError(f"{path}: not a sigma_har model")
+    horizons = {int(H): (tuple(float(b) for b in v["beta"]), float(v["smear_c"]))
+                for H, v in d["horizons"].items()}
+    if any(len(beta) != 4 for beta, _ in horizons.values()):
+        raise ValueError(f"{path}: beta must have 4 values per horizon")
+    return SigmaModel(name=name, version=int(d["version"]), sha256=got,
+                      params=VolParams.from_json(json.dumps(d["vol_params"])), horizons=horizons)
+
+
+def load_sigma_model(name: str | None = None) -> SigmaModel:
+    """The shipped model `name`, else $DATAFEED_SIGMA_MODEL, else DEFAULT_SIGMA_MODEL."""
+    name = name or os.environ.get(SIGMA_MODEL_ENV) or DEFAULT_SIGMA_MODEL
+    if name not in SIGMA_MODELS:
+        raise ValueError(f"unknown sigma model {name!r}; choose from {sorted(SIGMA_MODELS)}")
+    file, sha = SIGMA_MODELS[name]
+    return sigma_model_from_file(MODELS_DIR / file, sha, name)
+
+
+def open_window(t, H: int) -> tuple[list[datetime], datetime]:
+    """The first H market-open minutes opening at or after t, and the window's
+    end (the last of them + 1 min)."""
+    u = _utc_ts(t).ceil("1min").to_pydatetime()
+    stop, out = u + MAX_WINDOW_SEARCH, []
+    while len(out) < H:
+        if u >= stop:
+            raise ValueError(f"fewer than {H} open minutes within {MAX_WINDOW_SEARCH} of {t}")
+        if _market_open(u):
+            out.append(u)
+        u += timedelta(minutes=1)
+    return out, out[-1] + timedelta(minutes=1)
+
+
+def sigma_over(model: SigmaModel, state: VolState, H: int) -> Sigma:
+    """HAR sigma over the next H market-open minutes from state.t (see the
+    module docstring). H must be a fitted horizon (60 or 240). The state must
+    come from state_at / read_state with model.params. Raises without a usable
+    state."""
+    if isinstance(H, bool) or not isinstance(H, int) or H not in model.horizons:
+        raise ValueError(f"H must be one of {sorted(model.horizons)} (minutes), got {H!r}")
+    if state.reason is not None or not all(
+            math.isfinite(x) for x in (state.L, state.S_hd, state.T, state.close_ref)):
+        raise ValueError(f"no sigma without a valid state (reason {state.reason!r})")
+    beta, c = model.horizons[H]
+    minutes, end = open_window(state.t, H)
+    prof = np.asarray(model.params.profile, dtype=float)
+    P = float(prof[_buckets(pd.DatetimeIndex(minutes))].sum())
+    var = P * math.exp(sum(b * x for b, x in zip(beta, (1.0, state.L, state.S_hd, state.T)))) * c
+    sigma_ret = math.sqrt(var)
+    start = _utc_ts(state.t).ceil("1min").to_pydatetime()
+    return Sigma(H=H, sigma_ret=sigma_ret, sigma_px=state.close_ref * sigma_ret, open_minutes=H,
+                 crosses_close=(end - start) > timedelta(minutes=H))

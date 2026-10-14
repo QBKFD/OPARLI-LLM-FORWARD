@@ -14,12 +14,13 @@ either.
 ## Units and rules
 
 - **sigma** is in price units over the trade's horizon:
-  `datafeed.features.vol_block.sigma_over(params, state, H).sigma_px`.
-  - That sigma is an **engineering decision, not a research result**.
-  - Its check on pre-2024 data is in `tools/sigma_calibration/RESULT.md`:
-    - close to 1 inside market hours;
-    - too wide for 4h windows that cross a close;
-    - stop touches (the path) not measured.
+  `datafeed.features.vol_block.sigma_over(model, state, H).sigma_px`.
+  - It is the HAR sigma chosen by the pre-registered study
+    `research/sigma_compare` and its post-hoc checks, for H = 60 or 240.
+  - In that study, touches of ±k·σ were rarer than normal theory at k ≤ 1.5
+    and about at theory at k = 2.
+  - The former engineering-decision plug-in is still available as
+    `vol_block.sigma_plugin`.
 - **k** has no default. The caller chooses it, and it must not be tuned on
   results.
 - **risk_pct** is in **percent**: 0.5 means 0.5 % of equity. Anything above
@@ -52,9 +53,10 @@ from datafeed.features import vol_block as vb
 from risk.bracket import bracket
 from risk.sizing import XAUUSD_SIZE_INCREMENT, XAUUSD_USD_PER_UNIT_MOVE, position_size
 
-state = vb.read_state(params, "XAUUSD", t)          # params: a frozen VolParams
+model = vb.load_sigma_model()                       # SHA-256 checked; $DATAFEED_SIGMA_MODEL
+state = vb.read_state(model.params, "XAUUSD", t)     # the model's own VolParams
 if state.reason is None:
-    sig = vb.sigma_over(params, state, 240)
+    sig = vb.sigma_over(model, state, 240)           # H = 60 or 240 only
     # sig.crosses_close: the agents decide whether such a trade is allowed
     b = bracket(entry=state.close_ref, direction="long", sigma=sig.sigma_px, k=k)
     size = position_size(equity=equity, risk_pct=0.5, entry=b.entry, stop=b.stop,
@@ -65,9 +67,8 @@ if state.reason is None:
 ## Open
 
 - Verify the two XAUUSD constants.
-- Choose k, the horizon H, and the training window for the live `VolParams`
-  (`vol_block.fit` takes it explicitly; anything ending after 2026-10-01 is
-  refused).
+- Choose k and the horizon H (60 or 240). The live `VolParams` now come with
+  the sigma model.
 - Decide whether trades whose horizon crosses the daily break or the weekend
   are allowed (the agents decide).
 
