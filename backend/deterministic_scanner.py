@@ -846,6 +846,25 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
     return hist[cols], "ibkr", f"{reason}; IBKR history instead: {len(hist)} bars {span}"
 
 
+class StreamLevels(LiveLevels):
+    """LiveLevels for the stream path, with one fix.
+
+    LiveLevels takes the epoch of `now`. Started after an epoch boundary but
+    before that epoch's first bar (e.g. at 00:00:30, before the 00:00 bar),
+    the first bar is in the same epoch, so it doesn't rebuild. The day's levels
+    (DOPEN, WOPEN, PDH, PDL, PWH, PWL, which build_levels creates only for days
+    that have bars) are then missing until the next session close: on
+    2025-06-16 that loses the 00:06, 00:14 and 00:24 alerts. Here the epoch is
+    that of the newest bar the levels were built from, so the first bar of a new
+    epoch always rebuilds, as in a continuous run. run_live keeps LiveLevels
+    unchanged (it is the rollback); see docs/SCANNER_SWITCH_NOTES.md."""
+
+    def __init__(self, hist: pd.DataFrame, now):
+        super().__init__(hist, now)
+        built = hist.index[hist.index < now]
+        self.epoch = self._epoch(built.max()) if len(built) else None
+
+
 class StreamStaleness:
     """One message when no new live bar has arrived for `n` market-open minutes,
     one recovery message when bars resume.
@@ -1082,7 +1101,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
         _time.sleep(RECONNECT_BACKOFF_S)
         raise SystemExit(1)
     print(f"warm-up via {path}: {detail}", flush=True)
-    live = LiveLevels(hist, now)
+    live = StreamLevels(hist, now)
 
     def on_alert(a):
         if not _journal_new_alert(con, a):
