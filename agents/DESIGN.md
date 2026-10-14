@@ -889,3 +889,27 @@ clock. The reopen trigger must not be skipped.
   - Real parquet day: the 22:00 reopen now runs, so 46 done and 2 skipped
     (21:00 and 21:30, both by the gate).
 - **Result:** tests/agents_tests 225 passed.
+
+### Pytest timeout and slow-exit watchdog
+
+Owner: add a pytest timeout, and note the slow-exit case in REPORT.md if it
+recurs.
+
+- **`pytest-timeout==2.4.0`** goes in the `dev` extra, with `timeout = 120` (s
+  per test) in `[tool.pytest.ini_options]`. The slowest test, a replayed
+  parquet day through the graph, takes ~10 s.
+  - 2.5.0 (2026-08-16) was tried first. pip warned it's **yanked** ("accidental
+    breaking change"), so 2.4.0 (2025-05-05) is pinned.
+  - Checked with a probe test that sleeps 10 s under `timeout=2`: it fails
+    with `Timeout (>2.0s) from pytest-timeout`.
+- **Slow-exit watchdog** (`tests/agents_tests/conftest.py`). A per-test
+  timeout can't catch a slow exit, because that happens after pytest is done.
+  `pytest_unconfigure` therefore arms
+  `faulthandler.dump_traceback_later(30 s)`: if the process is still alive
+  30 s after pytest finishes, every thread's stack goes to stderr. Checked
+  with a probe that leaves a non-daemon thread sleeping 40 s: after 30 s the
+  dump showed the main thread waiting in `threading._shutdown` and the
+  sleeping thread, and the process exited at ~41 s. A normal run exits before
+  the timer.
+- **Result:** tests/agents_tests 225 passed in 21 s; the process exited at
+  21.6 s.
