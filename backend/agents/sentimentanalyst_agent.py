@@ -266,6 +266,45 @@ Based on this market context, analyze the current sentiment for gold trading.
             'reasoning': 'Sentiment analysis unavailable - Claude API error'
         }
 
+    # Sentiment reasons in BULLISH/BEARISH/NEUTRAL on a 0-100 scale because
+    # that is the natural language for the prompt. The Meta-Agent scores
+    # LONG/SHORT on 0-1 (see MetaDecisionService.calculate_weighted_score).
+    # Translating at this boundary is what makes the sentiment weight actually
+    # count: unmapped signals fell through the scorer and contributed 0.0 while
+    # still holding their share of the weight budget.
+    _SIGNAL_MAP = {
+        'BULLISH': 'LONG',
+        'BEARISH': 'SHORT',
+        'NEUTRAL': 'PASS',
+    }
+
+    @staticmethod
+    def _normalize(sentiment: Dict) -> Dict:
+        """
+        Map a sentiment result onto the Meta-Agent's contract.
+
+        Returns:
+            {'signal': 'LONG'|'SHORT'|'PASS', 'confidence': 0.0-1.0}
+        """
+        raw_signal = str(sentiment.get('sentiment', 'NEUTRAL')).strip().upper()
+        signal = SentimentAnalystAgent._SIGNAL_MAP.get(raw_signal)
+        if signal is None:
+            logger.warning(f"Unrecognised sentiment '{raw_signal}', treating as PASS")
+            signal = 'PASS'
+
+        try:
+            confidence = float(sentiment.get('confidence', 0.0))
+        except (TypeError, ValueError):
+            logger.warning(f"Non-numeric sentiment confidence "
+                           f"{sentiment.get('confidence')!r}, treating as 0")
+            confidence = 0.0
+
+        if confidence > 1.0:
+            confidence = confidence / 100.0
+        confidence = max(0.0, min(1.0, confidence))
+
+        return {'signal': signal, 'confidence': confidence}
+
     def _create_analysis_message(self, symbol: str, sentiment: Dict) -> Message:
         """
         Create analysis result message to send to Meta-Agent
@@ -277,14 +316,18 @@ Based on this market context, analyze the current sentiment for gold trading.
         Returns:
             Message for Meta-Agent
         """
+        normalized = self._normalize(sentiment)
+
         return self.send_message(
             msg_type=MessageType.ANALYSIS_RESULT,
             recipient=AgentType.META_AGENT,
             data={
                 'symbol': symbol,
                 'analyst': 'sentiment',
-                'signal': sentiment['sentiment'],
-                'confidence': sentiment['confidence'],
+                'signal': normalized['signal'],
+                'confidence': normalized['confidence'],
+                # Full result kept for logging/debugging, with the original
+                # BULLISH/BEARISH wording intact.
                 'analysis': sentiment
             },
             priority=7

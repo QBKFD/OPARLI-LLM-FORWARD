@@ -36,9 +36,21 @@ class HardLimitChecker:
     MAX_TRADES_PER_DAY = 10
     MIN_ACCOUNT_BALANCE = 1000.0
 
-    def __init__(self):
-        self.db = get_database()
+    def __init__(self, db=None):
+        # The limit checks themselves are pure — everything they need is in the
+        # account_state argument. Only violation LOGGING touches the database,
+        # so the connection is resolved lazily and its absence is not fatal.
+        # This is what lets risk_service.run_risk_validation honour its
+        # documented contract ("no DB reads, no DB writes") in backtests, which
+        # previously died at import-time on a missing DATABASE_URL.
+        self._db = db
         logger.info("✓ Hard Limit Checker initialized")
+
+    @property
+    def db(self):
+        if self._db is None:
+            self._db = get_database()
+        return self._db
 
     def check_hard_limits(self, account_state: Dict) -> Dict:
         """
@@ -118,9 +130,10 @@ class HardLimitChecker:
                 'reason': f'Account balance below minimum: ${current_balance:.2f} < ${self.MIN_ACCOUNT_BALANCE}'
             })
 
-        # Log violations to database
+        # Log violations to database (best-effort; never blocks the verdict)
         if violations:
             self._log_violations(violations)
+
 
             # Determine most severe action
             actions = [v['action'] for v in violations]
@@ -162,7 +175,13 @@ class HardLimitChecker:
             violations: List of violation dicts
         """
         try:
-            with self.db.get_cursor() as cur:
+            db = self.db
+        except Exception as e:
+            logger.debug(f"No database configured; skipping violation log ({e})")
+            return
+
+        try:
+            with db.get_cursor() as cur:
                 for violation in violations:
                     cur.execute("""
                         INSERT INTO hard_limit_violations (

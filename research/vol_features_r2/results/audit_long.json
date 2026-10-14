@@ -1,0 +1,705 @@
+{
+  "info": {
+    "source": "database/ohlcv_data/XAUUSD.txt",
+    "rows_pre2024": 6971972,
+    "monotonic_as_stored": false,
+    "duplicates": 1,
+    "first": "2003-05-06 00:01:00",
+    "last": "2023-12-29 21:58:00",
+    "bad_ohlc": 1
+  },
+  "overlap_exact_close_match": {
+    "2020": 1.0,
+    "2021": 1.0,
+    "2022": 1.0,
+    "2023": 1.0
+  },
+  "years": {
+    "2003": {
+      "rows": 103573,
+      "trading_days": 172,
+      "median_bars_per_day": 644.0,
+      "share_days_cov90": 0.0,
+      "median_coverage": 0.467,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 9089,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.785,
+          "margin": 0.04,
+          "break_hour": 22,
+          "bars_in_break_hour": 5.5
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.743,
+          "margin": 0.058,
+          "break_hour": 22,
+          "bars_in_break_hour": 4.6
+        }
+      },
+      "U1_tz": false,
+      "U2_coverage": false,
+      "U3_stale": true,
+      "usable": false
+    },
+    "2004": {
+      "rows": 211218,
+      "trading_days": 262,
+      "median_bars_per_day": 827.0,
+      "share_days_cov90": 0.0,
+      "median_coverage": 0.599,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 8074,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.752,
+          "margin": 0.025,
+          "break_hour": 22,
+          "bars_in_break_hour": 8.9
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.785,
+          "margin": 0.072,
+          "break_hour": 22,
+          "bars_in_break_hour": 7.5
+        }
+      },
+      "U1_tz": false,
+      "U2_coverage": false,
+      "U3_stale": true,
+      "usable": false
+    },
+    "2005": {
+      "rows": 278588,
+      "trading_days": 260,
+      "median_bars_per_day": 1097.0,
+      "share_days_cov90": 0.208,
+      "median_coverage": 0.795,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 3842,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.784,
+          "margin": 0.042,
+          "break_hour": 21,
+          "bars_in_break_hour": 28.3
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.756,
+          "margin": 0.09,
+          "break_hour": 21,
+          "bars_in_break_hour": 25.0
+        }
+      },
+      "U1_tz": false,
+      "U2_coverage": false,
+      "U3_stale": true,
+      "usable": false
+    },
+    "2006": {
+      "rows": 333198,
+      "trading_days": 260,
+      "median_bars_per_day": 1311.5,
+      "share_days_cov90": 0.827,
+      "median_coverage": 0.95,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 1178,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.879,
+          "margin": 0.021,
+          "break_hour": 21,
+          "bars_in_break_hour": 35.3
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.874,
+          "margin": 0.069,
+          "break_hour": 22,
+          "bars_in_break_hour": 34.2
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": false,
+      "U3_stale": true,
+      "usable": false
+    },
+    "2007": {
+      "rows": 346941,
+      "trading_days": 261,
+      "median_bars_per_day": 1335.0,
+      "share_days_cov90": 0.958,
+      "median_coverage": 0.967,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 667,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.839,
+          "margin": 0.061,
+          "break_hour": 21,
+          "bars_in_break_hour": 30.8
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.881,
+          "margin": 0.087,
+          "break_hour": 22,
+          "bars_in_break_hour": 34.1
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2008": {
+      "rows": 363465,
+      "trading_days": 262,
+      "median_bars_per_day": 1396.5,
+      "share_days_cov90": 0.981,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 322,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.833,
+          "margin": 0.008,
+          "break_hour": 21,
+          "bars_in_break_hour": 35.3
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.912,
+          "margin": 0.052,
+          "break_hour": 22,
+          "bars_in_break_hour": 36.1
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2009": {
+      "rows": 363585,
+      "trading_days": 261,
+      "median_bars_per_day": 1403.0,
+      "share_days_cov90": 0.989,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 315,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.847,
+          "margin": 0.078,
+          "break_hour": 21,
+          "bars_in_break_hour": 36.8
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.92,
+          "margin": 0.08,
+          "break_hour": 22,
+          "bars_in_break_hour": 37.8
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2010": {
+      "rows": 365764,
+      "trading_days": 261,
+      "median_bars_per_day": 1412.0,
+      "share_days_cov90": 0.989,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 275,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.894,
+          "margin": 0.103,
+          "break_hour": 21,
+          "bars_in_break_hour": 40.4
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.925,
+          "margin": 0.093,
+          "break_hour": 22,
+          "bars_in_break_hour": 39.1
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2011": {
+      "rows": 363600,
+      "trading_days": 259,
+      "median_bars_per_day": 1411.0,
+      "share_days_cov90": 0.988,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 415,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.897,
+          "margin": 0.027,
+          "break_hour": 21,
+          "bars_in_break_hour": 33.8
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.926,
+          "margin": 0.056,
+          "break_hour": 22,
+          "bars_in_break_hour": 28.5
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2012": {
+      "rows": 353161,
+      "trading_days": 259,
+      "median_bars_per_day": 1379.0,
+      "share_days_cov90": 0.961,
+      "median_coverage": 0.999,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 21,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.935,
+          "margin": 0.086,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.7
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.935,
+          "margin": 0.065,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.8
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2013": {
+      "rows": 352468,
+      "trading_days": 258,
+      "median_bars_per_day": 1378.0,
+      "share_days_cov90": 0.961,
+      "median_coverage": 0.999,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 32,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.97,
+          "margin": 0.207,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.7
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.964,
+          "margin": 0.151,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.9
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2014": {
+      "rows": 351953,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.961,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 12,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.974,
+          "margin": 0.148,
+          "break_hour": 21,
+          "bars_in_break_hour": 3.2
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.971,
+          "margin": 0.175,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.9
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2015": {
+      "rows": 353860,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.965,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 1,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.99,
+          "margin": 0.179,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.5
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.972,
+          "margin": 0.189,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.3
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2016": {
+      "rows": 354266,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.973,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 0,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.977,
+          "margin": 0.22,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.977,
+          "margin": 0.201,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.2
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2017": {
+      "rows": 352815,
+      "trading_days": 257,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.973,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 0,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.926,
+          "margin": 0.168,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.958,
+          "margin": 0.126,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.4
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2018": {
+      "rows": 353926,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.969,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 4,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.972,
+          "margin": 0.191,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.918,
+          "margin": 0.141,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2019": {
+      "rows": 352269,
+      "trading_days": 258,
+      "median_bars_per_day": 1377.0,
+      "share_days_cov90": 0.965,
+      "median_coverage": 0.998,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 11,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.956,
+          "margin": 0.174,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.981,
+          "margin": 0.176,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2020": {
+      "rows": 355432,
+      "trading_days": 259,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.969,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 1,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.968,
+          "margin": 0.12,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.961,
+          "margin": 0.214,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2021": {
+      "rows": 354347,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.973,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 0,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.996,
+          "margin": 0.208,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.993,
+          "margin": 0.194,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2022": {
+      "rows": 354629,
+      "trading_days": 258,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.969,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 1,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.993,
+          "margin": 0.202,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.993,
+          "margin": 0.224,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    },
+    "2023": {
+      "rows": 352913,
+      "trading_days": 257,
+      "median_bars_per_day": 1380.0,
+      "share_days_cov90": 0.969,
+      "median_coverage": 1.0,
+      "stale_days": 0,
+      "stale_share": 0.0,
+      "intraday_gaps_5_60min": 6,
+      "price_decimals": 3,
+      "tz": {
+        "DST": {
+          "shift": 0,
+          "corr": 0.994,
+          "margin": 0.195,
+          "break_hour": 21,
+          "bars_in_break_hour": 0.0
+        },
+        "STD": {
+          "shift": 0,
+          "corr": 0.996,
+          "margin": 0.2,
+          "break_hour": 22,
+          "bars_in_break_hour": 0.0
+        }
+      },
+      "U1_tz": true,
+      "U2_coverage": true,
+      "U3_stale": true,
+      "usable": true
+    }
+  },
+  "usable_years": [
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023
+  ],
+  "confirmation_years": [
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020
+  ]
+}

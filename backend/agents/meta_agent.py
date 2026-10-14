@@ -32,6 +32,11 @@ from config.database import get_database
 logger = logging.getLogger(__name__)
 
 
+# Assumed XAUUSD spread when the request is built. The Risk Manager rejects
+# above $0.50; a live quote source should replace this.
+DEFAULT_SPREAD = 0.30
+
+
 class MetaAgentMode(Enum):
     """Meta-Agent operational modes"""
     PRE_TRADE = "pre_trade"
@@ -245,13 +250,29 @@ class MetaAgentNew(BaseAgent):
     Agency Score: 7.5/10 (High - requires heavy governance)
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(
+        self,
+        config: Optional[Dict] = None,
+        weight_manager=None,
+        llm_client=None,
+        account_state_fn=None,
+    ):
         super().__init__(AgentType.META_AGENT, config)
 
-        # Database & services
+        # Database & services. weight_manager/llm_client are injectable so the
+        # pipeline can be exercised deterministically without a DB or an API
+        # key; llm_client=None makes the decision service take its deterministic
+        # threshold path (see MetaDecisionService.make_decision).
         self.db = get_database()
-        self.weight_manager = get_weight_manager()
-        self.llm_client = get_llm_client()
+        self.weight_manager = weight_manager or get_weight_manager()
+        if llm_client is None:
+            try:
+                llm_client = get_llm_client()
+            except Exception as e:
+                logger.warning(f"⚠️ LLM client unavailable ({e}); Meta-Agent will "
+                               f"use deterministic threshold logic")
+        self.llm_client = llm_client
+        self.account_state_fn = account_state_fn or self._live_account_state
 
         # Load current weights
         self.weights = self.weight_manager.get_current_weights()
@@ -337,7 +358,10 @@ class MetaAgentNew(BaseAgent):
         self.pending_analyses[symbol][analyst] = {
             'signal': signal,
             'confidence': confidence,
-            'analysis': analysis
+            'analysis': analysis,
+            # Technical carries the full per-timeframe indicator block here; it
+            # is what the Risk Manager's market_context is built from.
+            'full_analysis': message.data.get('full_analysis'),
         }
 
         # Check if all analyses received
@@ -426,15 +450,65 @@ class MetaAgentNew(BaseAgent):
         """Check if all analysts reported"""
         return all(analyses[a] is not None for a in ['visual', 'technical', 'sentiment'])
 
-    def _create_trade_signal(self, symbol: str, decision: Dict, analyses: Dict) -> Message:
-        """Create TRADE_SIGNAL message for Risk Manager"""
+    @staticmethod
+    def _market_context(analyses: Dict) -> Tuple[Optional[float], Dict]:
+        """
+        Pull entry price and the risk inputs out of the technical analysis.
+
+        The Risk Manager needs ATR and the nearest structural levels to size a
+        trade at all; without them run_risk_validation rejects everything as
+        'invalid_data'. The technical analyst already computed all of it per
+        timeframe, so read it from there rather than re-deriving it (or, worse,
+        going back to the database at decision time).
+
+        Returns:
+            (entry_price, {'atr', 'support_level', 'resistance_level', 'spread'})
+        """
+        technical = analyses.get('technical') or {}
+        full = technical.get('full_analysis') or technical.get('analysis') or {}
+        timeframes = full.get('timeframe_analysis') or {}
+
+        # Prefer the timeframe that led the decision, then progressively
+        # shorter ones; any of them carries the same indicator block.
+        lead = full.get('lead_timeframe')
+        for tf in [lead, '15m', '5m', '1m', '1h', '4h']:
+            indicators = (timeframes.get(tf) or {}).get('indicators') if tf else None
+            if indicators and indicators.get('atr'):
+                return indicators.get('close'), {
+                    'atr': indicators.get('atr'),
+                    'support_level': indicators.get('support'),
+                    'resistance_level': indicators.get('resistance'),
+                    'spread': DEFAULT_SPREAD,
+                }
+
+        return None, {}
+
+    def _create_trade_signal(self, symbol: str, decision: Dict, analyses: Dict) -> Optional[Message]:
+        """
+        Create the TRADE_REQUEST the Risk Manager validates.
+
+        This used to send MessageType.TRADE_SIGNAL, which the Risk Manager does
+        not handle (it handles TRADE_REQUEST) — so every decision the Meta-Agent
+        ever made was dropped by the bus one hop before validation.
+        """
+        entry_price, market_context = self._market_context(analyses)
+
+        if entry_price is None or not market_context.get('atr'):
+            logger.error(f"Cannot build trade request for {symbol}: technical "
+                         f"analysis carried no usable price/ATR — dropping decision")
+            return None
+
         return self.send_message(
-            msg_type=MessageType.TRADE_SIGNAL,
+            msg_type=MessageType.TRADE_REQUEST,
             recipient=AgentType.RISK_MANAGER,
             data={
                 'symbol': symbol,
-                'signal': decision['decision'],
+                # Risk Manager's contract: direction/entry_price/confidence/context
+                'direction': decision['decision'],
+                'entry_price': entry_price,
                 'confidence': decision['confidence'],
+                'market_context': market_context,
+                # Provenance, carried through for logging and weight attribution
                 'reasoning': decision.get('reasoning', ''),
                 'decision': decision,
                 'analyst_signals': {
@@ -581,10 +655,14 @@ class MetaAgentNew(BaseAgent):
         logger.info(f"  New weights: {self.weights}")
 
     def _get_account_state(self) -> Dict:
+        """Account state for governance checks (injected source)."""
+        return self.account_state_fn()
+
+    def _live_account_state(self) -> Dict:
         """
-        Account state for governance checks. Reads the AccountStateManager in
-        production; returns a safe default if unavailable so a missing account
-        row never blocks a decision by throwing.
+        Default account-state source: the AccountStateManager. Returns a safe
+        default if unavailable so a missing account row never blocks a decision
+        by throwing.
         """
         try:
             from services.account_state_manager import get_account_state_manager

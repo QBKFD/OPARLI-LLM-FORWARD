@@ -23,7 +23,6 @@ Key Concepts:
 Usage:
     python scripts/smc_backtest_orb.py
 
-Results are documented in: notebooks/SMC_STRATEGY_GUIDE.md
 """
 
 import pandas as pd

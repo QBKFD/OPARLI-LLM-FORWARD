@@ -12,7 +12,6 @@ Key Discoveries:
 Usage:
     python scripts/smc_backtest_sweeps.py
 
-Results are also documented in: notebooks/SMC_STRATEGY_GUIDE.md
 """
 
 import pandas as pd

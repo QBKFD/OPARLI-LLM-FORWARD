@@ -45,29 +45,35 @@ class WeightManager:
                 'sentiment': 0.25
             }
         """
-        with self.db.get_cursor() as cur:
-            cur.execute("""
-                SELECT visual_weight, technical_weight, sentiment_weight, epoch
-                FROM agent_weights
-                WHERE is_active = TRUE
-                ORDER BY created_at DESC
-                LIMIT 1
-            """)
+        try:
+            with self.db.get_cursor() as cur:
+                cur.execute("""
+                    SELECT visual_weight, technical_weight, sentiment_weight, epoch
+                    FROM agent_weights
+                    WHERE is_active = TRUE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """)
 
-            row = cur.fetchone()
+                row = cur.fetchone()
+        except Exception as e:
+            # Same outcome as "no row": fall back to defaults rather than
+            # taking the whole decision path down with a DB error.
+            logger.warning(f"Could not read weights from database ({e}), using defaults")
+            return self._get_default_weights()
 
-            if not row:
-                logger.warning("No weights found in database, using defaults")
-                return self._get_default_weights()
+        if not row:
+            logger.warning("No weights found in database, using defaults")
+            return self._get_default_weights()
 
-            # Update cached epoch
-            self.current_epoch = row['epoch']
+        # Update cached epoch
+        self.current_epoch = row['epoch']
 
-            return {
-                'visual': float(row['visual_weight']),
-                'technical': float(row['technical_weight']),
-                'sentiment': float(row['sentiment_weight'])
-            }
+        return {
+            'visual': float(row['visual_weight']),
+            'technical': float(row['technical_weight']),
+            'sentiment': float(row['sentiment_weight'])
+        }
 
     def update_weight_after_trade(
         self,
@@ -290,17 +296,21 @@ class WeightManager:
             return self.get_current_weights()
 
     def _get_current_epoch(self) -> int:
-        """Get current evolution epoch from database"""
-        with self.db.get_cursor() as cur:
-            cur.execute("""
-                SELECT epoch
-                FROM evolution_epochs
-                ORDER BY started_at DESC
-                LIMIT 1
-            """)
+        """Get current evolution epoch from database (defaults to 1)"""
+        try:
+            with self.db.get_cursor() as cur:
+                cur.execute("""
+                    SELECT epoch
+                    FROM evolution_epochs
+                    ORDER BY started_at DESC
+                    LIMIT 1
+                """)
 
-            row = cur.fetchone()
-            return row['epoch'] if row else 1
+                row = cur.fetchone()
+                return row['epoch'] if row else 1
+        except Exception as e:
+            logger.warning(f"Could not read evolution epoch ({e}), defaulting to 1")
+            return 1
 
     def _get_default_weights(self) -> Dict[str, float]:
         """Get default weights if database is empty"""

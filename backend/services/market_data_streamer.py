@@ -1,8 +1,8 @@
 # backend/services/market_data_streamer.py
 """
-Market Data Streaming Service (Simplified - No Kafka)
+Market Data Streaming Service
 
-Direct flow: TWS (IB) → Database + WebSocket
+Direct flow: TWS (IB) → Database + WebSocket, with no external message broker.
 
 Simple and robust for Oracle Cloud Free Tier (1GB RAM)
 """
@@ -24,7 +24,7 @@ class MarketDataStreamer:
     """
     Simple market data streamer - direct TWS to Database
 
-    No Kafka overhead - saves memory on Oracle Cloud Free Tier
+    No external broker overhead - saves memory on Oracle Cloud Free Tier
     """
 
     def __init__(

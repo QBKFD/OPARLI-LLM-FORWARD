@@ -118,6 +118,17 @@ class MetaDecisionService:
     AGREEMENT_THRESHOLD_HIGH = 0.5
     AGREEMENT_THRESHOLD_LOW = 0.67
 
+    # Renormalise the weighted score over the analysts that actually voted,
+    # rather than over the full analyst roster. With this on, WEIGHTED_SCORE_*
+    # mean "weighted agreement AMONG PARTICIPATING analysts": a unanimous call at
+    # confidence c scores c whether 1 or 3 analysts voted. With it off, a scan
+    # where not all analysts vote is capped at sum(participating weights) < 1.0
+    # and can never clear the gate — a plumbing artifact, not a signal property.
+    # See calculate_weighted_score(). This is the intended semantics; the flag
+    # exists to name the behaviour and keep the old math inspectable, not as a
+    # runtime toggle to flip.
+    PARTICIPATION_RENORMALIZED = True
+
     def __init__(
         self,
         llm_client=None,
@@ -216,6 +227,38 @@ class MetaDecisionService:
             breakdown
         )
 
+    # Vocabularies analysts have historically used for the same two directions.
+    # Normalising here means an analyst whose wording drifts gets scored rather
+    # than silently contributing 0.0 while still consuming its weight.
+    _SIGNAL_ALIASES = {
+        'BUY': 'LONG', 'BULLISH': 'LONG', 'LONG': 'LONG',
+        'SELL': 'SHORT', 'BEARISH': 'SHORT', 'SHORT': 'SHORT',
+        'PASS': 'PASS', 'NEUTRAL': 'PASS', 'HOLD': 'PASS',
+    }
+
+    @classmethod
+    def normalize_analysis(cls, analysis: Dict) -> Tuple[str, float]:
+        """
+        Coerce one analyst result to (LONG|SHORT|PASS, confidence in 0-1).
+
+        Unknown signals become PASS: an analyst we cannot interpret must be
+        treated as abstaining, never as agreeing.
+        """
+        raw = str(analysis.get('signal', 'NEUTRAL')).strip().upper()
+        signal = cls._SIGNAL_ALIASES.get(raw)
+        if signal is None:
+            logger.warning(f"Unrecognised analyst signal '{raw}', treating as PASS")
+            signal = 'PASS'
+
+        try:
+            confidence = float(analysis.get('confidence', 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence > 1.0:
+            confidence = confidence / 100.0
+
+        return signal, max(0.0, min(1.0, confidence))
+
     def calculate_weighted_score(
         self,
         visual: Dict,
@@ -224,6 +267,13 @@ class MetaDecisionService:
     ) -> Tuple[float, float, Dict]:
         """
         Calculate weighted score and agreement.
+
+        The weighted score is RENORMALISED over the participating analysts (see
+        `PARTICIPATION_RENORMALIZED`): the per-direction conviction sum is divided
+        by the total weight of the analysts that actually cast a directional vote,
+        not by the full analyst roster. This makes the score mean exactly what the
+        decision thresholds claim — "weighted agreement among the analysts that
+        voted" — regardless of how many analysts ran.
 
         Args:
             visual: Visual analysis
@@ -239,25 +289,46 @@ class MetaDecisionService:
             'technical': technical,
             'sentiment': sentiment
         }
+        normalized = {
+            name: self.normalize_analysis(analysis)
+            for name, analysis in analyses.items()
+        }
 
-        # Calculate weighted score for each direction
-        scores = {'LONG': 0.0, 'SHORT': 0.0}
+        # Raw per-direction conviction: sum(confidence * weight) over the
+        # analysts pointing that way. A PASS is an abstention (see the agreement
+        # rules below), so it contributes to neither the numerator nor the
+        # denominator.
+        raw_scores = {'LONG': 0.0, 'SHORT': 0.0}
+        participating_weight = 0.0
 
-        for analyst_name, analysis in analyses.items():
-            signal = analysis.get('signal', 'NEUTRAL').upper()
-            confidence = analysis.get('confidence', 0.0)
+        for analyst_name, (signal, confidence) in normalized.items():
+            if signal not in raw_scores:
+                continue  # PASS / abstention — excluded from the vote entirely
             weight = self.weights.get(analyst_name, 0.0)
+            raw_scores[signal] += confidence * weight
+            participating_weight += weight
 
-            if signal in scores:
-                scores[signal] += confidence * weight
+        # Renormalise over the participating weight. Without this, a scan where
+        # fewer than all analysts vote (e.g. Stage-1 technical-only) is capped at
+        # sum(weight_i) < 1.0 and can never clear the gate even at max confidence
+        # — a plumbing artifact of who happened to vote, not a property of the
+        # signal. Dividing by the participating weight makes a unanimous call at
+        # confidence c score exactly c whether 1 or 3 analysts voted.
+        if self.PARTICIPATION_RENORMALIZED and participating_weight > 0:
+            scores = {
+                direction: raw / participating_weight
+                for direction, raw in raw_scores.items()
+            }
+        else:
+            scores = dict(raw_scores)
 
         weighted_score = max(scores.values())
 
         # Calculate agreement
         signals = [
-            visual.get('signal', 'NEUTRAL').upper(),
-            technical.get('signal', 'NEUTRAL').upper(),
-            sentiment.get('signal', 'NEUTRAL').upper()
+            normalized['visual'][0],
+            normalized['technical'][0],
+            normalized['sentiment'][0],
         ]
 
         long_count = signals.count('LONG')
@@ -277,6 +348,8 @@ class MetaDecisionService:
         # Build breakdown
         breakdown = {
             'scores': scores,
+            'raw_scores': raw_scores,
+            'participating_weight': participating_weight,
             'signals': signals,
             'counts': {
                 'long': long_count,
@@ -391,15 +464,19 @@ class MetaDecisionService:
 
         Uses threshold-based logic matching the prompt rules.
         """
-        # Determine direction
-        v_sig = visual.get('signal', 'NEUTRAL').upper()
-        t_sig = technical.get('signal', 'NEUTRAL').upper()
+        # Determine direction (same normalisation the scorer used, so the
+        # direction can never disagree with the score that justified it)
+        v_sig, _ = self.normalize_analysis(visual)
+        t_sig, _ = self.normalize_analysis(technical)
+        s_sig, _ = self.normalize_analysis(sentiment)
 
         # Priority: Technical > Visual > Sentiment
         if t_sig in ['LONG', 'SHORT']:
             direction = t_sig
         elif v_sig in ['LONG', 'SHORT']:
             direction = v_sig
+        elif s_sig in ['LONG', 'SHORT']:
+            direction = s_sig
         else:
             direction = 'PASS'
 
@@ -418,9 +495,9 @@ class MetaDecisionService:
             'agreement': agreement,
             'reasoning': 'Deterministic decision (LLM unavailable)',
             'analyst_breakdown': {
-                'visual': {'signal': v_sig, 'confidence': visual.get('confidence', 0)},
-                'technical': {'signal': t_sig, 'confidence': technical.get('confidence', 0)},
-                'sentiment': {'signal': sentiment.get('signal', 'PASS'), 'confidence': sentiment.get('confidence', 0)}
+                'visual': {'signal': v_sig, 'confidence': self.normalize_analysis(visual)[1]},
+                'technical': {'signal': t_sig, 'confidence': self.normalize_analysis(technical)[1]},
+                'sentiment': {'signal': s_sig, 'confidence': self.normalize_analysis(sentiment)[1]}
             }
         }
 

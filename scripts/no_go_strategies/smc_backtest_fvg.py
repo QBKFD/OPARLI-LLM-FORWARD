@@ -2,7 +2,6 @@
 """
 SMC Fair Value Gap (FVG) Strategy Backtest
 
-Reproduces all FVG findings from SMC_STRATEGY_GUIDE.md including:
 - FVG Standalone (does NOT work)
 - FVG + OB Confluence (does NOT work)
 - FVG-Leads-OB Strategy (WORKS!)

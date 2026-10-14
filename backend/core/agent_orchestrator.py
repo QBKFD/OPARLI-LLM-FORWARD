@@ -14,6 +14,7 @@ from agents.base_agent import BaseAgent, AgentType, Message
 from agents.scanner_agent import ScannerAgentNew
 from agents.technicalanalyst_agent import TechnicalAnalystAgent
 from agents.visual_analyst_agent import VisualAnalystAgent
+from agents.sentimentanalyst_agent import SentimentAnalystAgent
 from agents.meta_agent import MetaAgentNew
 from agents.riskmanager_agent import RiskManagerAgentNew
 from agents.execution_agent import ExecutionAgentNew
@@ -88,6 +89,12 @@ class AgentOrchestrator:
                 config=agent_configs.get('visual_analyst', {})
             )
 
+            # The Meta-Agent blocks until all three analysts report, so leaving
+            # Sentiment out of the roster stalled every decision permanently.
+            self.agents[AgentType.SENTIMENT_ANALYST] = SentimentAnalystAgent(
+                config=agent_configs.get('sentiment_analyst', {})
+            )
+
             self.agents[AgentType.META_AGENT] = MetaAgentNew(
                 config=agent_configs.get('meta_agent', {})
             )
@@ -123,6 +130,18 @@ class AgentOrchestrator:
             self.message_bus.register_agent(agent_type, agent.process_message)
 
         logger.info(f"✓ Registered {len(self.agents)} agents with message bus")
+
+    def activate_agents(self):
+        """
+        Activate all registered agents.
+
+        Agents gate their own work on `is_active`; an inactive agent silently
+        drops every message it receives.
+        """
+        for agent in self.agents.values():
+            agent.activate()
+
+        logger.info(f"✓ Activated {len(self.agents)} agents")
 
     def schedule_agents(self):
         """
@@ -202,6 +221,7 @@ class AgentOrchestrator:
         on_demand_agents = [
             AgentType.TECHNICAL_ANALYST,
             AgentType.VISUAL_ANALYST,
+            AgentType.SENTIMENT_ANALYST,
             AgentType.META_AGENT,
             AgentType.RISK_MANAGER,
             AgentType.EXECUTION
@@ -234,10 +254,15 @@ class AgentOrchestrator:
             # 2. Register agents with message bus
             self.register_agents_with_message_bus()
 
-            # 3. Schedule agents
+            # 3. Activate agents. Every agent short-circuits its run() and
+            #    process_message() on `is_active`, which defaults to False, so
+            #    without this the whole pipeline started up idle and silent.
+            self.activate_agents()
+
+            # 4. Schedule agents
             self.schedule_agents()
 
-            # 4. Start scheduler
+            # 5. Start scheduler
             self.scheduler.start()
 
             self.running = True

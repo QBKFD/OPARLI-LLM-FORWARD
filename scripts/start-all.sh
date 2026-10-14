@@ -7,39 +7,15 @@ SCRIPTS_DIR="$PROJECT_DIR/scripts"
 
 echo "🚀 Starting Algo Trading System..."
 echo ""
-echo "This will open 4 terminal windows:"
-echo "  1. Zookeeper"
-echo "  2. Kafka"
-echo "  3. Backend API"
-echo "  4. Frontend"
+echo "This will open 2 terminal windows:"
+echo "  1. Backend API"
+echo "  2. Frontend"
 echo ""
 echo "⚠️  Make sure TWS/Gateway is running and logged in!"
 echo ""
 read -p "Press Enter to continue..."
 
-# Terminal 1 - Zookeeper
-osascript <<END
-tell application "Terminal"
-    do script "cd '$SCRIPTS_DIR' && ./1-start-zookeeper.sh"
-    set custom title of front window to "ZOOKEEPER"
-end tell
-END
-
-echo "✅ Zookeeper starting..."
-sleep 5
-
-# Terminal 2 - Kafka
-osascript <<END
-tell application "Terminal"
-    do script "cd '$SCRIPTS_DIR' && ./2-start-kafka.sh"
-    set custom title of front window to "KAFKA"
-end tell
-END
-
-echo "✅ Kafka starting..."
-sleep 10
-
-# Terminal 3 - Backend
+# Terminal 1 - Backend
 osascript <<END
 tell application "Terminal"
     do script "cd '$SCRIPTS_DIR' && ./3-start-backend.sh"
@@ -50,7 +26,7 @@ END
 echo "✅ Backend starting..."
 sleep 5
 
-# Terminal 4 - Frontend
+# Terminal 2 - Frontend
 osascript <<END
 tell application "Terminal"
     do script "cd '$SCRIPTS_DIR' && ./4-start-frontend.sh"

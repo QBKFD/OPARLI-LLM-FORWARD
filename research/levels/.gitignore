@@ -1,0 +1,6 @@
+cache/
+results/predictions_*.csv
+__pycache__/
+.pytest_cache/
+figures/*.tmp
+results/events_*.parquet

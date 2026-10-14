@@ -1,0 +1,148 @@
+{
+ "info": {
+  "test_days": 4379,
+  "excluded_2007_2023": 23,
+  "corrected_units": 174174,
+  "corrected_real": 8294,
+  "corrected_short": 0
+ },
+ "bootstrap": {
+  "type": "circular moving-block over the trading calendar",
+  "draws": 5000,
+  "block_lengths": [
+   60,
+   120,
+   240
+  ],
+  "primary": 120
+ },
+ "validation": {
+  "60": {
+   "aa": [
+    {
+     "class": "NEAR",
+     "reps": 200,
+     "mean_effect": 0.0040951942094847186,
+     "sd_effect": 0.012749418439819688,
+     "ci_coverage_of_0": 0.9,
+     "pass": false
+    },
+    {
+     "class": "FAR",
+     "reps": 200,
+     "mean_effect": 0.004444468528397798,
+     "sd_effect": 0.015050414385135548,
+     "ci_coverage_of_0": 0.94,
+     "pass": true
+    }
+   ],
+   "injection": [
+    {
+     "delta": 0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": 0.09930612947658402,
+     "sd_recovered": 0.025738949927851168,
+     "bias": -0.0006938705234159903,
+     "ci_coverage_of_delta": 0.97
+    },
+    {
+     "delta": -0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": -0.09971375688705235,
+     "sd_recovered": 0.023794097647070512,
+     "bias": 0.0002862431129476567,
+     "ci_coverage_of_delta": 0.95
+    }
+   ]
+  },
+  "120": {
+   "aa": [
+    {
+     "class": "NEAR",
+     "reps": 200,
+     "mean_effect": 0.0040951942094847186,
+     "sd_effect": 0.012749418439819688,
+     "ci_coverage_of_0": 0.885,
+     "pass": false
+    },
+    {
+     "class": "FAR",
+     "reps": 200,
+     "mean_effect": 0.004444468528397798,
+     "sd_effect": 0.015050414385135548,
+     "ci_coverage_of_0": 0.94,
+     "pass": true
+    }
+   ],
+   "injection": [
+    {
+     "delta": 0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": 0.09930612947658402,
+     "sd_recovered": 0.025738949927851168,
+     "bias": -0.0006938705234159903,
+     "ci_coverage_of_delta": 0.96
+    },
+    {
+     "delta": -0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": -0.09971375688705235,
+     "sd_recovered": 0.023794097647070512,
+     "bias": 0.0002862431129476567,
+     "ci_coverage_of_delta": 0.96
+    }
+   ]
+  },
+  "240": {
+   "aa": [
+    {
+     "class": "NEAR",
+     "reps": 200,
+     "mean_effect": 0.0040951942094847186,
+     "sd_effect": 0.012749418439819688,
+     "ci_coverage_of_0": 0.875,
+     "pass": false
+    },
+    {
+     "class": "FAR",
+     "reps": 200,
+     "mean_effect": 0.004444468528397798,
+     "sd_effect": 0.015050414385135548,
+     "ci_coverage_of_0": 0.925,
+     "pass": false
+    }
+   ],
+   "injection": [
+    {
+     "delta": 0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": 0.09930612947658402,
+     "sd_recovered": 0.025738949927851168,
+     "bias": -0.0006938705234159903,
+     "ci_coverage_of_delta": 0.935
+    },
+    {
+     "delta": -0.1,
+     "placebo_rate": 0.325068870523416,
+     "n_real": 352,
+     "reps": 200,
+     "mean_recovered": -0.09971375688705235,
+     "sd_recovered": 0.023794097647070512,
+     "bias": 0.0002862431129476567,
+     "ci_coverage_of_delta": 0.955
+    }
+   ]
+  }
+ },
+ "stopped": "A/A failed at the primary block length 120: diagnostic results withheld"
+}

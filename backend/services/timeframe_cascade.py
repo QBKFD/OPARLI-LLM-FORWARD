@@ -40,6 +40,24 @@ class TimeframeCascade:
         '1m': 1
     }
 
+    # Confidence gates. These are INCLUSIVE minimums ("at least this confident")
+    # and must be compared with >=, not >.
+    #
+    # ConfluenceChecker emits confidence from a discrete ladder — 3 agreeing
+    # indicators is exactly 0.60, 4 is 0.75, 5 is 0.90 — and these gate values
+    # are drawn from that same ladder. Comparing with a strict > therefore did
+    # not mean "more confident than 0.60", it meant "not a 3-indicator signal",
+    # silently discarding the most common valid signal there is. On 2023 XAUUSD
+    # that was the difference between 5 signals per 2000 evaluations and 127.
+    #
+    # Note this is a property of comparing against a value the ladder can land
+    # on, not of the ladder being coarse: making confidence continuous does NOT
+    # fix it (measured — a continuous ladder still puts a clean 3-indicator
+    # signal at exactly 0.60 and reproduces the baseline 5/2000 exactly).
+    LEAD_TF_MIN_CONFIDENCE = 0.60    # 4h/1h to lead a Case A/B signal
+    OPPOSITION_MIN_CONFIDENCE = 0.70 # lower TF conviction needed to count as opposition
+    MID_TF_MIN_CONFIDENCE = 0.75     # 15m/5m to carry a Case C signal alone
+
     def __init__(self):
         self.indicators = get_technical_indicators()
         self.regime_detector = get_regime_detector()
@@ -221,19 +239,19 @@ class TimeframeCascade:
         Returns:
             True if Case A applies
         """
-        # Check if 4h or 1h shows LONG with confidence >60%
+        # Check if 4h or 1h shows LONG with confidence of at least 60%
         has_long_signal = (
-            (tf_4h.get('signal') == 'LONG' and tf_4h.get('confidence', 0) > 0.60) or
-            (tf_1h.get('signal') == 'LONG' and tf_1h.get('confidence', 0) > 0.60)
+            (tf_4h.get('signal') == 'LONG' and tf_4h.get('confidence', 0) >= self.LEAD_TF_MIN_CONFIDENCE) or
+            (tf_1h.get('signal') == 'LONG' and tf_1h.get('confidence', 0) >= self.LEAD_TF_MIN_CONFIDENCE)
         )
 
         if not has_long_signal:
             return False
 
-        # Check for strong opposition (2+ lower TFs with SHORT and confidence >70%)
+        # Check for strong opposition (2+ lower TFs with SHORT at >=70%)
         opposition_count = sum(
             1 for tf in lower_tfs
-            if tf.get('signal') == 'SHORT' and tf.get('confidence', 0) > 0.70
+            if tf.get('signal') == 'SHORT' and tf.get('confidence', 0) >= self.OPPOSITION_MIN_CONFIDENCE
         )
 
         return opposition_count < 2
@@ -250,10 +268,10 @@ class TimeframeCascade:
         Returns:
             True if Case B applies
         """
-        # Check if 4h or 1h shows SHORT with confidence >60%
+        # Check if 4h or 1h shows SHORT with confidence of at least 60%
         has_short_signal = (
-            (tf_4h.get('signal') == 'SHORT' and tf_4h.get('confidence', 0) > 0.60) or
-            (tf_1h.get('signal') == 'SHORT' and tf_1h.get('confidence', 0) > 0.60)
+            (tf_4h.get('signal') == 'SHORT' and tf_4h.get('confidence', 0) >= self.LEAD_TF_MIN_CONFIDENCE) or
+            (tf_1h.get('signal') == 'SHORT' and tf_1h.get('confidence', 0) >= self.LEAD_TF_MIN_CONFIDENCE)
         )
 
         if not has_short_signal:
@@ -262,7 +280,7 @@ class TimeframeCascade:
         # Check for strong opposition
         opposition_count = sum(
             1 for tf in lower_tfs
-            if tf.get('signal') == 'LONG' and tf.get('confidence', 0) > 0.70
+            if tf.get('signal') == 'LONG' and tf.get('confidence', 0) >= self.OPPOSITION_MIN_CONFIDENCE
         )
 
         return opposition_count < 2
@@ -280,21 +298,22 @@ class TimeframeCascade:
         Returns:
             Tuple of (signal, lead_tf) if Case C applies, None otherwise
         """
-        # Check if 4h and 1h are neutral or weak signals
+        # Check if 4h and 1h are neutral or weak signals. Complement of the
+        # Case A/B lead gate, so exactly one of the two branches can apply.
         higher_tf_neutral = (
-            tf_4h.get('signal') in ['PASS', 'NEUTRAL'] or tf_4h.get('confidence', 0) < 0.60
+            tf_4h.get('signal') in ['PASS', 'NEUTRAL'] or tf_4h.get('confidence', 0) < self.LEAD_TF_MIN_CONFIDENCE
         ) and (
-            tf_1h.get('signal') in ['PASS', 'NEUTRAL'] or tf_1h.get('confidence', 0) < 0.60
+            tf_1h.get('signal') in ['PASS', 'NEUTRAL'] or tf_1h.get('confidence', 0) < self.LEAD_TF_MIN_CONFIDENCE
         )
 
         if not higher_tf_neutral:
             return None
 
-        # Check if 15m or 5m show strong confluence (>0.75 confidence)
-        if tf_15m.get('signal') in ['LONG', 'SHORT'] and tf_15m.get('confidence', 0) > 0.75:
+        # Check if 15m or 5m show strong confluence (at least 0.75 confidence)
+        if tf_15m.get('signal') in ['LONG', 'SHORT'] and tf_15m.get('confidence', 0) >= self.MID_TF_MIN_CONFIDENCE:
             return tf_15m['signal'], tf_15m
 
-        if tf_5m.get('signal') in ['LONG', 'SHORT'] and tf_5m.get('confidence', 0) > 0.75:
+        if tf_5m.get('signal') in ['LONG', 'SHORT'] and tf_5m.get('confidence', 0) >= self.MID_TF_MIN_CONFIDENCE:
             return tf_5m['signal'], tf_5m
 
         return None

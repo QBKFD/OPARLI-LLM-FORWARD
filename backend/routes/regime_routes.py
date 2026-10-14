@@ -16,7 +16,6 @@ import pandas as pd
 # Add project root to path so regime_classifier is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from regime_classifier import RegimeConfig, RegimeFeatureEngine, RegimeClassifier
 from config.database import get_database
 from middleware.security import validate_symbol, validate_timeframe
 
@@ -26,6 +25,34 @@ router = APIRouter(prefix="/api/regime", tags=["regime"])
 
 # Cache fitted classifier to avoid re-fitting on every request
 _classifier_cache = {}
+
+
+def _load_regime_classifier():
+    """
+    Import the regime_classifier package lazily.
+
+    The classifier is a research overlay, not a core trading path, and it pulls
+    in a separate dependency set (scikit-learn, joblib, jumpmodels) that is not
+    part of backend/requirements.txt. Importing it at module load would take the
+    whole API down if those packages are absent, so the import is deferred to
+    request time and surfaced as a clean 503 instead.
+    """
+    try:
+        from regime_classifier import (
+            RegimeConfig,
+            RegimeFeatureEngine,
+            RegimeClassifier,
+        )
+        return RegimeConfig, RegimeFeatureEngine, RegimeClassifier
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Regime classifier unavailable: its dependencies are not "
+                "installed. Run `pip install -r regime_classifier/requirements.txt` "
+                f"(scikit-learn, joblib, jumpmodels). Import error: {e}"
+            ),
+        )
 
 
 def _get_ohlcv_from_db(symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
@@ -96,6 +123,10 @@ async def get_regime_labels(
         timeframe = validate_timeframe(timeframe)
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
+
+    # Lazily import the classifier so a missing research dependency set fails
+    # this endpoint with a clear 503 rather than crashing the whole API at boot.
+    RegimeConfig, RegimeFeatureEngine, RegimeClassifier = _load_regime_classifier()
 
     try:
         # Fetch OHLCV data

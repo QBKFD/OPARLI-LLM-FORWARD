@@ -22,7 +22,15 @@ class ConfluenceChecker:
     - 3 indicators agree: 60% confidence
     - 4 indicators agree: 75% confidence
     - 5+ indicators agree: 90% confidence
+
+    VOTERS is the set of indicators that can express a direction, and it is the
+    denominator confluence is measured against. Only directional indicators
+    belong here: an indicator that can never return LONG or SHORT does not
+    "abstain", it silently lowers every score by occupying a slot. Volume was
+    such a slot — see _volume_context.
     """
+
+    VOTERS = ('RSI', 'Bollinger', 'EMA', 'VWAP', 'Support/Resistance')
 
     @staticmethod
     def check_confluence(
@@ -83,24 +91,19 @@ class ConfluenceChecker:
             indicators['vwap']
         )
 
-        volume_signal = ConfluenceChecker._check_volume(
-            indicators['volume_ratio'],
-            thresholds['volume_threshold']
-        )
-
         support_resistance_signal = ConfluenceChecker._check_support_resistance(
             indicators['close'],
             indicators['support'],
             indicators['resistance']
         )
 
-        # Aggregate signals
+        # Aggregate signals. Volume is deliberately NOT here — it is context,
+        # not a vote (see VOTERS and _volume_context).
         signal_votes = {
             'RSI': rsi_signal,
             'Bollinger': bollinger_signal,
             'EMA': ema_signal,
             'VWAP': vwap_signal,
-            'Volume': volume_signal,
             'Support/Resistance': support_resistance_signal
         }
 
@@ -125,10 +128,18 @@ class ConfluenceChecker:
             'signal': final_signal,
             'confidence': round(confidence, 2),
             'confluence_score': confluence_score,
+            'max_confluence': len(ConfluenceChecker.VOTERS),
             'indicators_agreeing': long_votes if final_signal == 'LONG' else short_votes,
             'indicators_neutral': neutral_votes,
             'indicators_opposing': short_votes if final_signal == 'LONG' else long_votes,
-            'details': signal_votes
+            'details': signal_votes,
+            # Volume is reported as context so it stays visible to downstream
+            # consumers and to the scanner's volume-spike trigger, without
+            # diluting the directional vote.
+            'volume_context': ConfluenceChecker._volume_context(
+                indicators.get('volume_ratio', 1.0),
+                thresholds.get('volume_threshold', 1.5),
+            ),
         }
 
     @staticmethod
@@ -163,11 +174,30 @@ class ConfluenceChecker:
         """
         Check Bollinger Bands signal
 
+        The thresholds are expressed as a fraction of BAND WIDTH, not of price.
+
+        This previously read `bb_lower * (1 - lower_pct)`, i.e. lower_pct as a
+        fraction of price. In the RANGING regime lower_pct is 0.02, which
+        demanded price sit 2% of price below the lower band — roughly $40 on
+        gold, several band widths away. The indicator never voted.
+
+        Band-relative also makes the regime settings in
+        RegimeDetector.get_adaptive_thresholds read consistently, which the
+        price-relative reading did not:
+          VOLATILE 0.01 -> must be essentially at/through the band
+                           ("only extreme extremes")
+          RANGING  0.02 -> tight zone at the extreme ("tight entry at extremes")
+          TRENDING 0.10 -> fires while still 10% of a band width short of the
+                           band ("allow deeper pullbacks")
+        so a larger value is a more permissive zone in every regime.
+
         Args:
             close: Current price
             bb_upper, bb_middle, bb_lower: Bollinger Band levels
-            lower_pct: % below lower band for LONG
-            upper_pct: % above upper band for SHORT
+            lower_pct: tolerance above the lower band, as a fraction of band
+                       width, that still counts as "at the lower band" (LONG)
+            upper_pct: tolerance below the upper band, as a fraction of band
+                       width, that still counts as "at the upper band" (SHORT)
 
         Returns:
             'LONG', 'SHORT', or 'NEUTRAL'
@@ -175,9 +205,14 @@ class ConfluenceChecker:
         if bb_lower is None or bb_upper is None:
             return 'NEUTRAL'
 
-        # Calculate how far price is from bands
-        lower_threshold = bb_lower * (1 - lower_pct)
-        upper_threshold = bb_upper * (1 + upper_pct)
+        band_width = bb_upper - bb_lower
+        if band_width <= 0:
+            return 'NEUTRAL'
+
+        # Tolerance zone extends INTO the band from each edge, so price at or
+        # beyond the band always qualifies and near-misses qualify by degree.
+        lower_threshold = bb_lower + (lower_pct * band_width)
+        upper_threshold = bb_upper - (upper_pct * band_width)
 
         if close <= lower_threshold:
             return 'LONG'  # Price at/below lower band
@@ -245,21 +280,35 @@ class ConfluenceChecker:
             return 'NEUTRAL'
 
     @staticmethod
-    def _check_volume(volume_ratio: float, threshold: float) -> str:
+    def _volume_context(volume_ratio: float, threshold: float) -> Dict:
         """
-        Check volume signal
+        Volume as CONTEXT, not as a vote.
+
+        Volume is non-directional: a 3x volume bar says the move is being
+        participated in, not which way it resolves. The previous _check_volume
+        acknowledged this in its own comment and returned NEUTRAL on both
+        branches — but it was still listed as a voter, so it silently subtracted
+        one from the achievable confluence on every single bar.
+
+        Turning it into a directional vote (e.g. "high volume + up candle =
+        LONG") would be an untested trading claim. This repo already has the
+        machinery to test such a claim properly — matched-random controls and
+        pre-registered conditions, see notebooks/backtest.ipynb — so the honest
+        move is to stop counting volume until it has been through that, rather
+        than to invent a rule and wire it straight into live decisions.
 
         Args:
             volume_ratio: Current volume / Average volume
-            threshold: Minimum ratio for significant volume
+            threshold: Ratio above which volume is considered significant
 
         Returns:
-            'LONG', 'SHORT', or 'NEUTRAL'
+            {'volume_ratio': float, 'significant': bool, 'threshold': float}
         """
-        if volume_ratio >= threshold:
-            return 'NEUTRAL'  # High volume = significant (but not directional)
-        else:
-            return 'NEUTRAL'  # Volume doesn't give directional signal
+        return {
+            'volume_ratio': round(float(volume_ratio), 2),
+            'threshold': float(threshold),
+            'significant': float(volume_ratio) >= float(threshold),
+        }
 
     @staticmethod
     def _check_support_resistance(
@@ -277,14 +326,44 @@ class ConfluenceChecker:
 
         Returns:
             'LONG', 'SHORT', or 'NEUTRAL'
-        """
-        # Price near support = potential LONG
-        if abs(close - support) / support < 0.005:  # Within 0.5% of support
-            return 'LONG'
 
-        # Price near resistance = potential SHORT
-        if abs(close - resistance) / resistance < 0.005:  # Within 0.5% of resistance
-            return 'SHORT'
+        Balanced by construction. The previous version checked support first and
+        returned LONG whenever price was within 0.5% of support, so on tight
+        ranges (common on low timeframes, where 20 bars span well under 1%) price
+        was within 0.5% of BOTH levels and resistance never got a look — the
+        voter returned LONG on every such bar. Measured on 2023 XAUUSD across the
+        five-timeframe cascade that was 32,163 LONG vs 7,036 SHORT (82% LONG),
+        even though price was nearer support only 50.7% of the time: a pure
+        artifact of check order, not of the levels.
+
+        The fix removes the asymmetry rather than tuning it out: distances use a
+        common denominator (close) so equal dollar gaps compare equally, and the
+        NEARER level decides. Mirror price about the mid-range and swap
+        support<->resistance and the vote flips. A genuine tie, or price near
+        neither level, is NEUTRAL.
+        """
+        if close <= 0:
+            return 'NEUTRAL'
+
+        dist_support = abs(close - support) / close
+        dist_resistance = abs(close - resistance) / close
+
+        near_support = dist_support < 0.005     # within 0.5% of support
+        near_resistance = dist_resistance < 0.005  # within 0.5% of resistance
+
+        if near_support and near_resistance:
+            # Range tighter than ~1%: let the nearer level decide; a dead tie
+            # carries no directional information, so abstain.
+            if dist_support < dist_resistance:
+                return 'LONG'
+            if dist_resistance < dist_support:
+                return 'SHORT'
+            return 'NEUTRAL'
+
+        if near_support:
+            return 'LONG'   # price at support = potential bounce
+        if near_resistance:
+            return 'SHORT'  # price at resistance = potential rejection
 
         return 'NEUTRAL'
 

@@ -1,0 +1,1394 @@
+{
+  "seal": "2024-01-01 00:00:00+00:00",
+  "data": {
+    "rows_read": 1417321,
+    "duplicates": 0,
+    "invalid_dropped": 0,
+    "ohlc_inconsistent_kept": 0,
+    "rows": 1417321,
+    "first": "2020-01-01 23:00:00+00:00",
+    "last": "2023-12-29 21:58:00+00:00"
+  },
+  "bars": {
+    "n_bars_total": 23638,
+    "n_bars_with_gap": 1041,
+    "n_minute_gaps": 1041,
+    "n_r1h_dropped": 1041
+  },
+  "max_bar_used": "2023-12-29 22:00:00+00:00",
+  "correlation": {
+    "full_2021_2023": {
+      "n_rows": 17712,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2023-12-29 22:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.2272135762603401,
+        "log_gk60~wick60": -0.06400222728532363,
+        "log_rv_ratio~wick60": -0.21549916653023424
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7534089757166229,
+        "atr_ratio": 0.7852911749030314,
+        "atr_percentile": 0.7852911749030314,
+        "bb_width": 0.8422730294332944,
+        "bb_width_percentile": 0.8422730294332944,
+        "parkinson_vol": 0.7750455243738741,
+        "rv_15": 0.8445648747608205,
+        "rv_60": 0.8851810814340937,
+        "rv_240": 0.7369225074736295,
+        "rv_ratio_short_long": 0.987433555681332,
+        "rv_ratio_mid_long": 0.625166730543036,
+        "rv_ratio_short_mid": 0.8446693657460295,
+        "rv_adjusted": 0.8851810814340937,
+        "log_gk60": 0.8518648560350616,
+        "log_rv_ratio": 0.987433555681332,
+        "wick60": 0.5133531207757459
+      }
+    },
+    "train_1_to_2021-12-31": {
+      "n_rows": 5885,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2021-12-31 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.31260715776696024,
+        "log_gk60~wick60": -0.0114700102564658,
+        "log_rv_ratio~wick60": -0.18120664886678695
+      },
+      "isolated": {
+        "wick60": 0.4889079426139661
+      },
+      "max_abs_rho": {
+        "atr": 0.7490071724051557,
+        "atr_ratio": 0.7680666274825615,
+        "atr_percentile": 0.7680666274825615,
+        "bb_width": 0.8845527460655347,
+        "bb_width_percentile": 0.8845527460655347,
+        "parkinson_vol": 0.7615387916770158,
+        "rv_15": 0.8968244269026321,
+        "rv_60": 0.8945357183299188,
+        "rv_240": 0.6082663324112152,
+        "rv_ratio_short_long": 0.9839602304267037,
+        "rv_ratio_mid_long": 0.7309062268743663,
+        "rv_ratio_short_mid": 0.8351880055355222,
+        "rv_adjusted": 0.8945357183299188,
+        "log_gk60": 0.8314613081710225,
+        "log_rv_ratio": 0.9839602304267037,
+        "wick60": 0.4889079426139661
+      }
+    },
+    "train_2_to_2022-03-31": {
+      "n_rows": 7352,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2022-03-31 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 11,
+          "members": [
+            "rv_ratio_short_mid"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 11,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.26149774555533256,
+        "log_gk60~wick60": -0.05841151886741608,
+        "log_rv_ratio~wick60": -0.21251082002950994
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7641369104558043,
+        "atr_ratio": 0.7620653488496171,
+        "atr_percentile": 0.7620653488496171,
+        "bb_width": 0.8463699731259079,
+        "bb_width_percentile": 0.8463699731259079,
+        "parkinson_vol": 0.7844397667803014,
+        "rv_15": 0.8456759484416826,
+        "rv_60": 0.8981757240474306,
+        "rv_240": 0.6746053171008779,
+        "rv_ratio_short_long": 0.9847406527208274,
+        "rv_ratio_mid_long": 0.6477305227284456,
+        "rv_ratio_short_mid": 0.8215232883095304,
+        "rv_adjusted": 0.8981757240474306,
+        "log_gk60": 0.8535392080637302,
+        "log_rv_ratio": 0.9847406527208274,
+        "wick60": 0.5018149141311086
+      }
+    },
+    "train_3_to_2022-06-30": {
+      "n_rows": 8820,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2022-06-30 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 11,
+          "members": [
+            "rv_ratio_short_mid"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 11,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.27535184316631744,
+        "log_gk60~wick60": -0.06505102336059658,
+        "log_rv_ratio~wick60": -0.2017580506577679
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7676380732296495,
+        "atr_ratio": 0.7716268012873259,
+        "atr_percentile": 0.7716268012873259,
+        "bb_width": 0.8439198357941327,
+        "bb_width_percentile": 0.8439198357941327,
+        "parkinson_vol": 0.7837851126859647,
+        "rv_15": 0.8569116937997597,
+        "rv_60": 0.8887415259848062,
+        "rv_240": 0.6792762769800688,
+        "rv_ratio_short_long": 0.9865990476790416,
+        "rv_ratio_mid_long": 0.6676910820722488,
+        "rv_ratio_short_mid": 0.8275469824019503,
+        "rv_adjusted": 0.8887415259848062,
+        "log_gk60": 0.8520683989358153,
+        "log_rv_ratio": 0.9865990476790416,
+        "wick60": 0.5027768825736156
+      }
+    },
+    "train_4_to_2022-09-30": {
+      "n_rows": 10334,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2022-09-30 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.2643536265706069,
+        "log_gk60~wick60": -0.07434767503441178,
+        "log_rv_ratio~wick60": -0.21022064945657465
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.756083999007065,
+        "atr_ratio": 0.7759700976509883,
+        "atr_percentile": 0.7759700976509883,
+        "bb_width": 0.848443663880287,
+        "bb_width_percentile": 0.848443663880287,
+        "parkinson_vol": 0.7801552262450014,
+        "rv_15": 0.8616345065017662,
+        "rv_60": 0.8855140613835087,
+        "rv_240": 0.6869208445059182,
+        "rv_ratio_short_long": 0.9884399346959657,
+        "rv_ratio_mid_long": 0.6846250899551553,
+        "rv_ratio_short_mid": 0.8322353661078666,
+        "rv_adjusted": 0.8855140613835087,
+        "log_gk60": 0.844764949951928,
+        "log_rv_ratio": 0.9884399346959657,
+        "wick60": 0.5135079080804574
+      }
+    },
+    "train_5_to_2022-12-31": {
+      "n_rows": 11822,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2022-12-30 22:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.25943315686871565,
+        "log_gk60~wick60": -0.05214021511398429,
+        "log_rv_ratio~wick60": -0.21833464215186751
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.749820700812386,
+        "atr_ratio": 0.7772339255816803,
+        "atr_percentile": 0.7772339255816803,
+        "bb_width": 0.8533007241330468,
+        "bb_width_percentile": 0.8533007241330468,
+        "parkinson_vol": 0.7790166075214324,
+        "rv_15": 0.860863919694101,
+        "rv_60": 0.8802441777332777,
+        "rv_240": 0.6848654520819809,
+        "rv_ratio_short_long": 0.9888710568562602,
+        "rv_ratio_mid_long": 0.6798553043042381,
+        "rv_ratio_short_mid": 0.8344433050659982,
+        "rv_adjusted": 0.8802441777332777,
+        "log_gk60": 0.8442526880780707,
+        "log_rv_ratio": 0.9888710568562602,
+        "wick60": 0.5071305068538006
+      }
+    },
+    "train_6_to_2023-03-31": {
+      "n_rows": 13267,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2023-03-31 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.25371302430925013,
+        "log_gk60~wick60": -0.09916926054523252,
+        "log_rv_ratio~wick60": -0.2273797371018977
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7521802022576567,
+        "atr_ratio": 0.7769392203453968,
+        "atr_percentile": 0.7769392203453968,
+        "bb_width": 0.8533902007943777,
+        "bb_width_percentile": 0.8533902007943777,
+        "parkinson_vol": 0.7819114782247646,
+        "rv_15": 0.8592199425690724,
+        "rv_60": 0.8815593042609206,
+        "rv_240": 0.6959530469165771,
+        "rv_ratio_short_long": 0.9894727051916073,
+        "rv_ratio_mid_long": 0.6788363725223959,
+        "rv_ratio_short_mid": 0.832866369526149,
+        "rv_adjusted": 0.8815593042609206,
+        "log_gk60": 0.8441446070747654,
+        "log_rv_ratio": 0.9894727051916073,
+        "wick60": 0.5234663348051493
+      }
+    },
+    "train_7_to_2023-06-30": {
+      "n_rows": 14735,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2023-06-30 00:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.25544070401403507,
+        "log_gk60~wick60": -0.0736345352363968,
+        "log_rv_ratio~wick60": -0.2119980448131849
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7390011746714565,
+        "atr_ratio": 0.7795154860008869,
+        "atr_percentile": 0.7795154860008869,
+        "bb_width": 0.8599241116314885,
+        "bb_width_percentile": 0.8599241116314885,
+        "parkinson_vol": 0.7720178021736884,
+        "rv_15": 0.8697340552302755,
+        "rv_60": 0.877755339792492,
+        "rv_240": 0.6791177229997453,
+        "rv_ratio_short_long": 0.9901759702063856,
+        "rv_ratio_mid_long": 0.6865464612781118,
+        "rv_ratio_short_mid": 0.842136118970093,
+        "rv_adjusted": 0.877755339792492,
+        "log_gk60": 0.8321986460582115,
+        "log_rv_ratio": 0.9901759702063856,
+        "wick60": 0.5009161287061936
+      }
+    },
+    "train_8_to_2023-09-30": {
+      "n_rows": 16247,
+      "start": "2021-01-04 00:00:00+00:00",
+      "end": "2023-09-29 21:00:00+00:00",
+      "clusters": [
+        {
+          "cluster": 1,
+          "members": [
+            "rv_ratio_mid_long"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 2,
+          "members": [
+            "wick60"
+          ],
+          "concepts": [
+            "SHAPE"
+          ]
+        },
+        {
+          "cluster": 3,
+          "members": [
+            "atr"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 4,
+          "members": [
+            "parkinson_vol"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 5,
+          "members": [
+            "rv_60",
+            "rv_adjusted",
+            "log_gk60"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 6,
+          "members": [
+            "rv_240"
+          ],
+          "concepts": [
+            "LEVEL"
+          ]
+        },
+        {
+          "cluster": 7,
+          "members": [
+            "atr_ratio"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 8,
+          "members": [
+            "atr_percentile"
+          ],
+          "concepts": [
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 9,
+          "members": [
+            "bb_width",
+            "bb_width_percentile"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        },
+        {
+          "cluster": 10,
+          "members": [
+            "rv_15",
+            "rv_ratio_short_long",
+            "rv_ratio_short_mid",
+            "log_rv_ratio"
+          ],
+          "concepts": [
+            "LEVEL",
+            "TERM"
+          ]
+        }
+      ],
+      "n_clusters": 10,
+      "d2_pass": true,
+      "d2_pairs": {
+        "log_gk60~log_rv_ratio": 0.22714171995211468,
+        "log_gk60~wick60": -0.0641017354447872,
+        "log_rv_ratio~wick60": -0.21202617801787288
+      },
+      "isolated": {},
+      "max_abs_rho": {
+        "atr": 0.7592511071940155,
+        "atr_ratio": 0.784837542662601,
+        "atr_percentile": 0.784837542662601,
+        "bb_width": 0.8363785477036128,
+        "bb_width_percentile": 0.8363785477036128,
+        "parkinson_vol": 0.7791248244991381,
+        "rv_15": 0.8447019828695796,
+        "rv_60": 0.8936482744278627,
+        "rv_240": 0.7430952734517003,
+        "rv_ratio_short_long": 0.9897832012185922,
+        "rv_ratio_mid_long": 0.637993826673755,
+        "rv_ratio_short_mid": 0.8462612949309984,
+        "rv_adjusted": 0.8936482744278627,
+        "log_gk60": 0.8524020997713818,
+        "log_rv_ratio": 0.9897832012185922,
+        "wick60": 0.5168161832358832
+      }
+    }
+  },
+  "oos": {
+    "y4": {
+      "pooled": {
+        "BENCH": {
+          "r2": 0.0,
+          "qlike": 0.41780219650321465
+        },
+        "M0": {
+          "r2": 0.3506864555169925,
+          "qlike": 0.2996694582846845
+        },
+        "M1": {
+          "r2": 0.24860166206203183,
+          "qlike": 0.3133067962013627
+        },
+        "M2": {
+          "r2": 0.18255442037805736,
+          "qlike": 0.3496419199045474
+        },
+        "M3": {
+          "r2": 0.4032448705136116,
+          "qlike": 0.2707411650154266
+        },
+        "M4": {
+          "r2": 0.4193222458752327,
+          "qlike": 0.26178725118320517
+        }
+      },
+      "n_test": 9733,
+      "n_train_first": 4857
+    },
+    "y24": {
+      "pooled": {
+        "BENCH": {
+          "r2": 0.0,
+          "qlike": 0.17105865755762106
+        },
+        "M0": {
+          "r2": 0.47511295360870465,
+          "qlike": 0.0911317019031026
+        },
+        "M1": {
+          "r2": 0.40463371457978015,
+          "qlike": 0.10066666245626901
+        },
+        "M2": {
+          "r2": 0.41816255085159104,
+          "qlike": 0.0991776523854538
+        },
+        "M3": {
+          "r2": 0.46999770742357905,
+          "qlike": 0.09118494528414953
+        },
+        "M4": {
+          "r2": 0.46656803487316145,
+          "qlike": 0.09233680610399103
+        }
+      },
+      "n_test": 9226,
+      "n_train_first": 4648
+    }
+  },
+  "row_counts": {
+    "analysis_bars": 17712,
+    "new3_complete": 17712,
+    "existing13_complete": 17712,
+    "har3_complete": 17712,
+    "y4_nonnan": 14608,
+    "y4_M0_own_rows": 14608,
+    "y4_M1_own_rows": 14608,
+    "y4_M2_own_rows": 14608,
+    "y4_M3_own_rows": 14608,
+    "y4_M4_own_rows": 14608,
+    "y24_nonnan": 13874,
+    "y24_M0_own_rows": 13874,
+    "y24_M1_own_rows": 13874,
+    "y24_M2_own_rows": 13874,
+    "y24_M3_own_rows": 13874,
+    "y24_M4_own_rows": 13874,
+    "y4_common_rows": 14608,
+    "y24_common_rows": 13874
+  },
+  "decisions": {
+    "D1": {
+      "pass": false,
+      "detail": {
+        "y4": {
+          "r2_M1": 0.24860166206203183,
+          "r2_M2": 0.18255442037805736,
+          "r2_ok": false,
+          "dm_stat": -4.993216383189335,
+          "p_M1_better": 2.96909815921649e-07,
+          "dm_ok": false
+        },
+        "y24": {
+          "r2_M1": 0.40463371457978015,
+          "r2_M2": 0.41816255085159104,
+          "r2_ok": true,
+          "dm_stat": 0.5717320287859787,
+          "p_M1_better": 0.7162482338841871,
+          "dm_ok": true
+        }
+      }
+    },
+    "D2": {
+      "pass": true,
+      "window": "train_1_to_2021-12-31",
+      "pairs": {
+        "log_gk60~log_rv_ratio": 0.31260715776696024,
+        "log_gk60~wick60": -0.0114700102564658,
+        "log_rv_ratio~wick60": -0.18120664886678695
+      }
+    },
+    "D3": {
+      "y4": {
+        "r2_M0": 0.3506864555169925,
+        "r2_M3": 0.4032448705136116,
+        "dm_stat": -9.062555544211017,
+        "p_M3_better": 6.371468402351338e-20,
+        "M3_beats_M0": true
+      },
+      "y24": {
+        "r2_M0": 0.47511295360870465,
+        "r2_M3": 0.46999770742357905,
+        "dm_stat": 0.6093250616071978,
+        "p_M3_better": 0.7288455007046818,
+        "M3_beats_M0": false
+      }
+    },
+    "D4": {
+      "pass": false,
+      "d2_windows_passing": 8,
+      "d2_windows": {
+        "train_1_to_2021-12-31": true,
+        "train_2_to_2022-03-31": true,
+        "train_3_to_2022-06-30": true,
+        "train_4_to_2022-09-30": true,
+        "train_5_to_2022-12-31": true,
+        "train_6_to_2023-03-31": true,
+        "train_7_to_2023-06-30": true,
+        "train_8_to_2023-09-30": true
+      },
+      "signs": {
+        "y4:log_gk60": {
+          "pos": 8,
+          "neg": 0,
+          "consistent": true
+        },
+        "y4:log_rv_ratio": {
+          "pos": 0,
+          "neg": 8,
+          "consistent": true
+        },
+        "y4:wick60": {
+          "pos": 4,
+          "neg": 4,
+          "consistent": false
+        },
+        "y24:log_gk60": {
+          "pos": 8,
+          "neg": 0,
+          "consistent": true
+        },
+        "y24:log_rv_ratio": {
+          "pos": 4,
+          "neg": 4,
+          "consistent": false
+        },
+        "y24:wick60": {
+          "pos": 8,
+          "neg": 0,
+          "consistent": true
+        }
+      }
+    }
+  }
+}

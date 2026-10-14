@@ -319,11 +319,23 @@ def main():
     print(f"Trades taken:  {len(trades):,}")
     if len(trades):
         wr = (trades['win'] == True).mean()
+        longs = int((trades['meta_decision'] == 'LONG').sum())
+        shorts = int((trades['meta_decision'] == 'SHORT').sum())
         print(f"Win rate:      {wr:.1%}")
+        print(f"Direction:     {longs} LONG / {shorts} SHORT")
         print(f"Total R:       {trades['pnl_r'].sum():.2f}")
         print(f"Final balance: ${balance:,.2f}  ({(balance/args.account-1)*100:+.1f}%)")
         print(f"Exit reasons:  {dict(trades['exit_reason'].value_counts())}")
     print(f"\nSaved → {args.output}")
+    print("=" * 60)
+    # This harness is a plumbing check, not an edge measurement. It runs a
+    # single path over a single period with no control arm and no train/test
+    # split, and (by default) only the Technical analyst votes. That trades now
+    # happen at all confirms the Meta gate is wired correctly after
+    # participation-renormalisation — nothing more. Do not read the R or win
+    # rate below as evidence of a profitable strategy.
+    print("PLUMBING CONFIRMATION, NOT EDGE — single path, single period, no")
+    print("control, no train/test split. Not evidence of a profitable strategy.")
     print("=" * 60)
 
 

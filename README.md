@@ -1,64 +1,56 @@
 # OPARLI
 
-A multi-agent, LLM-assisted algorithmic trading system for spot gold (XAUUSD),
-built around a single codebase that runs identically in live and backtest modes.
+A multi-agent, LLM-assisted research system for spot gold (XAUUSD), built so that
+the same decision code runs in live and in backtest.
 
 The system streams market data from Interactive Brokers into PostgreSQL, runs a
-pipeline of specialised agents (technical, visual, sentiment, meta, risk,
-execution, and position management) over that data, and exposes a FastAPI backend
-and a Vue 3 frontend for monitoring, control, and research. A separate research
-stack covers Smart Money Concepts (SMC) strategy validation and a jump-model
-market-regime classifier.
+pipeline of specialised agents over that data, and exposes a FastAPI backend and
+a Vue 3 frontend for monitoring and research. A separate research stack covers
+Smart Money Concepts strategy validation and a jump-model market-regime
+classifier.
 
-This is a solo research project under active development. It is not a
-production-ready or turnkey trading bot, and it is not investment advice. See
-[Project Status](#project-status) and [Disclaimer](#disclaimer) before running
-anything against a funded account.
+This is a solo research project under active development. **It does not trade
+autonomously today** — see [Project Status](#project-status). It is not
+investment advice.
 
 ---
 
-## Table of Contents
+## Contents
 
 - [Design Goals](#design-goals)
 - [Architecture](#architecture)
-  - [Agent Pipeline](#agent-pipeline)
-  - [Message Bus](#message-bus)
-  - [Backtestable Services](#backtestable-services)
-  - [Scanner: Two-Stage Filtering](#scanner-two-stage-filtering)
 - [Repository Layout](#repository-layout)
 - [Data](#data)
 - [Research Stack](#research-stack)
-- [Technology](#technology)
+- [Testing](#testing)
 - [Getting Started](#getting-started)
-- [Configuration](#configuration)
 - [Running the System](#running-the-system)
 - [API Surface](#api-surface)
 - [Deployment](#deployment)
 - [Project Status](#project-status)
+- [Known Gaps](#known-gaps)
 - [Disclaimer](#disclaimer)
 
 ---
 
 ## Design Goals
 
-1. **One codebase, two execution modes.** The same agent logic that trades live
-   must be replayable bar-for-bar in a backtest, with no parallel
-   re-implementation to drift out of sync. This is achieved by injecting the data
-   source and the clock rather than reading `datetime.now()` and the live
-   database directly (see [Backtestable Services](#backtestable-services)).
+1. **One codebase, two execution modes.** The logic that trades live must be
+   replayable bar-for-bar, with no parallel re-implementation to drift out of
+   sync. Achieved by injecting the data source and the clock rather than reading
+   `datetime.now()` and the live database directly.
 
 2. **Separation of decision from analysis.** Each analyst produces an opinion; a
-   meta-agent aggregates weighted opinions into a decision; a risk manager
-   validates it; an execution agent places it; a trade/position manager owns its
-   lifecycle. No single agent both analyses and executes.
+   meta-agent aggregates weighted opinions; a risk manager validates; an
+   execution agent places. No agent both analyses and executes.
 
-3. **Cost-aware LLM usage.** Vision and language-model calls are expensive.
-   A cheap, rule-based filter gates the expensive multi-agent analysis so that
-   full LLM passes only run when a candidate opportunity clears a quality bar.
+3. **Cost-aware LLM usage.** A cheap deterministic filter gates the expensive
+   multi-agent analysis, so vision and language calls only run on candidates
+   that clear a quality bar.
 
-4. **Run on constrained hardware.** The target deployment is an Oracle Cloud Free
-   Tier instance (1 GB RAM). Inter-agent messaging is therefore an in-process,
-   thread-safe bus rather than an external broker.
+4. **Run on constrained hardware.** Target deployment is an Oracle Cloud Free
+   Tier instance (1 GB RAM). Inter-agent messaging is an in-process thread-safe
+   bus, not an external broker.
 
 ---
 
@@ -66,95 +58,129 @@ anything against a funded account.
 
 ### Agent Pipeline
 
-Agents are defined in [backend/agents/](backend/agents/) and share a common
-[base_agent.py](backend/agents/base_agent.py) that declares the agent taxonomy
+Agents live in [backend/agents/](backend/agents/) and share
+[base_agent.py](backend/agents/base_agent.py), which defines the agent taxonomy
 and the message envelope.
 
-| Agent | Role | Notes |
-|-------|------|-------|
-| Scanner | Monitors the market, captures chart screenshots, detects candidate opportunities, and fans out analysis requests | Two-stage filter, see below |
-| Technical Analyst | Rule-based indicator analysis (RSI, MACD, Bollinger Bands, moving averages), confluence, key levels | Backed by a pure service, no LLM |
-| Visual Analyst | Chart-pattern recognition over a rendered chart image using a vision LLM | Support/resistance, trend, signal + reasoning |
-| Sentiment Analyst | News and macro-context reasoning via a text LLM | No live news source wired yet |
-| Meta Agent | Aggregates weighted analyst opinions, resolves conflicts, applies consensus/confidence thresholds, and emits a trade signal | Governance and weight bounds enforced pre-trade |
-| Risk Manager | Position sizing, stop-loss and take-profit validation, hard limits | Pure `risk_service` delegate |
-| Execution | Places and tracks orders | Injected clock and data provider |
-| Trade Manager | Owns the in-flight trade lifecycle and mid-trade actions | Replayable |
-| Position Manager | Manages open positions after fill | |
+| Agent | Role | LLM |
+|-------|------|-----|
+| Scanner | Watches for trigger events, runs the Stage-1 filter, renders charts, fans out analysis requests | no |
+| Technical Analyst | Multi-timeframe indicator analysis, confluence, cascade | no |
+| Visual Analyst | Chart-pattern recognition over a rendered PNG | vision |
+| Sentiment Analyst | News / macro reasoning | text |
+| Meta Agent | Weighted vote over analyst opinions, governance, emits a trade request | optional |
+| Risk Manager | Hard limits, position sizing, stop-loss, take-profit | no |
+| Execution | Places and tracks orders | no |
+| Trade Manager | Owns the in-flight trade lifecycle, hard exits and soft triggers | no |
 
-The taxonomy also reserves a Quant Analyst slot for future use.
-
-Flow, at a high level:
+Flow:
 
 ```
-Scanner ──ANALYSIS_REQUEST──▶ Technical / Visual / Sentiment
-                                    │
-                                    ▼  ANALYSIS_RESULT (signal, confidence, reasoning)
-                                 Meta Agent
-                                    │  weighted vote + governance
-                                    ▼  TRADE_SIGNAL
-                                 Risk Manager
-                                    │  approve / reject, sizing, SL/TP
-                                    ▼  EXECUTION_REQUEST
-                                 Execution ──▶ Trade Manager / Position Manager
+Scanner ──ANALYSIS_REQUEST──▶ Technical ─┐
+                              Visual    ─┼─ANALYSIS_RESULT─▶ Meta Agent
+                              Sentiment ─┘                       │
+                                                                 │ weighted vote
+                                                                 │ + governance
+                                                                 ▼
+                                                          TRADE_REQUEST
+                                                                 │
+                                                          Risk Manager
+                                                                 │ approve / size
+                                                                 ▼
+                                                          TRADE_APPROVED
+                                                                 │
+                                                    Execution ──▶ Trade Manager
 ```
+
+The Meta Agent blocks until **all three** analysts have reported for a symbol,
+then decides once and clears the slot.
 
 ### Message Bus
 
-Inter-agent communication uses an in-process
-[message_bus.py](backend/core/message_bus.py): a thread-safe set of per-agent
-priority mailboxes with broadcast and direct-addressing, plus message-history
-tracking. An [agent_orchestrator.py](backend/core/agent_orchestrator.py) wires
-agents to the bus, and a [scheduler.py](backend/core/scheduler.py) drives
-periodic work.
+[message_bus.py](backend/core/message_bus.py) is an in-process, thread-safe set
+of per-agent priority mailboxes with broadcast and direct addressing. Queue
+entries are `(-priority, sequence, message)`; the sequence counter is required
+because two messages of equal priority would otherwise fall through to comparing
+`Message` objects, which are not orderable. It also makes delivery FIFO within a
+priority.
 
-A Kafka + Zookeeper stack is defined in the Docker Compose file under
-[design_files/](design_files/) and was part of the original design, but the
-backend does **not** depend on it. The in-process bus was chosen deliberately to
-fit the 1 GB memory budget.
+[agent_orchestrator.py](backend/core/agent_orchestrator.py) instantiates the
+agents, registers them with the bus, activates them, and schedules the two that
+run on a timer (Scanner and Trade Manager, 1 s each) via
+[scheduler.py](backend/core/scheduler.py).
+
+There is no external message broker. That is deliberate — it fits the 1 GB
+memory budget.
 
 ### Backtestable Services
 
-The core architectural bet is that agents should not talk to wall-clock time or
-the live database directly. Instead, the decision logic lives in pure services
-under [backend/services/](backend/services/) that take their data source and
-clock as arguments:
+Decision logic lives in pure services under [backend/services/](backend/services/)
+that take their data source as an argument:
 
-- **Market data** — `MarketDataProvider` (abstract) with a `LiveDataProvider`
-  (PostgreSQL) and a `HistoricalDataProvider` (CSV/Parquet). The historical
-  provider is bounded by an `as_of` timestamp and slices its frame with a binary
-  search, which both prevents lookahead and keeps replays fast.
-- **Clock** — `Clock` (abstract) with a `LiveClock` and a `SimulatedClock`, so
-  agents that need "now" receive an injected time.
-- **Analysis** — `technical_service.run_technical_analysis(provider, symbol,
-  as_of)` is the single source of truth used by both the live Technical Analyst
-  and the backtests. Meta and visual decision logic are likewise factored into
-  pure modules.
-- **Risk & governance** — `risk_service.run_risk_validation(...)` is a pure
-  function the Risk Manager delegates to; `governance.py` holds circuit breakers,
-  iterative weight-bound enforcement, and position-size clamping wired into the
-  meta pre-trade path.
-
-Because the strategy *is* the agent pipeline, the backtest harness
-([scripts/backtest_agents.py](scripts/backtest_agents.py)) is strategy-agnostic:
-it swaps in the historical provider and simulated clock and replays the same
-agents that run live.
+- **Market data** — `MarketDataProvider` (abstract) with `LiveDataProvider`
+  (PostgreSQL) and `HistoricalDataProvider` (in-memory frame). The historical
+  provider **requires** `as_of` and slices with a binary search, so returning a
+  bar at or after `as_of` is structurally impossible.
+- **Clock** — `Clock` with `LiveClock` and `SimulatedClock`, so agents that need
+  "now" receive an injected time. Currently only the Trade Manager takes one
+  (see [Known Gaps](#known-gaps)).
+- **Analysis** — `technical_service.run_technical_analysis(provider, symbol, as_of)`
+  is the single source of truth for the technical decision.
+  `MetaDecisionService` and `VisualAnalysisService` are the equivalents for meta
+  and visual.
+- **Risk & governance** — `risk_service.run_risk_validation(trade_request,
+  account_state)` is a pure function; `governance.py` holds circuit breakers,
+  iterative weight-bound enforcement and position-size clamping.
 
 ### Scanner: Two-Stage Filtering
 
-The Scanner ([SCANNER_AGENT_ARCHITECTURE.md](backend/agents/SCANNER_AGENT_ARCHITECTURE.md))
-balances opportunity detection against LLM cost:
+**Stage 1 — deterministic, no LLM.** A candidate must satisfy *all* of:
 
-- **Stage 1 — technical filter.** Pure Python, no LLM, sub-100 ms. Rejects
-  anything below a confidence/confluence floor or not at a key level / volume
-  event. Event-driven triggers include candle close (weighted by timeframe),
-  significant price moves, volume spikes, and a periodic heartbeat, with
-  throttling to cap scan frequency.
-- **Stage 2 — full multi-agent analysis.** Only runs when Stage 1 passes.
-  Engages the visual, sentiment, and meta agents at real LLM cost.
+- signal is `LONG` or `SHORT` (not `PASS`/`NEUTRAL`)
+- confidence ≥ 0.5
+- confluence ≥ 2 on the lead timeframe
 
-The intent is to keep the expensive analysis path rare while still reacting to
-genuine structure.
+*and at least one of:* price at a key level (within 0.3 % of support/resistance,
+0.2 % of a swing, 0.1 % of a $50 psychological level) **or** a volume spike
+(≥ 2× the 20-bar average).
+
+Lead timeframe is recorded but not enforced.
+
+**Stage 2 — full multi-agent analysis.** Renders charts and fans the request out
+to all three analysts. Throttled to ≥ 3 min between scans, ≤ 500 scans/day,
+≤ 15 full analyses/hour.
+
+### Confluence and the Cascade
+
+`ConfluenceChecker` scores **five directional voters** — RSI, Bollinger, EMA,
+VWAP, Support/Resistance. Volume is deliberately *not* a voter: it is
+non-directional, so it is reported as context (`volume_context`) rather than
+occupying a slot in the denominator.
+
+Confidence ladder: 3 agreeing → 0.60, 4 → 0.75, 5 → 0.90. Two or more opposing
+voters subtract 0.15.
+
+`TimeframeCascade` combines the five timeframes. Its gates are **inclusive
+minimums** and are compared with `>=`:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `LEAD_TF_MIN_CONFIDENCE` | 0.60 | 4h/1h needed to lead a Case A/B signal |
+| `OPPOSITION_MIN_CONFIDENCE` | 0.70 | lower-TF conviction that counts as opposition |
+| `MID_TF_MIN_CONFIDENCE` | 0.75 | 15m/5m needed to carry a Case C signal alone |
+
+These values are drawn from the confidence ladder itself, so a strict `>`
+comparison silently discards the most common valid signal (a clean 3-indicator
+agreement lands on exactly 0.60). Measured on 2023 XAUUSD, that single character
+was the difference between 5 signals per 2,000 evaluations and 127.
+
+Measured cascade behaviour, hourly over 2023 (8,760 scans):
+
+| Metric | Value |
+|---|---|
+| Signal rate | 764 / 8,760 = **8.7 %** (≈ 14.7 per week) |
+| Direction split | 430 LONG / 334 SHORT |
+| Confluence 3 / 4 | 5.88 % / 0.15 % of timeframe-evaluations |
 
 ---
 
@@ -163,101 +189,107 @@ genuine structure.
 ```
 algo_project/
 ├── backend/                 FastAPI backend, agents, services, routes
-│   ├── agents/              The nine agent classes + base agent and docs
+│   ├── agents/              Agent classes + base agent
 │   ├── core/                Message bus, orchestrator, scheduler
-│   ├── services/            Pure services: data providers, clock, technical,
-│   │                        risk, governance, sizing, indicators, streaming
+│   ├── services/            Pure services: providers, clock, technical, risk,
+│   │                        governance, sizing, indicators, streaming
+│   │   └── analysis/        Meta decision, visual analysis, market structure
 │   ├── routes/              REST + WebSocket endpoints
 │   ├── middleware/          API key, rate limiting, security headers
-│   ├── config/              DB config, LLM provider abstraction, news events
+│   ├── config/              DB config, LLM provider abstraction
 │   ├── database/            Agent / risk / meta / evolution SQL schemas
-│   └── main.py              API entry point
-├── frontend/                Vue 3 + Vite dashboard (charts, agent pipeline,
-│                            backtest and validation views)
-├── backtester/              Standalone event-driven backtesting module
-│                            (indicators, signals, portfolio, handlers)
-├── regime_classifier/       Jump-model market-regime classifier
+│   ├── main.py              API entry point
+│   └── run_system.py        Agent runtime entry point
+├── frontend/                Vue 3 + Vite dashboard
+├── regime_classifier/       Jump-model market-regime classifier (+ 13 tests)
 ├── scripts/                 Backtests, SMC validation, walk-forward, backfill,
-│                            data import/export, deploy, cloud setup
-├── database/                SQL schema + historical OHLCV and news CSV/Parquet
-├── notebooks/               Research notebooks + SMC strategy knowledge base
-├── memory-bank/             Project brief, system patterns, technical context
-├── design_files/            Docker Compose (Kafka), deployment notes, env example
+│                            deploy, cloud setup
+├── database/                SQL schema + historical OHLCV and news data
+├── notebooks/               Research notebooks
+├── tests/                   Pipeline integration tests
 └── scraper_fxfac/           Forex Factory economic-calendar scraper
 ```
 
+---
+
 ## Data
 
-- **Price** — roughly five years of 1-minute XAUUSD bars (~990k bars, ~688
-  trading days, 2021–2026) plus GC futures, stored as CSV and Parquet under
-  [database/ohlcv_data/](database/ohlcv_data/). A canonical `ohlcv_1min` view in
-  Postgres unions historical and realtime tables for live reads.
-- **News** — Forex Factory economic-calendar exports per year (2010–2026) under
-  [database/historical_news/](database/historical_news/), normalised to a
-  UTC Parquet file, produced by [scraper_fxfac/](scraper_fxfac/).
+**Price** — roughly five years of 1-minute XAUUSD bars (~990k bars, ~688 trading
+days, 2021–2026) plus GC futures, as CSV and Parquet under
+[database/ohlcv_data/](database/ohlcv_data/). In Postgres, `ohlcv_historical_1min`
+and a partitioned `ohlcv_realtime_1min` are unioned into an `ohlcv_1min` view,
+with materialised views for 5m/15m/30m/1h/4h/1d refreshed every 5 minutes.
+
+**News** — Forex Factory economic-calendar exports per year (2010–2026) under
+[database/historical_news/](database/historical_news/), normalised to a UTC
+Parquet file. The conversion is documented in
+[DATA_NOTES_events.md](database/historical_news/DATA_NOTES_events.md): per-file
+timezone forensics resolved through DST-desync evidence, price-spike
+ground-truthing at minute 0, explicit drop-rule accounting, and a frozen
+pre-registered `usd_tier1` event set. That file is the authority for anything
+touching the news data.
+
+> The news dataset is not yet consumed by any code path.
+
+---
 
 ## Research Stack
 
-Independent of the live pipeline, the repository carries a substantial research
-effort used to decide *what* the agents should look for. Most of it lives in the
-notebooks under [notebooks/](notebooks/), backed by scripts and a standalone
-engine.
+Independent of the live pipeline, used to decide *what* the agents should look
+for.
 
-- **Research notebooks.** [notebooks/](notebooks/) is where hypotheses are
-  formed and tested before anything reaches the agents:
-  - [backtest.ipynb](notebooks/backtest.ipynb) — the main research notebook. It
-    covers session definitions (UTC, DST-split), a key-level engine and touch-
-    outcome study built to be free of look-ahead by construction (levels carry
-    an `active_from`, outcomes measured in $ and ATR units over 15m/1h/4h), a
-    mandatory matched-random baseline control, pre-registered conditions with
-    multiple-comparison correction, unit tests, and a time-series-momentum
-    (TSMOM) study with train / sealed-window splits and block-bootstrap
-    significance testing. It exports touch-event and signal datasets that feed
-    the live scanner.
-  - [smc_validation_backtest.ipynb](notebooks/smc_validation_backtest.ipynb) —
-    full Smart Money Concepts validation: order blocks, fair value gaps, break
-    of structure / change of character, and liquidity sweeps, each with proper
-    filters (displacement, mitigation, higher-timeframe trend gating).
-  - [multi_agent_simulation.ipynb](notebooks/multi_agent_simulation.ipynb) —
-    replays the multi-agent pipeline over historical CSV data using the same
-    shared services as production, so agent behaviour can be studied offline.
-- **SMC findings.** Validated conclusions are written up in
-  [notebooks/SMC_STRATEGY_GUIDE.md](notebooks/SMC_STRATEGY_GUIDE.md) —
-  displacement and mitigation filters, higher-timeframe trend gating, and
-  session/hour win-rate tables.
-- **Validation scripts.** [scripts/](scripts/) holds runnable counterparts to
-  the notebook studies (SMC sweeps, order-block/FVG/BOS-CHoCH validation,
-  opening-range breakout / fade, train/test splits, walk-forward analysis).
-  Strategies that failed validation are kept under
+- **[backtest.ipynb](notebooks/backtest.ipynb)** — the main research notebook and
+  the methodological standard for this repo: session definitions (UTC,
+  DST-split), a key-level engine free of look-ahead by construction (levels carry
+  an `active_from`), outcomes in $ and ATR units, a **mandatory matched-random
+  baseline control**, pre-registered conditions with multiple-comparison
+  correction, in-notebook unit tests that corrupt future bars to prove causality,
+  and a TSMOM study with block-bootstrap significance and a **sealed evaluation
+  window** behind an explicit flag.
+- **[smc_validation_backtest.ipynb](notebooks/smc_validation_backtest.ipynb)** —
+  Smart Money Concepts validation: order blocks, fair value gaps, BOS/CHoCH,
+  liquidity sweeps, with displacement, mitigation and higher-timeframe filters.
+- **[multi_agent_simulation.ipynb](notebooks/multi_agent_simulation.ipynb)** —
+  replays the agent pipeline over historical CSV using the shared services.
+  Note it defines its own lightweight risk manager, so its P&L is not the
+  production risk model.
+- **[scripts/](scripts/)** — runnable counterparts (SMC sweeps, ORB and ORB-fade,
+  BOS/CHoCH, FVG-leads-OB, train/test splits, walk-forward). Strategies that
+  failed validation are kept under
   [scripts/no_go_strategies/](scripts/no_go_strategies/) as a record.
-- **Regime classifier.** [regime_classifier/](regime_classifier/) implements a
-  three-state (trending / ranging / volatile) statistical jump model with a jump
-  penalty tuned to downstream strategy Sharpe rather than log-likelihood, sparse
-  feature selection, and a random-forest layer for next-regime prediction. It
-  follows the Nystrup et al. and Pomorski & Gorse regime-modelling literature
-  (references are cited in the source).
-- **Standalone backtester.** [backtester/](backtester/) is a separate
-  event-driven engine (data handlers, indicators, signals, portfolio) used for
-  faster single-strategy experiments.
+- **[regime_classifier/](regime_classifier/)** — a three-state
+  (trending / ranging / volatile) statistical jump model: jump penalty tuned to
+  downstream strategy Sharpe rather than log-likelihood, sparse feature
+  selection, dwell-time constraints, label alignment across folds, and a
+  random-forest next-regime layer. Walk-forward validation with embargo.
 
-## Technology
+---
 
-**Backend** — Python 3.12+, FastAPI, Uvicorn, psycopg2, `ib_insync`
-(Interactive Brokers), APScheduler, pandas / numpy / pandas-ta, mplfinance,
-`anthropic`, and a pluggable LLM provider abstraction.
+## Testing
 
-**LLM providers** — [llm_provider.py](backend/config/llm_provider.py) abstracts
-text and vision calls behind a single interface; the project uses Gemini in
-development and Claude in production, selected by environment.
+```bash
+# 9 pipeline tests — needs only backend/requirements.txt
+backend/venv/bin/python -m pytest tests/ -q
 
-**Frontend** — Vue 3, Vite, Pinia, Vue Router, and TradingView Lightweight
-Charts, with custom chart primitives for session boxes and regime overlays.
+# 13 classifier tests — needs regime_classifier/requirements.txt, which is a
+# separate dependency set (joblib, scikit-learn, jumpmodels) not installed by
+# backend/requirements.txt
+pip install -r regime_classifier/requirements.txt
+pytest regime_classifier/ -q
+```
 
-**Storage** — PostgreSQL for time-series and agent state, with materialised /
-unioned views for multi-timeframe reads.
+[tests/test_pipeline_integration.py](tests/test_pipeline_integration.py) asserts
+the minimum the architecture claims: **one scan on fixed historical data
+produces one decision that reaches the Risk Manager**. It uses the real message
+bus, real routing, real agents, the real cascade, the real `MetaDecisionService`
+and the real `run_risk_validation`. The price fixture is synthetic and seeded, so
+the suite needs no database, no network and no data files.
 
-**Infrastructure** — Docker Compose (optional Kafka stack), deployment to Oracle
-Cloud Free Tier over SSH.
+Two seams are stubbed and documented in the test module: the Scanner's
+`get_latest_analysis` and `generate_charts`, both of which read Postgres with no
+`as_of` bound, and the Visual/Sentiment LLM clients.
+
+---
 
 ## Getting Started
 
@@ -271,19 +303,15 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Database — apply the schemas
-#    database/schema.sql plus the schemas under backend/database/
+# 2. Database
 psql "$DATABASE_URL" -f ../database/schema.sql
+for f in backend/database/*.sql; do psql "$DATABASE_URL" -f "$f"; done
 
 # 3. Frontend
-cd ../frontend
-npm install
+cd ../frontend && npm install
 ```
 
-## Configuration
-
-Backend configuration is read from `backend/.env`. An example lives at
-[design_files/.env.example](design_files/.env.example):
+Configuration is read from `backend/.env`; see [.env.example](.env.example):
 
 ```
 DATABASE_URL=postgresql://user:password@localhost:5432/oparli_database
@@ -299,80 +327,143 @@ IB_CLIENT_ID=1
 The frontend reads its own `frontend/.env` (`VITE_API_BASE_URL`, `VITE_WS_URL`,
 `VITE_API_KEY`).
 
+> Do not commit `.env`. Rotate any key that has ever been committed — removing a
+> secret from the working tree does not remove it from git history.
+
+---
 
 ## Running the System
 
 ```bash
-# API server (routes, WebSocket streaming, dashboard)
 cd backend && source venv/bin/activate
-uvicorn main:app --reload
+uvicorn main:app --reload    # API, WebSocket streaming, dashboard
+python run_system.py         # agent runtime (orchestrator + scheduler)
 
-# Agent runtime (orchestrator + supporting services)
-python run_system.py
-
-# Frontend dev server
-cd frontend && npm run dev
+cd frontend && npm run dev   # dashboard
 ```
 
-Backtests and research are driven from [scripts/](scripts/), for example:
+`scripts/start-all.sh` opens both backend and frontend in separate macOS
+Terminal windows.
+
+Research runs:
 
 ```bash
-python scripts/backtest_agents.py        # replay the agent pipeline on history
-python scripts/run_walk_forward.py       # walk-forward analysis
+python scripts/backtest_agents.py --start 2023-01-01 --end 2024-01-01
+python scripts/demo_backtestable_technical.py    # provider causality demo
+python scripts/run_walk_forward.py               # regime walk-forward
 python scripts/smc_validation_train_test.py
 ```
 
-Convenience launchers (`scripts/start-all.sh`, `scripts/3-start-backend.sh`,
-`scripts/4-start-frontend.sh`) wrap the above.
+---
 
 ## API Surface
 
-The FastAPI app in [backend/main.py](backend/main.py) mounts routers for:
+[backend/main.py](backend/main.py) mounts seven routers:
 
-- **Live trading** — market state, order and position control
-- **Data management** — historical backfill, gap detection, import/export
-- **Backtest** — run and inspect agent-pipeline and strategy backtests
-- **Regime** — regime-classifier output
-- **Validation** — SMC / strategy validation results
-- **Dashboard** — aggregated monitoring data
-- **Auth** — JWT-based authentication
+| Prefix | Purpose |
+|---|---|
+| `/api/live-trading` | Market state, order and position control |
+| `/api/data` | Historical backfill, gap detection, import/export |
+| `/api/backtest` | Pre-computed sweep-strategy results |
+| `/api/regime` | Regime labels for the chart overlay |
+| `/api/validation` | Walk-forward validation reports |
+| `/api/dashboard` | Aggregated monitoring, ad-hoc analysis run |
+| `/api/auth` | JWT authentication |
 
-Requests pass through API-key, rate-limiting, and security-header middleware
-([backend/middleware/security.py](backend/middleware/security.py)), with input
-validators for symbol, timeframe, and limit parameters.
+Plus `/api/chart-data/{symbol}/{timeframe}`, `/api/symbols`, `/api/latest`,
+`/api/stats`, `/api/streaming/*` and a `/ws/live-data/{symbol}` WebSocket.
+
+Requests pass through API-key, rate-limiting and security-header middleware
+([security.py](backend/middleware/security.py)) with validators for symbol,
+timeframe and limit.
+
+---
 
 ## Deployment
 
-The target is a single small cloud instance. [scripts/deploy.sh](scripts/deploy.sh)
-builds the frontend and rsyncs the frontend build and backend source to the
-server over SSH (the server has no git credentials), then restarts the API.
+Target is a single small cloud instance.
+[scripts/deploy.sh](scripts/deploy.sh) builds the frontend and rsyncs the build
+and backend source over SSH, then restarts the API.
 [scripts/setup-oracle-cloud.sh](scripts/setup-oracle-cloud.sh) provisions the
-host. The Kafka Docker Compose stack under [design_files/](design_files/) is
-optional and not required by the running system.
+host. [scripts/connect.sh](scripts/connect.sh) opens a session.
+
+---
 
 ## Project Status
 
-Active development by a single author. Substantial parts are implemented — all
-agent classes, the core message bus / orchestrator / scheduler, the FastAPI
-backend and Vue frontend, the TWS-to-PostgreSQL streaming pipeline, the
-two-stage scanner, and a validated liquidity-sweep backtest — but the system is
-**not** yet running end-to-end live. Known gaps at the time of writing:
+Active development by a single author.
 
-- The agent orchestrator is not yet started from the API entry point, and the
-  agent routes are not fully enabled, so the pipeline does not trade
-  automatically out of the box.
-- The Sentiment Analyst has no live news source; backtests treat it as neutral.
-- The meta-agent evolution mode uses placeholder performance data.
-- There is schema-versus-code drift on the `executed_trades` table that needs
-  reconciliation before relying on trade persistence.
+**Working and verified:**
 
-Treat this repository as a research and engineering artifact, not a deployable
-trading product.
+- The agent pipeline completes end to end — a scan produces a decision that
+  reaches the Risk Manager and is validated. This is covered by the integration
+  test and was not true before it existed.
+- The technical cascade produces signals at ≈ 8.7 % of scans (≈ 14.7/week).
+- Data ingestion, backfill, gap detection, the chart API and the Vue dashboard.
+- The research notebooks and the regime classifier, both independently tested.
+
+**Not working yet:**
+
+- **The system does not trade.** With only the Technical analyst voting, the
+  weighted score ceiling is `0.50 × 0.75 = 0.375` against a 0.60 Meta gate, so
+  every decision is `PASS`. `scripts/backtest_agents.py` takes **0 trades** on
+  2023 in its default (technical-only) mode. Renormalising the weights over
+  participating analysts yields 214 trades/year (≈ 4.1/week, 46.3 % win rate,
+  +22 R) — a diagnostic measurement, not an approved change, and **not evidence
+  of edge**.
+- The Sentiment Analyst has no live news source.
+- The Meta Agent's evolution mode runs on placeholder performance data.
+
+---
+
+## Known Gaps
+
+Honest list of where the code does not match the architecture above.
+
+1. **Clock injection is aspirational.** `SimulatedClock` has no call sites.
+   Nine modules read `datetime.now()`/`utcnow()` directly, including
+   `MetaDecisionService`, which stamps the *real* current date into the LLM
+   prompt during historical backtests.
+2. **The Scanner's Stage-1 data path bypasses the provider.**
+   `TechnicalAnalystAgent.get_latest_analysis` and `ChartGenerator._fetch_ohlcv`
+   query Postgres directly with no `as_of`, so the Scanner cannot be replayed.
+3. **Provider asymmetry.** `HistoricalDataProvider` fetches a 1.5× buffer of
+   1-minute bars; `LiveDataProvider` does not. With weekend gaps, live and
+   backtest can compute different indicator values at the same instant.
+4. **Two regime systems.** The rigorous jump model in `regime_classifier/` is
+   used only for the chart overlay and research. Live decisions are gated by the
+   rule-based `services/regime_detector.py`, which returns `RANGING` ~94 % of the
+   time — so "regime-adaptive thresholds" are close to fixed thresholds. The
+   `/api/regime` endpoint also fits in-sample and has no `as_of`, so its labels
+   must not feed decisions as they stand.
+5. **The orchestrator is not started by the API.** `run_system.py` starts it;
+   `main.py` does not.
+6. **`/api/dashboard/analyze` is a parallel implementation.** It re-implements
+   the pipeline outside the bus and bypasses the governance gate.
+7. **`executed_trades` schema drift.** The `INSERT` in `execution_agent.py`
+   names six columns the table does not have.
+8. **`Meta → Execution` mid-trade actions are unwired.** Meta sends
+   `MID_TRADE_ACTION`; Execution has no handler. Left visible rather than
+   papered over with a no-op.
+9. **Unreachable modules** (~2,400 lines, nothing imports them):
+   `agents/position_manager.py`, `services/meta_agent_strategist.py`,
+   `services/performance_tracker.py`, `services/screenshot_service.py`,
+   `services/sweep_backtest.py`, `config/news_events.py`.
+10. **`PyJWT` is declared but not installed** in `backend/venv`, so
+    `main.py` currently fails to import (`auth_routes.py` does `import jwt`).
+    Fix: `backend/venv/bin/pip install PyJWT`.
+11. **Unused dependencies:** `python-decouple`, `websockets`, `python-dateutil`.
+12. **Two dependency sets.** `regime_classifier/` requires `joblib`,
+    `scikit-learn` and `jumpmodels`, none of which are in
+    `backend/requirements.txt` — so the classifier cannot run inside
+    `backend/venv` as installed, even though `backend/routes/regime_routes.py`
+    imports it. That endpoint will fail at import in a clean environment.
+
+---
 
 ## Disclaimer
 
-This software is provided for research and educational purposes only. It is not
-financial advice, and nothing here is a recommendation to buy or sell any
-instrument. Trading leveraged instruments such as spot gold carries substantial
-risk of loss. Use it against a live, funded account entirely at your own risk.
-The authors accept no liability for any losses incurred.
+For research and educational purposes only. Not financial advice and not a
+recommendation to buy or sell any instrument. Trading leveraged instruments such
+as spot gold carries substantial risk of loss. Use against a live, funded account
+entirely at your own risk. The authors accept no liability for any losses.

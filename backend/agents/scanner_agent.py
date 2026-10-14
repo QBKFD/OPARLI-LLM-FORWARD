@@ -81,6 +81,14 @@ class ScannerAgentNew(BaseAgent):
     REQUIRED_VOLUME_SPIKE = 2.0  # 2× average
     ALLOWED_LEAD_TIMEFRAMES = ['15m', '5m']  # Prefer higher timeframes
 
+    # Stage 2 recipients. The scan request goes to the analysts; the Meta-Agent
+    # receives their ANALYSIS_RESULTs and aggregates.
+    ANALYSTS = (
+        AgentType.TECHNICAL_ANALYST,
+        AgentType.VISUAL_ANALYST,
+        AgentType.SENTIMENT_ANALYST,
+    )
+
     def __init__(self, config: Optional[Dict] = None):
         super().__init__(AgentType.SCANNER, config)
 
@@ -169,14 +177,10 @@ class ScannerAgentNew(BaseAgent):
                                    f"(wait {throttle_check['wait_seconds']}s)")
                         continue
 
-                    # Run two-stage analysis
-                    analysis_message = self._run_two_stage_analysis(
-                        symbol,
-                        trigger_result
+                    # Run two-stage analysis (one request per analyst)
+                    messages.extend(
+                        self._run_two_stage_analysis(symbol, trigger_result) or []
                     )
-
-                    if analysis_message:
-                        messages.append(analysis_message)
 
                     # Record scan
                     self.throttle_manager.record_scan(symbol)
@@ -190,7 +194,7 @@ class ScannerAgentNew(BaseAgent):
         self,
         symbol: str,
         trigger_result: Dict
-    ) -> Optional[Message]:
+    ) -> List[Message]:
         """
         Run two-stage analysis
 
@@ -202,7 +206,7 @@ class ScannerAgentNew(BaseAgent):
             trigger_result: Trigger detection result
 
         Returns:
-            Message for Meta-Agent if Stage 2 executed, None otherwise
+            One ANALYSIS_REQUEST per analyst if Stage 2 executed, else []
         """
         try:
             # ===================================================
@@ -216,7 +220,7 @@ class ScannerAgentNew(BaseAgent):
 
             if not technical_analysis:
                 logger.warning(f"⚠️ Stage 1: No technical analysis available for {symbol}")
-                return None
+                return []
 
             stage1_time = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -255,7 +259,7 @@ class ScannerAgentNew(BaseAgent):
 
             if not quality_result['passed']:
                 logger.info(f"  ❌ Stage 1 reject: {quality_result['reject_reason']}")
-                return None
+                return []
 
             # Stage 1 passed!
             self.stats['stage1_passed'] += 1
@@ -272,7 +276,7 @@ class ScannerAgentNew(BaseAgent):
                 self.stats['throttled_analyses'] += 1
                 logger.warning(f"⏸️  Stage 2 throttled: {analysis_throttle['reason']} "
                              f"(wait {analysis_throttle['wait_seconds']}s)")
-                return None
+                return []
 
             logger.info(f"🎨 Stage 2: Running full analysis for {symbol}...")
             stage2_start = datetime.now()
@@ -282,7 +286,7 @@ class ScannerAgentNew(BaseAgent):
 
             if not charts:
                 logger.warning(f"⚠️ Stage 2: Failed to generate charts for {symbol}")
-                return None
+                return []
 
             # Record full analysis
             self.throttle_manager.record_full_analysis()
@@ -292,26 +296,44 @@ class ScannerAgentNew(BaseAgent):
 
             logger.info(f"✓ Stage 2 complete ({stage2_time:.0f}ms): Charts generated for {list(charts.keys())}")
 
-            # Send analysis request to Meta-Agent
-            # Meta-Agent will orchestrate Visual + Sentiment analysis
-            return self.send_message(
-                msg_type=MessageType.ANALYSIS_REQUEST,
-                recipient=AgentType.META_AGENT,
-                data={
-                    'symbol': symbol,
-                    'charts': charts,
-                    'technical_analysis': technical_analysis,
-                    'stage1_quality': quality_result,
-                    'trigger_info': trigger_result,
-                    'scan_time': datetime.now().isoformat(),
-                    'timeframes': list(charts.keys())
-                },
-                priority=trigger_result['priority']
-            )
+            # Fan the request out to the ANALYSTS, one message each.
+            #
+            # This previously addressed a single message to the Meta-Agent,
+            # which does not handle ANALYSIS_REQUEST (it handles ANALYSIS_RESULT)
+            # — so the request was dropped by the bus and no analyst ever ran.
+            # The Meta-Agent is the aggregator of the results, not the router of
+            # the requests.
+            payload = {
+                'symbol': symbol,
+                'charts': charts,
+                'technical_analysis': technical_analysis,
+                'stage1_quality': quality_result,
+                'trigger_info': trigger_result,
+                'scan_time': datetime.now().isoformat(),
+                'timeframes': list(charts.keys()),
+            }
+
+            return [
+                self.send_message(
+                    msg_type=MessageType.ANALYSIS_REQUEST,
+                    recipient=analyst,
+                    data={**payload, 'screenshot': self._screenshot_for(analyst, charts)},
+                    priority=trigger_result['priority'],
+                )
+                for analyst in self.ANALYSTS
+            ]
 
         except Exception as e:
             logger.error(f"Error in two-stage analysis for {symbol}: {e}", exc_info=True)
+            return []
+
+    @staticmethod
+    def _screenshot_for(analyst: AgentType, charts: Dict) -> Optional[str]:
+        """Only the Visual Analyst needs a rendered chart; others ignore it."""
+        if analyst != AgentType.VISUAL_ANALYST or not charts:
             return None
+        first = next(iter(charts.values()), {})
+        return first.get('image_base64')
 
     def _check_stage1_quality(
         self,

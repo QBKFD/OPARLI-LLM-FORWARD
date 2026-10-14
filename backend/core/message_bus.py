@@ -7,6 +7,7 @@ Handles message delivery, priority queues, and broadcast routing
 """
 
 import logging
+from itertools import count
 from typing import Dict, List, Optional, Callable
 from queue import PriorityQueue
 from threading import Lock
@@ -38,6 +39,9 @@ class MessageBus:
 
         # Thread safety
         self._lock = Lock()
+
+        # Monotonic tiebreaker for the priority queues (see _deliver_message)
+        self._sequence = count()
 
         # Message history (for debugging)
         self._message_history: List[Message] = []
@@ -150,10 +154,17 @@ class MessageBus:
             logger.warning(f"Agent {recipient.value} not registered, message dropped")
             return
 
-        # Priority queue uses tuple (priority, message)
-        # Lower priority number = higher priority (so we negate it)
-        priority = -message.priority
-        self._mailboxes[recipient].put((priority, message))
+        # Priority queue entries are (priority, sequence, message).
+        # Lower priority number = higher priority, so we negate.
+        #
+        # The sequence number is required, not cosmetic: heapq compares tuples
+        # element by element, so two messages of EQUAL priority would fall
+        # through to comparing Message objects, which are not orderable, and
+        # PriorityQueue.put would raise TypeError. That is reachable on any
+        # normal scan — the Visual and Sentiment analysts both reply at
+        # priority 7. The counter also makes delivery FIFO within a priority.
+        entry = (-message.priority, next(self._sequence), message)
+        self._mailboxes[recipient].put(entry)
 
         logger.debug(f"Message delivered: {message.sender.value} → {recipient.value} "
                     f"({message.type.value}, priority {message.priority})")
@@ -181,7 +192,7 @@ class MessageBus:
             if mailbox.empty():
                 break
 
-            priority, message = mailbox.get()
+            _priority, _sequence, message = mailbox.get()
             messages.append(message)
 
         return messages

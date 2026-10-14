@@ -17,10 +17,6 @@ import pandas as pd
 # Add project root to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from regime_classifier import (
-    RegimeConfig, RegimeFeatureEngine, RegimeValidator,
-    ValidationReport, FoldResult
-)
 from config.database import get_database
 from middleware.security import validate_symbol, validate_timeframe
 
@@ -30,6 +26,33 @@ router = APIRouter(prefix="/api/validation", tags=["validation"])
 
 # Cache validation results (expensive to compute)
 _validation_cache = {}
+
+
+def _load_regime_validation():
+    """
+    Import the regime_classifier package lazily.
+
+    The walk-forward validator is a research tool, not a core trading path, and
+    it pulls in a separate dependency set (scikit-learn, joblib, jumpmodels) that
+    is not part of backend/requirements.txt. Importing it at module load would
+    take the whole API down if those packages are absent, so the import is
+    deferred to request time and surfaced as a clean 503 instead.
+    """
+    try:
+        from regime_classifier import (
+            RegimeConfig,
+            RegimeValidator,
+        )
+        return RegimeConfig, RegimeValidator
+    except ImportError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Regime validator unavailable: its dependencies are not "
+                "installed. Run `pip install -r regime_classifier/requirements.txt` "
+                f"(scikit-learn, joblib, jumpmodels). Import error: {e}"
+            ),
+        )
 
 
 def _fetch_all_ohlcv(symbol: str, timeframe: str) -> pd.DataFrame:
@@ -76,7 +99,7 @@ def _fetch_all_ohlcv(symbol: str, timeframe: str) -> pd.DataFrame:
     return df
 
 
-def _fold_to_dict(fold: FoldResult) -> dict:
+def _fold_to_dict(fold: "FoldResult") -> dict:
     """Convert FoldResult dataclass to JSON-serializable dict."""
     return {
         'fold_idx': fold.fold_idx,
@@ -105,7 +128,7 @@ def _fold_to_dict(fold: FoldResult) -> dict:
     }
 
 
-def _report_to_dict(report: ValidationReport) -> dict:
+def _report_to_dict(report: "ValidationReport") -> dict:
     """Convert ValidationReport to JSON-serializable dict."""
 
     def safe_round(val, decimals=4):
@@ -168,6 +191,10 @@ async def run_walk_forward_validation(
     if not force_rerun and cache_key in _validation_cache:
         logger.info(f"Returning cached validation for {cache_key}")
         return _validation_cache[cache_key]
+
+    # Lazily import the classifier so a missing research dependency set fails
+    # this endpoint with a clear 503 rather than crashing the whole API at boot.
+    RegimeConfig, RegimeValidator = _load_regime_validation()
 
     try:
         # Fetch all available data

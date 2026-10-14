@@ -1,0 +1,18 @@
+{
+ "NEAR": {
+  "pooled_mean": 0.0040951942094847186,
+  "pooled_sd_across_reps": 0.012749418439819688,
+  "mean_bootstrap_se": 0.010987784605459239,
+  "se_over_sd": 0.8618263379874319,
+  "balanced_mean": 1.2826459755367441e-05,
+  "balanced_sd_across_reps": 0.012754245278405704
+ },
+ "FAR": {
+  "pooled_mean": 0.004444468528397798,
+  "pooled_sd_across_reps": 0.015050414385135548,
+  "mean_bootstrap_se": 0.01461382937001003,
+  "se_over_sd": 0.9709918276033177,
+  "balanced_mean": -0.002593532772780304,
+  "balanced_sd_across_reps": 0.015579447792486488
+ }
+}

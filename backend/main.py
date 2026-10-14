@@ -403,7 +403,8 @@ async def websocket_live_data(websocket: WebSocket, symbol: str):
     """
     WebSocket for real-time market data
 
-    Receives data from Kafka consumer and broadcasts to connected clients
+    Receives data from the market data streamer (TWS -> PostgreSQL) and
+    broadcasts it to connected clients.
     """
     await websocket.accept()
 

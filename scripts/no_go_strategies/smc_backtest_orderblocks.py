@@ -2,7 +2,6 @@
 """
 SMC Order Block Strategy Backtest
 
-Reproduces all Order Block findings from SMC_STRATEGY_GUIDE.md
 
 Usage:
     python scripts/smc_backtest_orderblocks.py

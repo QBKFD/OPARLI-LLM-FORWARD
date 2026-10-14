@@ -24,7 +24,7 @@ from services.regime_detector import get_regime_detector
 from services.confluence_checker import get_confluence_checker
 from services.timeframe_cascade import get_timeframe_cascade
 from services.entry_timing import get_entry_timing_optimizer
-from services.market_data_provider import LiveDataProvider
+from services.market_data_provider import LiveDataProvider, MarketDataProvider
 from services.technical_service import run_technical_analysis
 from config.database import get_database
 
@@ -46,7 +46,7 @@ class TechnicalAnalystAgent(BaseAgent):
 
     TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h']
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, provider: Optional[MarketDataProvider] = None):
         super().__init__(AgentType.TECHNICAL_ANALYST, config)
 
         # Initialize services
@@ -56,13 +56,16 @@ class TechnicalAnalystAgent(BaseAgent):
         self.cascade_analyzer = get_timeframe_cascade()
         self.entry_optimizer = get_entry_timing_optimizer()
 
-        # Database for fetching OHLCV data
-        self.db = get_database()
-
         # Live data source behind the shared MarketDataProvider interface.
-        # Backtests inject a HistoricalDataProvider into the same code path
-        # (services/technical_service.run_technical_analysis).
-        self.provider = LiveDataProvider(db=self.db)
+        # Backtests/tests inject a HistoricalDataProvider into the same code
+        # path (services/technical_service.run_technical_analysis); when they
+        # do, this agent never touches the database (db stays None).
+        if provider is None:
+            self.db = get_database()
+            provider = LiveDataProvider(db=self.db)
+        else:
+            self.db = None
+        self.provider = provider
 
         logger.info("✓ Technical Analyst Agent initialized (rule-based, no LLM)")
 
@@ -96,11 +99,15 @@ class TechnicalAnalystAgent(BaseAgent):
             # Extract data from message
             symbol = message.data.get('symbol')
             market_data = message.data.get('market_data', {})
+            # Evaluation timestamp carried by the request. None = "latest",
+            # which is what the live scanner sends; a replay/test sends the bar
+            # being evaluated so the historical provider can bound its slice.
+            as_of = message.data.get('as_of')
 
             # Run multi-timeframe analysis via the shared service.
             # SAME call the backtest uses — only the injected provider differs
             # (LiveDataProvider here, HistoricalDataProvider in backtests).
-            analysis = run_technical_analysis(self.provider, symbol)
+            analysis = run_technical_analysis(self.provider, symbol, as_of=as_of)
 
             if not analysis.get('timeframe_analysis'):
                 logger.warning(f"No timeframe data available for {symbol}")

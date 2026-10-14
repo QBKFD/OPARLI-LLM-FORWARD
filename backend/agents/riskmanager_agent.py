@@ -56,11 +56,14 @@ class RiskManagerAgentNew(BaseAgent):
     - Override its own limits (hardcoded, no exceptions)
     """
 
-    def __init__(self, config: Optional[Dict] = None):
+    def __init__(self, config: Optional[Dict] = None, account_state_fn=None):
         super().__init__(AgentType.RISK_MANAGER, config)
 
-        # Initialize services
+        # Initialize services. account_state_fn is injectable so backtests and
+        # tests can supply a simulated account without a database — the same
+        # pattern the Trade Manager already uses.
         self.account_state_manager = get_account_state_manager()
+        self.account_state_fn = account_state_fn or self.account_state_manager.get_current_state
         self.position_sizing = get_position_sizing_calculator()
         self.stop_loss_calculator = get_stop_loss_calculator()
         self.take_profit_calculator = get_take_profit_calculator()
@@ -202,7 +205,7 @@ class RiskManagerAgentNew(BaseAgent):
             # Source live account state, then run the SHARED validation logic.
             # Backtests call run_risk_validation() directly with a simulated
             # account_state — identical code, no re-implementation.
-            account_state = self.account_state_manager.get_current_state()
+            account_state = self.account_state_fn()
 
             result = run_risk_validation(trade_request, account_state)
 

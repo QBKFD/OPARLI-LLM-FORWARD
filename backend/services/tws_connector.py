@@ -29,10 +29,13 @@ class TWSConnector:
     - Auto-reconnection with exponential backoff
     """
 
-    def __init__(self, host='127.0.0.1', port=7497, client_id=1):
+    def __init__(self, host='127.0.0.1', port=7497, client_id=1, readonly=False):
         self.host = host
         self.port = port
         self.client_id = client_id
+        # True for data-only clients of a Read-Only API gateway: skips ib_insync's
+        # order sync at connect (rejected with error 321 there, then times out)
+        self.readonly = readonly
 
         self.ib = IB()
         self.connected = False
@@ -68,7 +71,8 @@ class TWSConnector:
                     host=self.host,
                     port=self.port,
                     clientId=self.client_id,
-                    timeout=20
+                    timeout=20,
+                    readonly=self.readonly
                 )
             )
             self.connected = True
@@ -114,10 +118,16 @@ class TWSConnector:
         """Disconnect from TWS"""
         try:
             if self.connected:
-                # Cancel all subscriptions
+                # Cancel all subscriptions with the matching cancel call: CMDTY is
+                # a reqMktData tick stream (cancelMktData); stocks/futures are
+                # reqRealTimeBars (cancelRealTimeBars). Using the wrong one raises
+                # "'Commodity' object has no attribute 'reqId'".
                 for symbol, contract in self.subscriptions.items():
                     try:
-                        self.ib.cancelRealTimeBars(contract)
+                        if getattr(contract, 'secType', None) == 'CMDTY':
+                            self.ib.cancelMktData(contract)
+                        else:
+                            self.ib.cancelRealTimeBars(contract)
                     except Exception as e:
                         logger.warning(f"Error canceling subscription for {symbol}: {e}")
 
@@ -292,7 +302,10 @@ class TWSConnector:
 
         try:
             contract = self.subscriptions[symbol]
-            self.ib.cancelRealTimeBars(contract)
+            if getattr(contract, 'secType', None) == 'CMDTY':
+                self.ib.cancelMktData(contract)   # CMDTY is a reqMktData tick stream
+            else:
+                self.ib.cancelRealTimeBars(contract)
             del self.subscriptions[symbol]
 
             logger.info(f"✓ Unsubscribed from {symbol}")
@@ -365,11 +378,16 @@ class TWSConnector:
 
                 # For commodities, use bid/ask midpoint if available, otherwise use close
                 # This ensures we get live prices instead of stale close prices
+                # IBKR sends -1 (or 0) for "no quote", e.g. while a data farm
+                # reconnects; a -1 must never become a price in a bar.
+                def _px(x):
+                    return x is not None and x == x and x > 0
+
                 price = None
-                if ticker.bid and ticker.ask and ticker.bid == ticker.bid and ticker.ask == ticker.ask:
+                if _px(ticker.bid) and _px(ticker.ask):
                     # Use midpoint of bid/ask for live price
                     price = (float(ticker.bid) + float(ticker.ask)) / 2.0
-                elif ticker.close and ticker.close == ticker.close:
+                elif _px(ticker.close):
                     # Fallback to close price
                     price = float(ticker.close)
 

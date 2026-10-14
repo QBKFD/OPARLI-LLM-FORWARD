@@ -1,0 +1,18 @@
+{
+ "NEAR": {
+  "placebo_units": 61180,
+  "distinct_placebo_days": 4378,
+  "mean_real_days_per_placebo_day": 12.449063499314756,
+  "median_real_days_per_placebo_day": 12.0,
+  "max_real_days_per_placebo_day": 33,
+  "share_placebo_units_on_days_shared_by_>=5_real_days": 0.9949656750572082
+ },
+ "FAR": {
+  "placebo_units": 104700,
+  "distinct_placebo_days": 4379,
+  "mean_real_days_per_placebo_day": 21.137702671842888,
+  "median_real_days_per_placebo_day": 21.0,
+  "max_real_days_per_placebo_day": 40,
+  "share_placebo_units_on_days_shared_by_>=5_real_days": 0.9999235912129895
+ }
+}
