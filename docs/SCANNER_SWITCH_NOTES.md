@@ -167,16 +167,36 @@ pins this. So:
     differently; it now matches a continuous replay.
   - Covered by selftest case 13 and `test_start_before_the_days_first_bar`.
     Both fail on the old code.
-- **c. Warm-up window.** "Last 10 days" is implemented as 10 days, extended to
-  the previous ISO week's Monday. From Thursday to Sunday a plain 10-day window
-  starts inside last week, and PWH/PWL would come from part of it.
-  - Related, unverified: if IBKR's `durationStr="10 D"` means 10 *calendar*
-    days, the ibkr path has the same partial-week PWH/PWL from Thursday to
-    Sunday. Check against the gateway.
+- **c. Warm-up window: decided 2026-10-14; the IBKR "10 D" meaning is still
+  open.**
+  - The window is 10 days, extended back to Monday 00:00 UTC of the previous
+    ISO week when that is earlier (`warmup_start`). From Thursday to Sunday a
+    plain 10-day window starts inside last week, and PWH/PWL would come from
+    part of it.
+  - **Open, not confirmable from official docs (checked 2026-10-14):** does
+    IBKR's `durationStr="10 D"` count calendar days or trading days/sessions?
+    - The [historical bars page](https://interactivebrokers.github.io/tws-api/historical_bars.html)
+      lists the units S, D, W, M, Y. It defines the duration only as "the
+      amount of time ... to go back from the request's given end date and time".
+    - The [`EClient` reference](https://interactivebrokers.github.io/tws-api/classIBApi_1_1EClient.html)
+      ("3 D" returns "all the available bars of the last three days") and the
+      [limitations page](https://interactivebrokers.github.io/tws-api/historical_limitations.html)
+      say no more.
+    - The current IBKR Campus TWS API docs refuse automated fetches (HTTP 403),
+      and the page copy that could be downloaded has no duration section.
+  - It matters for two things:
+    - the ibkr path, which builds levels from that history: if "D" means
+      calendar days, PWH/PWL come from a partial week from Thursday to Sunday;
+    - the feed's history, which is the store's only content before it has
+      accumulated two weeks of its own bars.
+  - To settle it, run once on the paper gateway, on a Thursday or Friday:
+    `reqHistoricalData(XAUUSD CMDTY, "", "10 D", "1 min", "MIDPOINT", useRTH=False, formatDate=2)`
+    and look at the first bar's date. Calendar days give roughly now − 10 d;
+    trading days give about two weeks back.
   - Also: right after the feed first starts, the store holds only the feed's
-    IBKR history. A 13-day window on Thu–Sun may then fall below 80 % coverage
-    and use the IBKR fallback (logged). Flip on Mon–Wed, or once the store has
-    two weeks.
+    IBKR history. A 13-day window on Thu–Sun may then fall below 80 %
+    coverage, and the scanner waits (see 1.1). Flip on Mon–Wed, or once the
+    store holds two weeks.
 - **d. Restart semantics.**
   - Touches during scanner downtime aren't alerted. The warm-up covers them
     silently, as the ibkr path does today.
