@@ -128,3 +128,12 @@ normal-theory value is in brackets.
   two.
 - Whether HAR's better σ improves bracket outcomes (P&L). The path metric is
   descriptive only.
+
+## 9. Post-hoc checks (added after the verdict; not pre-registered)
+
+Defined in POSTHOC.md before they were run; results in
+[POSTHOC_RESULT.md](POSTHOC_RESULT.md).
+- **P1 passes.** HAR frozen on 2007–2020 still beats the plug-in on the
+  parquet 2021–23.
+- **P2 passes and favours the txt 2007–2023 fit** on calibration. The parquet
+  fit was fitted afterwards (`model/sigma_har_parquet_v1.json`).

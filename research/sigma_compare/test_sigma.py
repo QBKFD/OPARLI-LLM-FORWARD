@@ -256,10 +256,12 @@ import har_sigma as hs  # noqa: E402
 MODEL = HERE / "model" / "sigma_har_v1.json"
 
 
-def test_model_file_verifies_and_detects_tampering(tmp_path):
-    if not MODEL.exists():
+@pytest.mark.parametrize("name", ["sigma_har_v1.json", "sigma_har_parquet_v1.json"])
+def test_model_file_verifies_and_detects_tampering(tmp_path, name):
+    path = HERE / "model" / name
+    if not path.exists():
         pytest.skip("model file not written yet")
-    d = hs.verify(MODEL)
+    d = hs.verify(path)
     model = hs.from_payload(d)
     assert model.version == 1 and set(model.horizons) == {60, 240}
     assert all(len(beta) == 4 for beta, _ in model.horizons.values())
@@ -267,7 +269,7 @@ def test_model_file_verifies_and_detects_tampering(tmp_path):
     d.pop("sha256")
     d["horizons"]["60"]["beta"][1] += 1e-9
     bad = tmp_path / "bad.json"
-    bad.write_text(__import__("json").dumps({**d, "sha256": hs.verify(MODEL)["sha256"]}))
+    bad.write_text(__import__("json").dumps({**d, "sha256": hs.verify(path)["sha256"]}))
     with pytest.raises(ValueError, match="sha256"):
         hs.verify(bad)
 

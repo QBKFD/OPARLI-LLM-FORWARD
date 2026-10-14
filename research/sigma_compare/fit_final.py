@@ -11,7 +11,8 @@ Fit: run_sigma.fit_fold with one fold whose training window is everything.
 VolParams come from all bars before 2024-01-01, and OLS plus smearing from every
 label whose window ends by 2024-01-01. Same code as the study's folds.
 
-    .venv/bin/python research/sigma_compare/fit_final.py
+    .venv/bin/python research/sigma_compare/fit_final.py            # txt fit (step 3)
+    .venv/bin/python research/sigma_compare/fit_final.py parquet    # parquet fit (post-hoc)
 """
 
 from __future__ import annotations
@@ -52,27 +53,50 @@ def file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def main() -> int:
-    m = load_all()
+DEFINITION = ("var(t, H) = P(t, H) * exp(beta . [1, L, S_hd, T]) * smear_c, where "
+              "P(t, H) = sum of vol_params.profile[bucket(u)] over the first H "
+              "market-open minutes u >= t (datafeed _market_open), and L, S_hd, T = "
+              "vol_block.transform(vol_params) at the latest hourly label <= t. "
+              "sigma_ret = sqrt(var); sigma_px = close_ref * sigma_ret.")
+
+# source -> (loader, training start, output file, created, study refs, data source text, input file)
+SOURCES = {
+    "txt": (load_all, START, MODEL, "2026-10-14",
+            {"path": "research/sigma_compare", "prereg_commit": "c75b24f",
+             "report_commit": "de7a808", "verdict": "HAR replaces the plug-in (REPORT.md §1)"},
+            "database/ohlcv_data/XAUUSD.txt via "
+            "research/vol_features_r2/cache/xauusd_txt_pre2024_filetime.parquet",
+            lambda: Path(r3.CACHE).resolve()),
+    # Post-hoc (POSTHOC.md): the parquet fit, training from 2021-01-01 with 2020 as
+    # warm-up, rows < 2024-01-01 only (the spent 2024-01..2026-01 rows are not loaded).
+    "parquet": (lambda: rs.load("DEV"), pd.Timestamp("2021-01-01", tz="UTC"),
+                HERE / "model" / f"sigma_har_parquet_v{VERSION}.json", "2026-10-15",
+                {"path": "research/sigma_compare", "prereg_commit": "c75b24f",
+                 "report_commit": "de7a808", "posthoc_commit": "fb8ba0d",
+                 "verdict": "HAR replaces the plug-in (REPORT.md §1); post-hoc P1, P2 pass "
+                            "(POSTHOC_RESULT.md)"},
+                "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet (rows 2020-01-01 .. "
+                "< 2024-01-01; training rows from 2021-01-01)",
+                lambda: Path(rs.r1.DATA).resolve()),
+}
+
+
+def main(source: str = "txt") -> int:
+    load, start, model_path, created, study, source_text, input_file = SOURCES[source]
+    m = load()
     rs.log(f"bars {len(m):,}  {m.index[0]} .. {m.index[-1]}")
     ctx = rs.build_context(m, END)
-    cfg = {"train_start": START}
+    cfg = {"train_start": start}
     fit = rs.fit_fold(ctx, cfg, END + rs.EMBARGO)   # training = every row with window end <= END
     payload = {
         "model": "sigma_har",
         "version": VERSION,
-        "created": "2026-10-14",
-        "study": {"path": "research/sigma_compare", "prereg_commit": "c75b24f",
-                  "report_commit": "de7a808", "verdict": "HAR replaces the plug-in (REPORT.md §1)"},
-        "definition": ("var(t, H) = P(t, H) * exp(beta . [1, L, S_hd, T]) * smear_c, where "
-                       "P(t, H) = sum of vol_params.profile[bucket(u)] over the first H "
-                       "market-open minutes u >= t (datafeed _market_open), and L, S_hd, T = "
-                       "vol_block.transform(vol_params) at the latest hourly label <= t. "
-                       "sigma_ret = sqrt(var); sigma_px = close_ref * sigma_ret."),
+        "created": created,
+        "study": study,
+        "definition": DEFINITION,
         "horizons_note": "fitted for H = 60 and 240 only; other H are not supported",
-        "data": {"source": "database/ohlcv_data/XAUUSD.txt via "
-                           "research/vol_features_r2/cache/xauusd_txt_pre2024_filetime.parquet",
-                 "input_sha256": file_sha256(Path(r3.CACHE).resolve()),
+        "data": {"source": source_text,
+                 "input_sha256": file_sha256(input_file()),
                  "first_bar": m.index[0].isoformat(), "last_bar": m.index[-1].isoformat(),
                  "n_bars": len(m), "seal": "rows < 2024-01-01"},
         "vol_params": json.loads(fit.params.to_json()),
@@ -81,17 +105,19 @@ def main() -> int:
                               "smear_c": float(fit.model[H]["c"]),
                               "n_train": fit.model[H]["n_train"]} for H in rs.HORIZONS},
     }
+    if source != "txt":
+        payload["data"]["train_start"] = start.isoformat()
     payload["sha256"] = hashlib.sha256(canonical(payload)).hexdigest()
-    MODEL.parent.mkdir(exist_ok=True)
-    MODEL.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n")
-    verify(MODEL)
+    model_path.parent.mkdir(exist_ok=True)
+    model_path.write_text(json.dumps(payload, indent=1, sort_keys=True) + "\n")
+    verify(model_path)
     for H in rs.HORIZONS:
         h = payload["horizons"][str(H)]
         rs.log(f"H={H}: beta={[round(b, 4) for b in h['beta']]} c={h['smear_c']:.4f} "
                f"n_train={h['n_train']:,}")
-    rs.log(f"wrote {MODEL.relative_to(HERE.parents[1])} sha256={payload['sha256']}")
+    rs.log(f"wrote {model_path.relative_to(HERE.parents[1])} sha256={payload['sha256']}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "txt"))

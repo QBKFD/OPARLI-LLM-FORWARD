@@ -71,3 +71,13 @@ run.
 
 12. **Local `main` is behind `origin/main`** (9042270 vs 05fe838). `main` is
     not touched; the new branches start from `origin/main`.
+
+13. **The parquet fit's provenance hash covers the whole file.** Its
+    `input_sha256` is taken over the file's bytes, which include the spent
+    rows. Hashing reads no values: only rows before 2024-01-01 are loaded and
+    used.
+
+14. **Default fit: txt2007_2023 (LONG).** P2 favours it on calibration (score
+    0.0182 vs 0.0218). SHORT has the lower QLIKE on the DEV quarters. The
+    instruction says to default to the calibration's choice, so LONG is the
+    default and SHORT ships as a config option.
