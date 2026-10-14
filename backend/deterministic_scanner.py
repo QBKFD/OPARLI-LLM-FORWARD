@@ -226,9 +226,13 @@ class LiveLevels:
 
     def __init__(self, hist: pd.DataFrame, now):
         self.hist = hist
+        self.filled: set = set()        # minutes added from history bars (fill)
         # what the first warm-up pass derived but didn't emit: AlertSink.startup
         # journals the part of it that fell into a downtime
         self.warmup_alerts = self._rebuild(now)
+        self._epoch_from_bars(now)
+
+    def _epoch_from_bars(self, now):
         # Compare against the epoch of the newest bar the levels were built from,
         # not of `now`. Started after an epoch boundary but before that epoch's
         # first bar (e.g. 00:00:30, before the 00:00 bar), the first bar is in
@@ -236,7 +240,7 @@ class LiveLevels:
         # PDH, PDL, PWH, PWL; build_levels creates them only for days with bars)
         # would be missing until the next session close. On 2025-06-16 that lost
         # the 00:06, 00:14 and 00:24 alerts.
-        built = hist.index[hist.index < now]
+        built = self.hist.index[self.hist.index < now]
         self.epoch = self._epoch(built.max()) if len(built) else None
 
     @staticmethod
@@ -256,9 +260,28 @@ class LiveLevels:
 
     def on_bar(self, ts, o, h, l, c) -> list[dict]:
         self.hist.loc[ts] = [o, h, l, c]
+        if len(self.hist) > 1 and self.hist.index[-2] > ts:     # after a newer history fill
+            self.hist.sort_index(inplace=True)
         if self._epoch(ts) != self.epoch:
             self._rebuild(ts)
         return self.scanner.on_bar(ts, o, h, l, c)
+
+    def fill(self, ts, o, h, l, c) -> bool:
+        """A history bar for a minute that has no bar: it joins the bars levels
+        and warm-up passes are built from, and is never fed to the Scanner, so
+        it can never trigger an alert. Returns False if the minute has a bar."""
+        if ts in self.hist.index:
+            return False
+        self.hist.loc[ts] = [o, h, l, c]
+        self.hist.sort_index(inplace=True)
+        self.filled.add(ts)
+        return True
+
+    def refresh(self, now) -> None:
+        """Rebuild levels and first-touch state from all bars before now (fills
+        included) after fills; the warm-up pass's alerts are dropped."""
+        self._rebuild(now)
+        self._epoch_from_bars(now)
 
 
 class AlertSink:
@@ -295,10 +318,27 @@ class AlertSink:
             args.append(self.epoch)
         return self.con.execute(sql, args).fetchone() is not None
 
+    def _free_id(self, a) -> dict:
+        """Ids are numbered per day by the Scanner. A rebuild over history fills
+        can renumber a day, so an id may already be taken in this epoch by
+        another alert: then take the day's next free number. Never reuse an id."""
+        if not self.con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND epoch=?",
+                                (a["alert_id"], self.epoch)).fetchone():
+            return a
+        prefix = a["alert_id"].rsplit("-", 1)[0]
+        used = [int(r[0].rsplit("-", 1)[1]) for r in self.con.execute(
+            "SELECT alert_id FROM alerts WHERE alert_id LIKE ? AND epoch=?",
+            (prefix + "-%", self.epoch))]
+        new = dict(a, alert_id=f"{prefix}-{max(used) + 1:03d}")
+        self.log(f"alert id {a['alert_id']} already used in epoch {self.epoch}; "
+                 f"this alert is {new['alert_id']}", flush=True)
+        return new
+
     def _missed(self, a) -> str:
         if self._known(a, any_epoch=True):
             self.stats["duplicate"] += 1
             return "duplicate"
+        a = self._free_id(a)
         insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source,
                      status="missed_while_down")
         self.con.commit()
@@ -326,6 +366,7 @@ class AlertSink:
             self.log(f"alert {a['alert_id']} already journaled (redelivered bar); not sent again",
                      flush=True)
             return "duplicate"
+        a = self._free_id(a)
         insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source)
         self.con.commit()
         self.send(a)
@@ -1074,7 +1115,11 @@ class StreamFeed:
 
     Each entry is classified once (the counter of the same name in stats):
       invalid_msg      malformed or not schema_version 1 / this symbol
-      history_skipped  history=True: the feed's IBKR warm-up, never live
+      history_filled   history=True for a minute without a bar: added to the
+                       levels' bars (LiveLevels.fill), then the levels are
+                       rebuilt once per batch; never fed to the Scanner
+      history_skipped  history=True for a minute that already has a bar (live
+                       is preferred) or when the levels can't be filled
       wrong_source     source not in `sources` (default ibkr; a replay feed on
                        the production stream must never reach Telegram)
       invalid_bars     fails _valid_bar
@@ -1084,7 +1129,9 @@ class StreamFeed:
       out_of_order     older than the newest bar seen but not seen itself; dropped,
                        because the level engine only moves forward
       live_bars        newer than everything seen: drives on_bar
-    Only live_bars reach the level engine. A live bar that skips market-open
+    Only live_bars reach the Scanner. An alert whose time is a history-filled
+    minute (its touch came from a history bar) is suppressed, never sent or
+    journaled (history_touch_suppressed). A live bar that skips market-open
     minutes is also logged as a gap (minutes without ticks produce no bar, so
     short gaps are normal in quiet markets).
 
@@ -1111,14 +1158,15 @@ class StreamFeed:
         hist = getattr(live, "hist", None)
         self.first_ts = hist.index.min() if hist is not None and len(hist) else None
         self.stats = dict.fromkeys(
-            ("entries", "live_bars", "history_skipped", "wrong_source", "invalid_msg",
-             "invalid_bars", "before_warmup", "duplicate", "conflict", "out_of_order",
-             "gaps", "gap_minutes", "alerts"), 0)
+            ("entries", "live_bars", "history_filled", "history_skipped", "wrong_source",
+             "invalid_msg", "invalid_bars", "before_warmup", "duplicate", "conflict",
+             "out_of_order", "gaps", "gap_minutes", "alerts", "history_touch_suppressed"), 0)
 
     def step(self) -> int:
         batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
                                  count=self.count, block_ms=self.block_ms)
         seen: dict[str, int] = {}
+        filled_before = self.stats["history_filled"]
         for d in batch:
             kind = self._handle(d)
             self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
@@ -1127,6 +1175,9 @@ class StreamFeed:
             seen[kind] = seen.get(kind, 0) + 1
             if kind == "live_bars" and self.staleness:
                 self.staleness.bar(self.last_bar_ts)
+        if self.stats["history_filled"] > filled_before and self.last_bar_ts is not None:
+            with self.lock:                     # one rebuild per batch, not per fill
+                self.live.refresh(self.last_bar_ts + pd.Timedelta(minutes=1))
         if self.staleness:
             self.staleness.check(self.clock(), self.last_bar_ts)
         other = {k: n for k, n in seen.items() if k != "live_bars"}
@@ -1154,8 +1205,6 @@ class StreamFeed:
         except (KeyError, TypeError, ValueError) as e:
             self.log(f"stream: invalid entry {d.id} skipped ({e!r}): {str(msg)[:200]}", flush=True)
             return "invalid_msg"
-        if msg["history"]:
-            return "history_skipped"
         if msg.get("source") not in self.sources:
             if self.stats["wrong_source"] % 1000 == 0:
                 self.log(f"stream: entry {d.id} from source {msg.get('source')!r} ignored "
@@ -1163,6 +1212,8 @@ class StreamFeed:
             return "wrong_source"
         if not _valid_bar(ts, *ohlc):
             return "invalid_bars"
+        if msg["history"]:
+            return self._history(ts, ohlc)
         with self.lock:
             last = self.last_bar_ts
             if last is not None and ts <= last:
@@ -1175,12 +1226,28 @@ class StreamFeed:
                          f"between {last} and {ts}", flush=True)
             alerts = self.live.on_bar(ts, *ohlc)
             self.last_bar_ts = ts
+            filled = getattr(self.live, "filled", ())
             for a in alerts:
+                if filled and _utc(a["alert_ts_utc"]) in filled:
+                    self.stats["history_touch_suppressed"] += 1
+                    self.log(f"stream: {a['alert_id']} {a['alert_ts_utc']} {a['level_types']} is a "
+                             f"touch on a history bar; never alerted", flush=True)
+                    continue
                 self.on_alert(a)
                 self.stats["alerts"] += 1
             if self.progress:
                 self.progress(ts)               # after its alerts are journaled
         return "live_bars"
+
+    def _history(self, ts, ohlc) -> str:
+        """A history bar: fills a minute without a bar, inside the warm-up window."""
+        if self.first_ts is not None and ts < self.first_ts:
+            return "before_warmup"
+        fill = getattr(self.live, "fill", None)
+        if fill is None:
+            return "history_skipped"
+        with self.lock:
+            return "history_filled" if fill(ts, *ohlc) else "history_skipped"
 
     def _old(self, id, ts, ohlc) -> str:
         """Classify an entry that is not newer than the newest bar seen."""
