@@ -690,12 +690,102 @@ STREAM_BATCH = 500               # entries per consume call
 STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
 
 
+WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
+WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's market-open minutes
+WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
+
+
 def bar_source(env=os.environ) -> str:
     """SCANNER_BAR_SOURCE, default ibkr. Anything else is a startup error, never a guess."""
     s = env.get("SCANNER_BAR_SOURCE", "ibkr")
     if s not in BAR_SOURCES:
         raise SystemExit(f"SCANNER_BAR_SOURCE={s!r}: must be one of {', '.join(BAR_SOURCES)}")
     return s
+
+
+def _open_minutes(start, end) -> pd.DatetimeIndex:
+    """Complete market-open minutes between start and end: minute opens m with
+    start <= m, m + 1 min <= end and _market_open(m). A vectorised copy of
+    _market_open (New York weekday and hour); a test pins the two together."""
+    idx = pd.date_range(_utc(start).ceil("min"), _utc(end).floor("min"), freq="1min",
+                        inclusive="left")
+    et = idx.tz_convert("America/New_York")
+    wd, h = et.weekday, et.hour
+    closed = (wd == 5) | ((wd == 6) & (h < 18)) | ((wd == 4) & (h >= 17)) | (h == 17)
+    return idx[~closed]
+
+
+def warmup_start(now) -> pd.Timestamp:
+    """WARMUP_DAYS before now, or Monday 00:00 UTC of the previous ISO week if
+    that is earlier. build_levels takes PWH/PWL from the whole previous ISO week;
+    from Thursday to Sunday a plain 10-day window starts inside that week and
+    would build them from part of it."""
+    now = _utc(now)
+    prev_monday = now.normalize() - pd.Timedelta(days=now.weekday() + 7)
+    return min(now - pd.Timedelta(days=WARMUP_DAYS), prev_monday)
+
+
+def _only_valid(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows passing _valid_bar (a boolean mask, so an empty frame keeps its columns)."""
+    ok = [_valid_bar(ts, o, h, l, c) for ts, o, h, l, c in
+          df[["open", "high", "low", "close"]].itertuples(name=None)]
+    return df[pd.Series(ok, index=df.index, dtype=bool)]
+
+
+def _store_bars(now, start, db, symbol, kinds) -> pd.DataFrame:
+    from datafeed.store.query import bars_before
+    rows = bars_before(symbol, now.to_pydatetime(), (now - start).to_pytimedelta(), db=db, kinds=kinds)
+    df = pd.DataFrame(rows, columns=["bar_ts", "kind", "open", "high", "low", "close"])
+    df.index = pd.DatetimeIndex(pd.to_datetime(df.pop("bar_ts"), utc=True), name="timestamp")
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    return df
+
+
+def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
+                  ibkr_history=None):
+    """Bars that warm LiveLevels before the stream takes over. Returns
+    (hist, path, detail); hist has open/high/low/close, only _valid_bar rows.
+
+    path "store": datafeed.store.query.bars_before over [warmup_start(now), now)
+        (one bar per minute: live preferred, history as fallback). Used when it
+        holds >= WARMUP_MIN_COVERAGE of that window's market-open minutes and
+        its newest bar ended <= WARMUP_MAX_STALE_MIN market-open minutes ago.
+    path "ibkr": otherwise ibkr_history() (run_live's IBKR history load),
+        minus the still-forming minute, as the store read never returns it.
+        Its exceptions propagate (the caller takes the crash-only exit)."""
+    now = _utc(now)
+    start = warmup_start(now)
+    cols = ["open", "high", "low", "close"]
+    try:
+        df = _store_bars(now, start, db, symbol, kinds)
+    except Exception as e:
+        reason = f"store unavailable ({e!r})"
+    else:
+        df = _only_valid(df)
+        expected = len(_open_minutes(start, now))
+        cov = len(df) / expected if expected else 0.0
+        if df.empty:
+            reason = f"store has no bars since {start}"
+        elif cov < WARMUP_MIN_COVERAGE:
+            reason = (f"store too thin: {len(df)} bars = {cov:.1%} of {expected} market-open "
+                      f"minutes since {start} (< {WARMUP_MIN_COVERAGE:.0%})")
+        else:
+            stale = len(_open_minutes(df.index[-1] + pd.Timedelta(minutes=1), now))
+            if stale > WARMUP_MAX_STALE_MIN:
+                reason = (f"store stale: newest bar {df.index[-1]} ended {stale} market-open "
+                          f"minutes before now (> {WARMUP_MAX_STALE_MIN})")
+            else:
+                kinds_n = ", ".join(f"{k} {n}" for k, n in df["kind"].value_counts().sort_index().items())
+                return df[cols], "store", (f"store: {len(df)} bars ({kinds_n}) {df.index[0]} .. "
+                                           f"{df.index[-1]}, {cov:.1%} of market-open minutes, "
+                                           f"newest bar {stale} market-open min old")
+    if ibkr_history is None:
+        raise RuntimeError(f"{reason}; no IBKR fallback configured")
+    hist = ibkr_history()
+    hist = hist[hist.index < now.floor("min")]
+    hist = _only_valid(hist)
+    span = f"{hist.index[0]} .. {hist.index[-1]}" if len(hist) else "empty"
+    return hist[cols], "ibkr", f"{reason}; IBKR history instead: {len(hist)} bars {span}"
 
 
 class StreamFeed:
@@ -784,14 +874,21 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     con = open_log(check_same_thread=False)
     lock = threading.Lock()
 
+    # warm-up: the datafeed store first, IBKR history (separate short-lived
+    # connection, distinct clientId, as in run_live) if the store is unusable.
+    # A failed fallback takes the crash-only exit.
+    now = pd.Timestamp.now(tz="UTC")
     try:
-        hist = _load_recent_history(symbol, days=10, host=host, port=port, client_id=client_id + 10)
+        hist, path, detail = stream_warmup(
+            now, db=env.get("DATAFEED_DB"), symbol=symbol,
+            ibkr_history=lambda: _load_recent_history(symbol, days=10, host=host, port=port,
+                                                      client_id=client_id + 10))
     except Exception as e:
-        print(f"history load failed ({e!r}); backing off then exiting for restart", flush=True)
+        print(f"warm-up failed ({e!r}); backing off then exiting for restart", flush=True)
         _time.sleep(RECONNECT_BACKOFF_S)
         raise SystemExit(1)
-    hist = hist[[_valid_bar(*r) for r in hist.itertuples(name=None)]]
-    live = LiveLevels(hist, pd.Timestamp.now(tz="UTC"))
+    print(f"warm-up via {path}: {detail}", flush=True)
+    live = LiveLevels(hist, now)
 
     def on_alert(a):
         insert_alert(con, a); con.commit()

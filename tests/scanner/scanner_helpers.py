@@ -43,3 +43,17 @@ class FakeLive:
     def on_bar(self, ts, o, h, l, c):
         self.bars.append((ts.isoformat(), o, h, l, c))
         return list(self.alerts_at.get(ts.isoformat(), []))
+
+
+def fill_store(path, minutes, *, kind="history", price=3400.0):
+    """Write one bar per minute (pd.Timestamp, UTC) into a datafeed store."""
+    from datafeed.store import schema
+    con = schema.connect(str(path))
+    con.execute("BEGIN")
+    for i, m in enumerate(minutes):
+        p = price + (i % 7) * 0.1
+        msg = bar_msg(m.strftime("%Y-%m-%dT%H:%M:%S"), p, p + 0.5, p - 0.5, p,
+                      history=(kind == "history"), source="replay" if kind == "replay" else "ibkr")
+        schema.insert_bar(con, msg)
+    con.execute("COMMIT")
+    con.close()
