@@ -49,14 +49,15 @@ agents/
   store/
     schema.py             numbered migrations, connect() ($AGENTS_DB, its own SQLite)
     writer.py             save_snapshot(), save_run()
-tests/agents/
+tests/agents_tests/       (not tests/agents/: see step 4)
   conftest.py             drops backend/ from sys.path (as tests/datafeed does); replay store fixture
-  fakes.py                FakeBull, FakeBear, raising/slow agents and debaters (tests only)
+  agents_testkit.py       synthetic replay data through the datafeed replay path
+  agents_fakes.py         FakeBull, FakeBear, raising/slow agents and debaters (tests only)
   test_*.py
 ```
 
-The fake debaters live in `tests/agents/fakes.py`, so the package itself
-contains no fake decision code.
+The fake debaters live in `tests/agents_tests/agents_fakes.py`, so the package
+itself contains no fake decision code.
 
 ### 0.2 Name collision: `backend/agents/`
 
@@ -64,7 +65,8 @@ contains no fake decision code.
 `backend/` at `sys.path[0]`. Under pytest, `import agents` could therefore load
 the old package. `tests/agents/conftest.py` removes `backend/` from the path,
 and a guard test asserts that `agents.__file__` is the repo-root package. The
-collision goes away once `backend/` moves, but the guard stays.
+collision goes away once `backend/` moves, but the guard stays. (Step 4 found a
+second collision, with the test directory itself; see there.)
 
 ### 0.3 Snapshot: what was knowable at t
 
@@ -490,3 +492,79 @@ details:
   `Recorder` → SQLite. That's Mon–Wed 2025-06-09..11, with the daily break and
   ~3 % missing minutes.
 - **Tests:** `test_snapshot.py`: 20 passed (43 in tests/agents).
+
+### Step 4: graph
+
+`agents/graph.py`, `agents/trigger.py`, `agents/voters/`, `agents/nodes/`,
+`agents/store/` (interface + `MemoryStore`), `AgentsConfig` / `GateConfig` in
+`agents/config.py`.
+
+- **Wiring** as in section 0.4. Node names are `trigger`, `snapshot`, `gate`,
+  `visual`, `technical`, `sentiment`, `aggregator`, (`debate`), `risk` and
+  `store`.
+  - LangGraph doesn't allow a node and a state key with the same name, so the
+    state keys are `event`, `snap` and `debate_result`, not trigger, snapshot
+    and debate.
+- **Fan-out and fan-in.**
+  - The gate routes either to `store` (no-go) or to the list of voter nodes,
+    which run in one superstep. A test makes three voters wait on one
+    `threading.Barrier(3)`; it passes, so they do run at the same time.
+  - `add_edge([voters], "aggregator")` waits for all of them.
+- **Blindness.**
+  - Each voter is called with exactly one argument, its own deep copy of the
+    Snapshot. A test checks the call signature. Another test shows that a voter
+    which mutates its copy doesn't change what the others see, or the stored
+    snapshot.
+  - Votes go into a reducer (`merge_disjoint`) that refuses duplicate keys.
+- **`safe_vote`.** Each of these becomes an abstain with the reason, and the
+  graph still finishes:
+  - an exception (`error: RuntimeError: boom`);
+  - a timeout (`timeout: no result after 0.2s`);
+  - None, a wrong type, a vote naming another agent, round ≠ 1;
+  - anything failing **strict** Vote validation. Strict mode means
+    `"0.9"`-as-string or `"LONG"` is refused, not coerced.
+- **Timeouts** run the agent in a daemon thread. Python can't kill a thread, so
+  a timed-out agent keeps running in the background, but its result is
+  discarded and it can't block exit. Default `node_timeout_s` is 120.
+- **Gate v0:** no-go if `_market_open(as_of)` is false (datafeed's copy of the
+  scanner rule), or if a timeframe has fewer than `min_bars` bars (default 1
+  each, a placeholder).
+- **Aggregator v0** (Q2 default): a direction wins with a strict majority of
+  **all** voters (abstains and "none" count against); confidence is ignored.
+  With the three stubs, the blind decision is `none`, with the reason
+  `long 0, short 0, none 0, abstain 3 of 3: no strict majority`.
+- **Risk:** a pass-through. Post-risk decisions go in `final_decisions`.
+- **Store node.**
+  - Writes a `RunRecord`: trigger, as_of, status done/skipped, skip_reason,
+    snapshot_hash, canonical config JSON + hash, code version.
+  - Also writes the votes (sorted by agent), the decisions (blind, debate) and
+    the DebateResult, through `AgentStore.save_run`.
+  - A stale run writes only its run row; there's no snapshot. A gated-out run
+    has its snapshot (saved before the gate) and no votes.
+- **Crash-only outside the voters.** A sealed t raises `SealedError` out of
+  `run_once`, as do store and snapshot errors.
+- **Trigger.** A `Trigger` protocol (`events()`) and `drive(trigger, graph)`.
+  No clock or event producer is implemented.
+- **Deviation: test directory renamed `tests/agents/` → `tests/agents_tests/`.**
+  - What happened: `tests/conftest.py` makes pytest put `tests/` on `sys.path`,
+    so `tests/agents/` (no `__init__.py`) was imported as a *namespace package*
+    `agents`. Its submodules still loaded through the editable-install finder,
+    so step 2 and 3 tests passed by luck. `from agents import __version__`
+    failed.
+  - Fix: the directory name no longer collides. Helper modules have unique
+    names (`agents_testkit`, `agents_fakes`), because all test directories
+    share one module namespace: `from conftest import …` was fragile too.
+  - `test_agents_package.py` asserts that `agents.__file__` is the repo-root
+    package.
+- **Boundary tests** (`test_agents_package.py`):
+  - `agents/` imports nothing from backend, legacy, services, ib_insync, redis,
+    psycopg2 or any LLM SDK;
+  - from datafeed, it imports only `datafeed.store.query` and
+    `datafeed.ingest.xauusd_bars` (`SEAL_START`, `_market_open`);
+  - after importing the graph, no LLM client module is loaded.
+- **Tests:** 77 passed in tests/agents_tests (graph 30, package 4, schemas 23,
+  snapshot 20).
+- **Not reproduced.** Once, a run printed its pytest summary (77 passed in
+  12 s), but the process took over 3 minutes to exit. Two reruns of the full
+  suite exited in ~12 s, and the cause wasn't found. If it comes back, the
+  first suspect is the daemon thread a timed-out voter leaves behind.

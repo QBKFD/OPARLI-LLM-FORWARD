@@ -1,24 +1,10 @@
-"""tests/agents runs under tests/, so pytest also loads tests/conftest.py,
-which puts backend/ first on sys.path for the old tests. backend/agents/ is a
-package too, so `import agents` could load the old code. Take backend/ off the
-path, as tests/datafeed does. test_agents_package.py checks which `agents`
-package was loaded.
+"""Synthetic replay data for the agents tests, recorded through the datafeed's
+own replay path."""
 
-There is no __init__.py in this directory on purpose: with one, pytest would
-import this directory itself as a package named `agents`. Test module names
-must therefore not clash with tests/datafeed (no test_package.py, test_store.py,
-test_end_to_end.py here)."""
+import random
+from datetime import datetime, timedelta, timezone
 
-import sys
-from pathlib import Path
-
-_BACKEND = str(Path(__file__).resolve().parents[2] / "backend")
-sys.path[:] = [p for p in sys.path if p != _BACKEND]
-
-import random  # noqa: E402
-from datetime import datetime, timedelta, timezone  # noqa: E402
-
-import pytest  # noqa: E402
+import pytest
 
 UTC = timezone.utc
 # Synthetic replay data: Mon 2025-06-09 00:00 .. Wed 2025-06-11 23:59 UTC. It
@@ -62,7 +48,3 @@ def make_replay_db(directory, rows=None):
     con.close()
     return path
 
-
-@pytest.fixture(scope="session")
-def replay_db(tmp_path_factory):
-    return make_replay_db(tmp_path_factory.mktemp("replay"))

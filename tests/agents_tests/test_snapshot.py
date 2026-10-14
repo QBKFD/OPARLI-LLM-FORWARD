@@ -13,7 +13,7 @@ from agents.config import SnapshotConfig
 from agents.resample import resample
 from agents.schemas import Bar, tf_delta
 from agents.snapshot import SealedError, Stale, build_snapshot, floor_minute, prepare_snapshot
-from conftest import make_replay_db
+from agents_testkit import make_replay_db
 
 UTC = timezone.utc
 CFG = SnapshotConfig(mode="replay")
