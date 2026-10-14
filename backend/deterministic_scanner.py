@@ -817,6 +817,22 @@ def _market_open(now) -> bool:
     return True
 
 
+def beat(path) -> None:
+    """Heartbeat: write the current UTC time to `path` (SCANNER_HEARTBEAT), via a
+    temp file and os.replace so a reader never sees a partial write. The compose
+    healthcheck and watchdog.sh treat a stale file as a hung main loop. No path:
+    no file (the default). A write error is logged, never raised."""
+    if not path:
+        return
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w") as f:
+            f.write(pd.Timestamp.now(tz="UTC").isoformat())
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"heartbeat write to {path} failed ({e!r})", flush=True)
+
+
 def _send_quietly(tg, text: str):
     """Confirmation messages are best-effort: the decision is already logged."""
     try:
@@ -907,8 +923,10 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 
     offset = 0
     last_sweep = 0.0
+    heartbeat = os.environ.get("SCANNER_HEARTBEAT")
     try:
         while True:
+            beat(heartbeat)
             # Crash-only: a dropped gateway (daily restart / weekly 2FA) surfaces
             # as not-connected. Back off, then exit so Docker restarts us into a
             # clean full reconnect. The backoff stops a fast restart-loop while the
@@ -1068,17 +1086,21 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
 
 def wait_for_store(notify, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
                    clock=lambda: pd.Timestamp.now(tz="UTC"), sleep=None,
-                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print):
+                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print,
+                   beat=None):
     """stream_warmup, retried every retry_s until the store is usable. Returns
     (hist, now, detail), where now is the moment of the successful read.
 
     One notify() message once the store has been unusable for `n` market-open
     minutes since the wait began (weekends and the daily break don't count),
-    and one more when it becomes usable after that message."""
+    and one more when it becomes usable after that message. beat() runs on
+    every pass (the heartbeat: waiting is alive, not hung)."""
     import time as _time
     sleep = sleep or _time.sleep
     began, warned = _utc(clock()), False
     while True:
+        if beat:
+            beat()
         now = _utc(clock())
         try:
             hist, detail = stream_warmup(now, db=db, symbol=symbol, kinds=kinds)
@@ -1371,7 +1393,9 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
             _send_quietly(tg, text)
 
     down_from = last_live_bar(con)            # before this process records any progress
-    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol)
+    heartbeat = env.get("SCANNER_HEARTBEAT")
+    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol,
+                                       beat=lambda: beat(heartbeat))
     print(f"warm-up via {detail}", flush=True)
     live = LiveLevels(hist, now)
     warm_end = hist.index.max() if len(hist) else None
@@ -1403,6 +1427,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     last_sweep = 0.0
     try:
         while True:
+            beat(heartbeat)
             if fatal:
                 print(f"stream feed failed ({fatal[0]!r}); backing off then exiting for restart",
                       flush=True)
