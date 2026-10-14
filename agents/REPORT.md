@@ -10,6 +10,12 @@ did not recur.**
 into one of my commits and I took it out again (section 0.3). It's still
 staged, untouched.
 
+**Research extra (later on 2026-10-14):** `[research]` is pinned to the old
+backend venv and included in the lock. The full root `pytest` gives **393
+passed, 7 skipped**, with research at **80 passed**, the baseline count in
+every suite (DESIGN.md, "Research extra"). The staged datafeed sync from 0.3
+has since been merged into this branch (9567a2a, not by me).
+
 Details of every decision: `agents/DESIGN.md`. Usage: `agents/README.md`.
 Sections 1–6 below are the overnight report, kept as written. Answers to its
 open questions are marked in section 5.

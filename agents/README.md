@@ -28,7 +28,7 @@ trigger → snapshot ─(stale)────────────────�
 
 All dependencies are pinned, with hashes, in `requirements.lock` at the repo
 root:
-- every extra (feed, replay, dev, agents);
+- every extra (feed, replay, dev, agents, research);
 - every transitive dependency;
 - the build backend.
 
@@ -37,7 +37,14 @@ python3.13 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.lock
 .venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest tests/agents_tests tests/datafeed
+.venv/bin/pytest                     # everything: research + datafeed + agents
 ```
+
+A bare `pytest` also runs the research suites (80 tests). They need the
+untracked data from the main checkout, symlinked file by file into ignored
+directories:
+- `database/ohlcv_data/*`;
+- `research/vol_features_r2/cache/xauusd_txt_pre2024_filetime.parquet`.
 
 The direct pins live in `pyproject.toml`: `langgraph==1.2.12`,
 `pydantic==2.13.5`, `pytest-timeout==2.4.0`, etc. There's no LLM SDK. To

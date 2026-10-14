@@ -956,3 +956,55 @@ Owner: pin all dependencies with a lock file.
   dependency differs by platform marker today, and that hasn't been run on
   3.12. `deploy/datafeed/Dockerfile` still installs from `pyproject.toml`;
   `deploy/` is out of scope.
+
+### Research extra
+
+Owner: add a `[research]` extra with the research dependencies, pinned to the
+old backend venv; include them in the lock; run the full root pytest, which
+must show research 80 passed with the baseline per-suite counts.
+
+- **What research imports.** From an AST scan of the tracked `research/**/*.py`
+  files: the third-party imports are numpy, pandas, scipy, matplotlib, numba
+  and pytest. The rest are research's own modules. pyarrow is also needed,
+  because pandas uses it for the `read_parquet` / `to_parquet` calls in
+  levels, levels_confirm, vol_features and vol_features_r2/r3.
+- **Pins** (from `algo_project/backend/venv`, Python 3.13.1, read with
+  `pip freeze`; not modified): `numpy==2.2.6`, `pandas==2.3.3`,
+  `pyarrow==25.0.0`, `scipy==1.17.1`, `matplotlib==3.10.8`, `numba==0.61.2`,
+  `pytest==9.1.1`.
+  - numpy, pandas, pyarrow and pytest were already pinned to these versions
+    in `replay` / `dev`.
+  - All are on PyPI, not yanked, at least 7 months old, and have cp313 macOS
+    and cp312 manylinux wheels.
+- **Lock.** Re-locked with the same command: 66 packages (+10), and no
+  existing pin moved.
+  - New: scipy, matplotlib, numba, llvmlite 0.44.0 (= backend venv; numba
+    0.61.2 requires 0.44.x), contourpy 1.4.0, cycler 0.12.1, fonttools 4.66.1,
+    kiwisolver 1.5.1, pillow 12.3.0, pyparsing 3.3.3.
+  - All are at least two weeks old (no new cap needed), and none is yanked.
+- **Differences from the backend venv.** Every package research imports is at
+  the backend venv's version. These indirect dependencies resolved to newer
+  versions:
+  - matplotlib's plotting libraries: contourpy 1.4.0 vs 1.3.3, fonttools
+    4.66.1 vs 4.61.1, kiwisolver 1.5.1 vs 1.4.9, pillow 12.3.0 vs 12.1.0,
+    pyparsing 3.3.3 vs 3.3.1;
+  - packages shared with agents/datafeed: packaging 26.3 vs 25.0, pytz 2026.4
+    vs 2025.2, and others.
+
+  Research imports none of these directly. The numerical stack (numpy,
+  pandas, scipy, numba, llvmlite) is identical.
+- **Data.** Research tests read untracked data. As in the baseline worktree,
+  it's symlinked from the main checkout: file by file into
+  `database/ohlcv_data/` and `research/vol_features_r2/cache/`. Both are
+  gitignored, and `git status` stays clean.
+- **`.venv`** was installed from the lock; `pip freeze` equals the lock (66
+  packages) and `pip check` is clean.
+- **Full root `pytest`: 393 passed, 7 skipped,** in 71 s; the process exited
+  ~1 s later.
+  - research: **80 passed** = levels 11, levels_confirm 8, levels_diag 4,
+    regime_v2 9, trend_features 7, vol_block 5, vol_features 14,
+    vol_features_r2 9, vol_features_r3 11, test_sealing 2. Identical to the
+    baseline per suite, with 0 skipped and 0 failed.
+  - datafeed: 84 passed, 7 skipped (the merged `feat/datafeed-v1` @
+    5f285d3).
+  - agents: 229 passed.

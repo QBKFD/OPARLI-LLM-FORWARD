@@ -24,6 +24,12 @@ dev = ["pytest==9.1.1", "pytest-timeout==2.4.0"]
 # The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
 # least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
 agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
+# Everything research/ imports (numpy, pandas, scipy, matplotlib, numba, pytest),
+# plus pyarrow for pandas' parquet I/O. Pinned to the old backend venv
+# (algo_project/backend/venv, Python 3.13.1), where the research baseline of
+# 80 passed was run.
+research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1", "matplotlib==3.10.8",
+            "numba==0.61.2", "pytest==9.1.1"]
 
 [tool.setuptools.packages.find]
 where = ["."]
