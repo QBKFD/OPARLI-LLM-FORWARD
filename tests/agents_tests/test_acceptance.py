@@ -231,12 +231,12 @@ def test_real_parquet_day_through_the_graph(tmp_path):
     outs = [run_once(g, ev(t0 + timedelta(minutes=30 * i), str(i))) for i in range(48)]
     done = [o for o in outs if o["status"] == "done"]
     skipped = [o for o in outs if o["status"] == "skipped"]
-    # Only the daily break (21:00-22:00 UTC in June) is skipped. 22:00 too: the
-    # market has just reopened, but the newest bar is still 20:59, so it's stale.
-    assert [o["as_of"].strftime("%H:%M") for o in skipped] == ["21:00", "21:30", "22:00"]
-    assert skipped[0]["skip_reason"].startswith("gate: market closed")
-    assert all(o["skip_reason"].startswith("stale:") for o in skipped[1:])
-    assert len(done) == 45
+    # Only the daily break (21:00-22:00 UTC in June) is skipped, by the gate.
+    # The 22:00 reopen runs: staleness counts market-open minutes only.
+    assert [o["as_of"].strftime("%H:%M") for o in skipped] == ["21:00", "21:30"]
+    assert all(o["skip_reason"].startswith("gate: market closed") for o in skipped)
+    assert len(done) == 46
+    assert any(o["as_of"].strftime("%H:%M") == "22:00" for o in done)
     for o in done:
         snap = store.load_snapshot(o["snap"].hash)
         assert all(b.ts < o["event"].t for s in snap.bars.values() for b in s)

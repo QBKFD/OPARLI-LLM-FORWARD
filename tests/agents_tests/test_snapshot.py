@@ -116,16 +116,55 @@ def test_same_inputs_give_the_same_hash(replay_db, tmp_path):
 
 # ---- stale / no data / sources
 
-def test_stale_in_daily_break(replay_db):
-    out = build_snapshot(_t("2025-06-10 21:30:00"), CFG, replay_db)          # break 21:00-22:00 UTC in June
-    assert isinstance(out, Stale) and out.newest_bar_ts == _t("2025-06-10 20:59")
-    assert out.reason.startswith("stale: newest 1m bar 2025-06-10T20:59:00+00:00")
+def _newest_before(db, t):
+    return datetime.fromisoformat(bars_before("XAUUSD", t, 1, db=db, kinds=("replay",))[0]["bar_ts"])
+
+
+def test_stale_when_the_feed_stops_in_an_open_market(replay_db):
+    # synthetic data ends Wed 2025-06-11; Thursday 10:00 UTC the market is open
+    out = build_snapshot(_t("2025-06-12 10:00:20"), CFG, replay_db)
+    newest = _newest_before(replay_db, _t("2025-06-12 10:00"))
+    assert isinstance(out, Stale) and out.newest_bar_ts == newest
+    assert out.reason.startswith(f"stale: newest 1m bar {newest.isoformat()} is ")
+    assert "behind the last market-open minute 2025-06-12T09:59:00+00:00" in out.reason
 
 
 def test_staleness_threshold_is_inclusive(replay_db):
-    # newest bar 20:59 completes at 21:00; at 21:05 it is exactly 5 min old -> still fresh
-    assert not isinstance(build_snapshot(_t("2025-06-10 21:05"), CFG, replay_db), Stale)
-    assert isinstance(build_snapshot(_t("2025-06-10 21:06"), CFG, replay_db), Stale)
+    # after the data ends (market open): 5 min behind the last open minute is fresh, 6 is stale
+    newest = _newest_before(replay_db, _t("2025-06-12 06:00"))
+    assert not isinstance(build_snapshot(newest + timedelta(minutes=6), CFG, replay_db), Stale)
+    assert isinstance(build_snapshot(newest + timedelta(minutes=7), CFG, replay_db), Stale)
+
+
+@pytest.mark.parametrize("t", ["2025-06-10 21:00:10", "2025-06-10 21:30:00", "2025-06-10 21:59:59",
+                               "2025-06-10 22:00:00", "2025-06-10 22:00:40"])
+def test_daily_break_and_reopen_are_not_stale(replay_db, t):
+    # owner decision: closed minutes don't count. In the break, and at the 22:00 UTC
+    # reopen, the newest bar is the last one before the close, and that's fresh.
+    out = build_snapshot(_t(t), CFG, replay_db)
+    assert not isinstance(out, Stale), out
+    assert out.newest_bar_ts == _newest_before(replay_db, _t("2025-06-10 21:00"))
+
+
+def test_reopen_needs_the_new_bars_after_a_few_minutes(replay_db):
+    # 22:07: the last open minute is 22:06. If the feed hadn't resumed it would be stale;
+    # the synthetic feed did resume.
+    out = build_snapshot(_t("2025-06-10 22:07"), CFG, replay_db)
+    assert not isinstance(out, Stale) and out.newest_bar_ts >= _t("2025-06-10 22:01")
+
+
+@pytest.mark.parametrize("as_of, want", [
+    ("2025-06-11 14:30", "2025-06-11 14:29"),     # open: one minute back
+    ("2025-06-10 21:30", "2025-06-10 20:59"),     # daily break (summer 21:00-22:00 UTC)
+    ("2025-06-10 22:00", "2025-06-10 20:59"),     # the reopen minute itself
+    ("2025-06-10 22:01", "2025-06-10 22:00"),
+    ("2025-01-15 22:30", "2025-01-15 21:59"),     # winter break 22:00-23:00 UTC
+    ("2025-06-14 12:00", "2025-06-13 20:59"),     # Saturday -> Friday's close
+    ("2025-06-15 22:00", "2025-06-13 20:59"),     # Sunday reopen (18:00 EDT) -> Friday's close
+    ("2025-06-15 22:05", "2025-06-15 22:04"),
+])
+def test_last_open_minute(as_of, want):
+    assert snapmod.last_open_minute(_t(as_of)) == _t(want)
 
 
 def test_no_bars_is_stale(replay_db):
@@ -165,6 +204,28 @@ def test_prepare_saves_fresh_snapshots_only(replay_db, caplog):
     snap = prepare_snapshot(T, CFG, replay_db, Sink())
     assert saved == [snap]
     with caplog.at_level(logging.WARNING, logger="agents.snapshot"):
-        out = prepare_snapshot(_t("2025-06-10 21:30"), CFG, replay_db, Sink())
+        out = prepare_snapshot(_t("2025-06-12 10:00"), CFG, replay_db, Sink())
     assert isinstance(out, Stale) and saved == [snap]
     assert "run skipped" in caplog.text and "stale" in caplog.text
+
+
+def test_weekend_reopen_is_not_stale(tmp_path):
+    from agents_testkit import synthetic_rows
+    from agents.config import AgentsConfig
+    from agents.graph import build_graph, run_once
+    from agents.schemas import TriggerEvent
+    from agents.store import MemoryStore
+    db = make_replay_db(tmp_path, synthetic_rows(_t("2025-06-13 12:00"), _t("2025-06-16 01:00"), seed=3))
+    friday_close = _newest_before(db, _t("2025-06-14 00:00"))
+    assert friday_close <= _t("2025-06-13 20:59")
+    # Sunday 18:00 EDT = 22:00 UTC: the first trigger of the week runs on Friday's last bar
+    out = build_snapshot(_t("2025-06-15 22:00:05"), CFG, db)
+    assert not isinstance(out, Stale) and out.newest_bar_ts == friday_close
+    cfg = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}})
+    state = run_once(build_graph(cfg, MemoryStore(), db),
+                     TriggerEvent(source="t", t=_t("2025-06-15 22:00:05"), trigger_id="sun"))
+    assert state["status"] == "done"
+    # and on Saturday the snapshot is fresh too; the gate stops the run
+    sat = run_once(build_graph(cfg, MemoryStore(), db), TriggerEvent(source="t", t=_t("2025-06-14 12:00"),
+                                                                      trigger_id="sat"))
+    assert sat["skip_reason"] == "gate: market closed at as_of 2025-06-14T12:00:00+00:00"

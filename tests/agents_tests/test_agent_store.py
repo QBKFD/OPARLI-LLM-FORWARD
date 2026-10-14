@@ -104,7 +104,7 @@ def test_graph_run_round_trips(store, replay_db):
 
 
 def test_stale_run_has_a_row_and_nothing_else(store, replay_db):
-    out = run_once(build_graph(CFG, store, replay_db), ev(datetime(2025, 6, 10, 21, 30, tzinfo=UTC)), run_id="s")
+    out = run_once(build_graph(CFG, store, replay_db), ev(datetime(2025, 6, 12, 10, 0, tzinfo=UTC)), run_id="s")
     row = store.con.execute("SELECT status, skip_reason, snapshot_hash FROM runs WHERE run_id = 's'").fetchone()
     assert tuple(row) == ("skipped", out["skip_reason"], None)
     for t in ("snapshots", "votes", "decisions", "debate_turns"):

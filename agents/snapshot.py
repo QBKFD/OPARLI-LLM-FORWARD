@@ -23,9 +23,16 @@ Access rules (check_access), checked before any bar is read:
   arbitrary t.
 - Any experiment_id given, in either mode, must have its PREREG.
 
-Stale. If the newest 1m bar completed more than max_staleness before as_of (or
-there's no bar at all), the result is Stale(reason) and nothing is saved. The
-caller skips the run and logs why.
+Stale (owner decision 2026-10-14). Staleness is measured against the last
+market-open minute before as_of, not against the clock. The age is
+last_open_minute(as_of) - newest 1m bar_ts, and the run is stale if
+age > max_staleness. While the market is open, last_open_minute is as_of - 1
+min, so nothing changes there. Across a daily break or a weekend, the minutes
+the market was closed don't count: the trigger at the reopen (newest bar =
+the last minute before the close) is fresh. "Open" is datafeed's _market_open
+(the scanner's rule; holidays aren't modelled). No bars at all is also stale.
+A stale result is Stale(reason): nothing is saved, and the caller skips the run
+and logs why.
 """
 
 from __future__ import annotations
@@ -35,7 +42,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 
-from datafeed.ingest.xauusd_bars import SEAL_START
+from datafeed.ingest.xauusd_bars import SEAL_START, _market_open
 from datafeed.store.query import bars_before
 
 from agents.config import SnapshotConfig
@@ -47,6 +54,7 @@ log = logging.getLogger(__name__)
 
 ONE_MIN = timedelta(minutes=1)
 LIVE_MAX_SKEW = timedelta(seconds=120)
+CLOSED_SEARCH_LIMIT = timedelta(days=9)     # the longest closure is a weekend (+ holidays, unmodelled)
 
 
 class SealedError(RuntimeError):
@@ -86,6 +94,20 @@ def source_for(mode: str, t: datetime) -> tuple[tuple[str, ...], datetime | None
     raise ValueError(f"unknown mode {mode!r}")
 
 
+def last_open_minute(as_of: datetime) -> datetime:
+    """The latest minute m < as_of in which the market was open.
+
+    _market_open closes whole NY hours (the daily 17:00 break, the weekend). NY
+    offsets are whole hours, so a closed minute means its whole UTC hour is
+    closed, and the search steps back an hour at a time."""
+    m = as_of - ONE_MIN
+    while not _market_open(m):
+        m = m.replace(minute=0, second=0, microsecond=0) - ONE_MIN
+        if as_of - m > CLOSED_SEARCH_LIMIT:
+            raise RuntimeError(f"no market-open minute in the {CLOSED_SEARCH_LIMIT} before {as_of.isoformat()}")
+    return m
+
+
 def check_access(t: datetime, cfg: SnapshotConfig, now=_utcnow) -> None:
     """Seal and live-mode rules. Raises; never skips."""
     as_of = floor_minute(t)
@@ -117,10 +139,11 @@ def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow) -> Snapsho
                                   f"[{start.isoformat()}, {as_of.isoformat()})")
     bars = [bar_from_row(r) for r in rows]
     newest = bars[-1].ts
-    age = as_of - (newest + ONE_MIN)
+    last_open = last_open_minute(as_of)
+    age = last_open - newest
     if age > cfg.max_staleness:
-        return Stale(as_of, newest, f"stale: newest 1m bar {newest.isoformat()} completed {age} before "
-                                    f"as_of {as_of.isoformat()} (max {cfg.max_staleness})")
+        return Stale(as_of, newest, f"stale: newest 1m bar {newest.isoformat()} is {age} behind the last "
+                                    f"market-open minute {last_open.isoformat()} (max {cfg.max_staleness})")
     series = {tf: resample(bars, tf, as_of)[-cfg.keep[tf]:] for tf in TIMEFRAMES if tf in cfg.keep}
     return Snapshot(symbol=cfg.symbol, as_of=as_of, kinds=kinds, known_by=known_by, bars=series,
                     newest_bar_ts=newest, experiment_id=cfg.experiment_id)

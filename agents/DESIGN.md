@@ -850,3 +850,42 @@ Owner: change it. 4h candles are anchored to the NY 17:00 trading-day open
   - Four earlier tests had UTC 4h opens (12:00 UTC); they now expect the NY
     anchors (13:00 UTC = 09:00 EDT).
 - **Result:** tests/agents_tests 208 passed.
+
+### Staleness against the last market-open minute
+
+Owner: measure staleness against the last market-open minute, not the wall
+clock. The reopen trigger must not be skipped.
+
+- **Rule.** `age = last_open_minute(as_of) − newest 1m bar_ts`, stale if
+  `age > max_staleness` (5 min).
+  - `last_open_minute` is the latest minute before `as_of` in which datafeed's
+    `_market_open` is true. It steps back an hour at a time, because the closed
+    spans are whole NY hours, and so whole UTC hours. The search is limited to
+    9 days.
+  - While the market is open this is `as_of − 1 min`, the same as before.
+- **What changes.**
+  - In the daily break and over the weekend, the newest bar (the one before the
+    close) is fresh. The gate now gives the skip reason (`market closed`)
+    instead of "stale".
+  - At the 22:00 UTC (summer) reopen, and at the Sunday 18:00 NY open, the run
+    goes through on the last bar before the close.
+  - A few minutes after the reopen, the new bars are needed again: the last
+    open minute moves forward.
+  - Holidays aren't modelled (as in `_market_open`). On a holiday the feed is
+    silent while the market counts as open, so runs are skipped as stale after
+    5 min, which is the safe side.
+- **Tests:**
+  - `last_open_minute` cases: open, summer and winter break, the reopen minute,
+    Saturday, the Sunday reopen;
+  - the break and the reopen are not stale;
+  - the feed stopping while the market is open is stale, with the 5-minute
+    limit inclusive;
+  - graph: the reopen trigger is `done`, and a break trigger is skipped by the
+    gate;
+  - weekend store: the Sunday 22:00 UTC trigger is `done` on Friday's last bar;
+    Saturday is skipped by the gate.
+  - Earlier tests that used the break as their "stale" example now use the
+    feed ending on a weekday.
+  - Real parquet day: the 22:00 reopen now runs, so 46 done and 2 skipped
+    (21:00 and 21:30, both by the gate).
+- **Result:** tests/agents_tests 225 passed.

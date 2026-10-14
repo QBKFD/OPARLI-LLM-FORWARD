@@ -151,7 +151,7 @@ def test_stale_run_is_skipped_with_reason_and_nothing_else(replay_db):
     store = MemoryStore()
     rec = RecordingVoter("visual")
     out = run_once(build_graph(CFG, store, replay_db, voters=three(visual=rec)),
-                   ev(datetime(2025, 6, 10, 21, 30, tzinfo=UTC)), run_id="s")
+                   ev(datetime(2025, 6, 12, 10, 0, tzinfo=UTC)), run_id="s")      # feed ended, market open
     assert out["status"] == "skipped" and out["skip_reason"].startswith("stale: newest 1m bar")
     assert rec.calls == [] and store.snapshots == {}
     r = store.runs["s"]
@@ -167,6 +167,19 @@ def test_gate_market_closed(replay_db):
     assert out["skip_reason"] == "gate: market closed at as_of 2025-06-10T21:03:00+00:00"
     r = store.runs["g"]["run"]
     assert r.snapshot_hash in store.snapshots and store.runs["g"]["votes"] == ()
+
+
+def test_the_reopen_trigger_is_not_skipped(replay_db):
+    # 22:00 UTC in June: the market reopens; the newest bar (20:59) is the last open minute
+    store = MemoryStore()
+    out = run_once(build_graph(CFG, store, replay_db), ev(datetime(2025, 6, 10, 22, 0, 15, tzinfo=UTC)), run_id="o")
+    assert out["status"] == "done" and store.runs["o"]["run"].status == "done"
+    assert out["snap"].newest_bar_ts < datetime(2025, 6, 10, 21, 0, tzinfo=UTC)
+
+
+def test_in_the_break_the_gate_says_why(replay_db):
+    out = run_once(build_graph(CFG, MemoryStore(), replay_db), ev(datetime(2025, 6, 10, 21, 30, tzinfo=UTC)))
+    assert out["skip_reason"] == "gate: market closed at as_of 2025-06-10T21:30:00+00:00"
 
 
 def test_gate_min_bars(replay_db):

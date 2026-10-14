@@ -31,7 +31,8 @@ class SnapshotConfig(_Cfg):
     fetch_lookback: timedelta = timedelta(days=30)
     # bars kept per timeframe (the most recent ones)
     keep: dict[str, int] = Field(default_factory=lambda: {"1m": 240, "15m": 192, "1h": 120, "4h": 120})
-    # newest 1m bar must have completed at most this long before as_of
+    # newest 1m bar may be at most this far behind the last market-open minute
+    # before as_of (closed minutes don't count)
     max_staleness: timedelta = timedelta(minutes=5)
     # agents/experiments/<experiment_id>/PREREG.md. Required in live mode;
     # optional in replay. Stored on every snapshot and decision.

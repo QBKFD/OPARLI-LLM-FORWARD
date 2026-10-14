@@ -72,9 +72,10 @@ from `agents.debate.judges.JUDGES`; only `code_v0`, a placeholder, exists.
   - Live: kinds live/history, `known_by = t`. Replay: kind replay only.
 - **Seal.** `as_of` after 2026-10-01 00:00 UTC raises `SealedError`. There's
   no override.
-- **Stale.** If the newest 1m bar completed more than `max_staleness` (5 min)
-  before `as_of`, the run is skipped. It gets a `runs` row with the reason, and
-  nothing else is written.
+- **Stale.** If the newest 1m bar is more than `max_staleness` (5 min) behind
+  the last market-open minute before `as_of`, the run is skipped. Closed
+  minutes (the daily break, the weekend) don't count, so a reopen trigger runs.
+  A skipped run gets a `runs` row with the reason, and nothing else is written.
 - **Snapshot first.** The snapshot is hashed (sha256 of canonical JSON) and
   saved before any agent runs. Loading it re-checks the hash.
 - **Blind round 1.** Each voter gets its own copy of the Snapshot and nothing
