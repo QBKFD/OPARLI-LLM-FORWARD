@@ -149,18 +149,14 @@ pins this. So:
 
 ## 5. Open decisions (owner)
 
-- **a. Parity on 2025-07-04 (test left red).**
-  - `--date` replay and stream mode differ on that day. Stream mode is
-    identical to a continuous replay on all 8 days.
-  - The cause: `replay_day` starts each day with a fresh `Scanner`. July 3's
-    `ASIA_L` 3341.648 and `LONDON_L` 3342.865 were touched on July 3 (12:30,
-    12:08), so they are dead under first-touch-only. `--date` alerts them again
-    on July 4 at 04:16 and 04:23.
-  - Options:
-    - (i) Hold stream mode to continuous replay, the same criterion as
-      selftest case 10, and drop the `--date` comparison or mark it.
-    - (ii) Change `replay_day` to carry state from the previous days. This
-      changes `--date` output.
+- **a. Parity reference: decided 2026-10-14.**
+  - The reference is the continuous replay, the same one selftest case 10
+    uses. Stream mode equals it exactly on all 8 days, on both buses.
+  - `--date` replay starts each day with a fresh `Scanner`. On 2025-07-04 it
+    alerts July 3's `ASIA_L` 3341.648 and `LONDON_L` 3342.865 again at 04:16
+    and 04:23. Both were touched on July 3 (12:30, 12:08).
+  - `test_date_replay_difference_2025_07_04` asserts exactly that
+    difference, and its cause.
 - **b. ibkr-path start-up bug (left in place).**
   - `LiveLevels` started between 00:00 UTC and the day's first bar doesn't
     rebuild on that bar. The day's DOPEN, WOPEN, PDH, PDL, PWH and PWL are

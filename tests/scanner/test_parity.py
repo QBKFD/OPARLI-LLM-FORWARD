@@ -1,11 +1,18 @@
-"""Step 6: parity. The same days two ways must give identical alerts:
+"""Step 6: parity of the stream-mode path.
 
-  (a) the scanner's existing --date replay from parquet (replay_day), and
-  (b) datafeed ReplaySource -> bus -> recorder -> store (warm-up) and
-      ReplaySource -> bus -> StreamFeed -> LiveLevels (the stream mode path).
+  stream    datafeed ReplaySource -> bus -> recorder -> store (warm-up), then
+            ReplaySource -> bus -> StreamFeed -> LiveLevels (the stream mode path)
+  reference one continuous replay (one Scanner over every bar from the stream
+            run's warm-up start), the same reference selftest case 10 holds
+            the live path to (owner decision 2026-10-14)
 
-Compared per alert: time (alert_ts_utc), level (level_price), type
-(level_types), price (price_at_alert). Exact equality; any difference fails.
+The two must be identical, alert for alert (ids, sessions and confluence
+included), on every day below and on both buses.
+
+The scanner's --date replay (replay_day) is not the reference. It starts each
+day with a fresh Scanner, so a carried session level touched the day before
+alerts again. Of the days below that happens on 2025-07-04 only, and
+test_date_replay_difference_2025_07_04 asserts exactly that difference.
 
 The days were fixed before the first run, by rule:
   2025-03-09  Sun, US DST starts (reopen 22:00 UTC instead of 23:00)
@@ -116,23 +123,6 @@ def _diff(a, b):
             "only in stream mode": [x for x in b if x not in a]}
 
 
-@pytest.mark.parametrize("kind", ["memory", pytest.param("redis", marks=pytest.mark.redis)])
-@pytest.mark.parametrize("day", DAYS)
-def test_stream_mode_matches_date_replay(day, kind, tmp_path_factory):
-    """THE parity requirement: (a) == (b), exactly. Known result (reported, not
-    loosened): 2025-07-04 differs. replay_day starts each day with a fresh
-    Scanner, so July 3's ASIA_L and LONDON_L, touched on July 3 at 12:30 and
-    12:08 and dead under first-touch-only, alert again on July 4 at 04:16 and
-    04:23. Stream mode carries the state over, like the deployed live scanner
-    and a continuous replay (test_stream_mode_matches_continuous_replay)."""
-    want = _key(ds.replay_day(day).to_dict("records"))
-    got, feed, path = _run(day, kind, tmp_path_factory)
-    assert path == "store"
-    assert feed.stats["live_bars"] > 0 and feed.stats["out_of_order"] == 0
-    assert feed.stats["conflict"] == 0 and feed.stats["invalid_bars"] == 0
-    assert _key(got) == want, _diff(want, _key(got))
-
-
 def _continuous(day):
     """One Scanner over every bar from the stream run's warm-up start through the
     flush bar: the reference the live path is held to (selftest case 10)."""
@@ -144,17 +134,39 @@ def _continuous(day):
     sc, out = ds.Scanner(ds.build_levels(win)), []
     for r in win.itertuples(name=None):
         out += sc.on_bar(*r)
-    return [a for a in out if a["alert_ts_utc"][:10] == day]
+    return out
 
 
+@pytest.mark.parametrize("kind", ["memory", pytest.param("redis", marks=pytest.mark.redis)])
 @pytest.mark.parametrize("day", DAYS)
-def test_stream_mode_matches_continuous_replay(day, tmp_path_factory):
-    """Stream mode equals one continuous replay over the same bars, alert for
-    alert and including ids, sessions and confluence: the evidence that the
-    2025-07-04 difference above comes from replay_day's fresh start each day."""
-    want = _continuous(day)
-    got, _, _ = _run(day, "memory", tmp_path_factory)
+def test_stream_mode_matches_continuous_replay(day, kind, tmp_path_factory):
+    """THE parity requirement: stream mode == continuous replay, exactly."""
+    want = [a for a in _continuous(day) if a["alert_ts_utc"][:10] == day]
+    got, feed, path = _run(day, kind, tmp_path_factory)
+    assert path == "store"
+    assert feed.stats["live_bars"] > 0 and feed.stats["out_of_order"] == 0
+    assert feed.stats["conflict"] == 0 and feed.stats["invalid_bars"] == 0
     assert got == want, _diff(_key(want), _key(got))
+
+
+def test_date_replay_difference_2025_07_04(tmp_path_factory):
+    """The documented --date difference, asserted exactly. replay_day starts
+    2025-07-04 with a fresh Scanner, so July 3's ASIA_L and LONDON_L, already
+    touched on July 3 (12:30, 12:08) and dead under first-touch-only, alert
+    again at 04:16 and 04:23. Stream mode (and the continuous reference)
+    carries that state over. Anything else in the diff fails the test."""
+    day = "2025-07-04"
+    date = _key(ds.replay_day(day).to_dict("records"))
+    got, _, _ = _run(day, "memory", tmp_path_factory)
+    assert _diff(date, _key(got)) == {
+        "only in --date replay": [("2025-07-04 04:16:00", 3341.648, "ASIA_L", 3340.715),
+                                  ("2025-07-04 04:23:00", 3342.865, "LONDON_L", 3341.498)],
+        "only in stream mode": []}
+    # the cause: both levels were touched on July 3 in the continuous run
+    prev = {(a["level_types"], a["level_price"]): a["alert_ts_utc"]
+            for a in _continuous(day) if a["alert_ts_utc"][:10] == "2025-07-03"}
+    assert prev[("ASIA_L", 3341.648)] == "2025-07-03 12:30:00"
+    assert prev[("LONDON_L", 3342.865)] == "2025-07-03 12:08:00"
 
 
 def test_gap_day_logs_the_gap(tmp_path_factory):
