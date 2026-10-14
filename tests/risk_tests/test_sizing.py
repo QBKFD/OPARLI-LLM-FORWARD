@@ -81,3 +81,44 @@ def test_arguments_are_keyword_only_and_required():
     del partial["size_increment"]
     with pytest.raises(TypeError):
         position_size(**partial)
+
+
+# ---------------------------------------------------------------- edge cases
+
+@pytest.mark.parametrize("field", ["equity", "risk_pct", "entry", "stop",
+                                   "usd_per_unit_move", "size_increment"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), True, "1", None])
+def test_non_finite_or_non_numeric_inputs_raise(field, value):
+    with pytest.raises(ValueError, match=field):
+        size(**{field: value})
+
+
+def test_numpy_inputs_accepted():
+    np = pytest.importorskip("numpy")
+    got = size(equity=np.float64(100_000.0), entry=np.float32(2000.0), stop=np.int64(1990))
+    assert got == 50.0 and type(got) is float
+
+
+def test_largest_multiple_within_budget():
+    # property: size·distance·usd <= budget < (size + inc)·distance·usd, exactly in Decimal
+    from decimal import Decimal
+    import random
+    rng = random.Random(20261014)
+    D = lambda x: Decimal(repr(x))          # noqa: E731
+    for _ in range(2000):
+        entry = round(rng.uniform(1500, 3000), 2)
+        stop = round(entry + rng.choice([-1, 1]) * rng.uniform(0.05, 60), 2)
+        if stop == entry:
+            continue
+        kw = dict(equity=round(rng.uniform(1_000, 1_000_000), 2), risk_pct=rng.choice([0.1, 0.25, 0.5, 1, 2]),
+                  entry=entry, stop=stop, usd_per_unit_move=rng.choice([1.0, 10.0, 100.0]),
+                  size_increment=rng.choice([1.0, 0.1, 0.01, 0.5]))
+        s = position_size(**kw)
+        budget = D(kw["equity"]) * D(kw["risk_pct"]) / 100
+        per_unit = abs(D(entry) - D(stop)) * D(kw["usd_per_unit_move"])
+        assert D(s) * per_unit <= budget < (D(s) + D(kw["size_increment"])) * per_unit, kw
+        assert D(s) % D(kw["size_increment"]) == 0, kw
+
+
+def test_tiny_increment():
+    assert size(stop=1993.0, size_increment=1e-8) == 71.42857142

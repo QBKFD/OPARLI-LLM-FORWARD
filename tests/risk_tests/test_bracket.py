@@ -39,3 +39,46 @@ def test_non_positive_inputs_raise(field, value):
 def test_arguments_are_keyword_only():
     with pytest.raises(TypeError):
         bracket(2000.0, "long", 5.0, 1.0)
+
+
+# ---------------------------------------------------------------- edge cases
+
+@pytest.mark.parametrize("field", ["entry", "sigma", "k"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), True, "1.0", None])
+def test_non_finite_or_non_numeric_inputs_raise(field, value):
+    args = dict(entry=2000.0, direction="long", sigma=5.0, k=1.0) | {field: value}
+    with pytest.raises(ValueError, match=field):
+        bracket(**args)
+
+
+def test_numpy_and_int_inputs_accepted():
+    np = pytest.importorskip("numpy")
+    b = bracket(entry=np.float64(2000.0), direction="long", sigma=np.float32(5.0), k=2)
+    assert (b.stop, b.target) == (1990.0, 2020.0)
+    assert all(type(x) is float for x in (b.entry, b.stop, b.target, b.k, b.sigma))
+
+
+def test_long_stop_at_or_below_zero_raises():
+    with pytest.raises(ValueError, match="non-positive"):
+        bracket(entry=10.0, direction="long", sigma=5.0, k=2.0)          # stop 0
+
+
+def test_short_target_at_or_below_zero_raises():
+    with pytest.raises(ValueError, match="non-positive"):
+        bracket(entry=10.0, direction="short", sigma=5.0, k=1.0)         # target 0
+
+
+def test_distance_too_small_to_move_the_price_raises():
+    with pytest.raises(ValueError, match="no usable stop"):
+        bracket(entry=2000.0, direction="long", sigma=1e-300, k=1e-20)   # stop == entry
+
+
+def test_overflowing_distance_raises():
+    with pytest.raises(ValueError, match="no usable stop"):
+        bracket(entry=2000.0, direction="short", sigma=1e308, k=10.0)    # k·sigma = inf
+
+
+def test_bracket_is_immutable():
+    b = bracket(entry=2000.0, direction="long", sigma=5.0, k=1.0)
+    with pytest.raises(AttributeError):
+        b.stop = 1.0

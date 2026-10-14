@@ -27,6 +27,8 @@ python3.13 -m venv .venv                 # any Python >= 3.12
 The core (bus interface, store, query) is stdlib-only, plus `tzdata`.
 - `feed` adds `ib_insync` and `redis`.
 - `replay` adds `pandas` and `pyarrow`.
+- `features` adds `numpy` and `pandas` for `datafeed.features` (vol_block).
+  `import datafeed` never loads it.
 
 ## Run locally (replay)
 

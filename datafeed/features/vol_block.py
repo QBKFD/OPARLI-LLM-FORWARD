@@ -3,7 +3,7 @@
 THE MATHS IS RESEARCH'S
     fit() and transform() are research/vol_block/vol_block.py (VolBlock), round 3
     definitions, copied operation for operation so the outputs are bit-identical
-    on the same input (tests/datafeed/test_vol_block.py). research/vol_block stays
+    on the same input (tests/datafeed/test_features_vol_block.py). research/vol_block stays
     frozen; this module does not import it.
 
     - 1-min log returns r = ln(C_i / C_{i-1}); dropped when the bar opens more

@@ -1,5 +1,5 @@
-# Packaging for the root-level `datafeed` and `agents` packages only. Flat
-# layout: the repo root also holds backend/, research/, tools/, legacy/,
+# Packaging for the root-level `datafeed`, `agents` and `risk` packages only.
+# Flat layout: the repo root also holds backend/, research/, tools/, legacy/,
 # deploy/ and tests/, which are not part of this distribution, so package
 # discovery is explicit.
 [build-system]
@@ -20,6 +20,9 @@ dependencies = ["tzdata==2025.3"]  # zoneinfo data for _market_open (slim images
 feed = ["ib_insync==0.9.86", "redis==5.2.1"]
 # Replay source reads the historical parquet.
 replay = ["pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0"]
+# datafeed.features (vol_block). Same pins as replay and research, so the lock
+# is unchanged. risk/ itself is stdlib only.
+features = ["numpy==2.2.6", "pandas==2.3.3"]
 dev = ["pytest==9.1.1", "pytest-timeout==2.4.0"]
 # The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
 # least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
@@ -33,17 +36,17 @@ research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1",
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["datafeed*", "agents*"]
+include = ["datafeed*", "agents*", "risk*"]
 
 [tool.setuptools.package-data]
 agents = ["prompts/*.md", "config.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
 
 [tool.pytest.ini_options]
-# A bare `pytest` at the root collects research/, tests/datafeed and
-# tests/agents_tests only. legacy/ is never collected: it is listed in
-# norecursedirs (with pytest's own defaults), so it is skipped even when a
-# parent directory is collected.
-testpaths = ["research", "tests/datafeed", "tests/agents_tests"]
+# A bare `pytest` at the root collects research/, tests/datafeed,
+# tests/agents_tests and tests/risk_tests only. legacy/ is never collected: it
+# is listed in norecursedirs (with pytest's own defaults), so it is skipped
+# even when a parent directory is collected.
+testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).

@@ -234,3 +234,102 @@ def test_sigma_from_real_state(syn):
     st = vb.state_at(params, m, pd.Timestamp("2021-03-24 10:00", tz="UTC"))
     s = vb.sigma_over(params, st, 60)
     assert s.sigma_ret > 0 and s.sigma_px == st.close_ref * s.sigma_ret and not s.crosses_close
+
+
+# ---------------------------------------------------------------- causality
+
+def perturb_after(m, t, seed=11):
+    """Same bars before t; every bar at or after t moved by a random factor, and
+    an extra day of bars appended at the end."""
+    m2 = m.copy()
+    later = m2.index >= t
+    m2.loc[later, ["open", "high", "low", "close"]] *= np.exp(
+        np.random.default_rng(seed).normal(0, 0.01, (int(later.sum()), 1)))
+    extra = synthetic(str(m.index[-1].date() + timedelta(days=1)),
+                      str(m.index[-1].date() + timedelta(days=3)), seed=seed)
+    return pd.concat([m2, extra])
+
+
+def test_bars_at_or_after_t_do_not_change_state_or_sigma(syn):
+    m, _, params = syn
+    for t in pd.DatetimeIndex(["2021-03-23 14:00", "2021-03-25 03:17:45", "2021-03-30 22:00"],
+                              tz="UTC"):
+        a, b = vb.state_at(params, m, t), vb.state_at(params, perturb_after(m, t), t)
+        assert a.reason is None and a == b
+        assert vb.sigma_over(params, a, 240) == vb.sigma_over(params, b, 240)
+        # the perturbation has teeth: a state after t does move
+        later = t + pd.Timedelta(hours=26)
+        assert vb.state_at(params, m, later).L != vb.state_at(params, perturb_after(m, t), later).L
+
+
+def test_forming_bar_is_ignored(syn):
+    m, _, params = syn
+    for t in (pd.Timestamp("2021-03-24 10:37:30", tz="UTC"),      # the 10:37 bar is forming
+              pd.Timestamp("2021-03-24 10:37:00", tz="UTC")):     # the 10:37 bar opens at t
+        m2 = m.copy()
+        m2.loc[pd.Timestamp("2021-03-24 10:37", tz="UTC"), "close"] *= 1.05
+        a, b = vb.state_at(params, m, t), vb.state_at(params, m2, t)
+        assert a == b and pd.Timestamp(a.last_bar_ts) == pd.Timestamp("2021-03-24 10:36", tz="UTC")
+
+
+def test_known_by_hides_a_later_backfill(tmp_path, syn):
+    m, _, params = syn
+    t = pd.Timestamp("2021-03-26 15:00", tz="UTC")
+    gap = pd.Timestamp("2021-03-26 14:30", tz="UTC")
+    m = m[(m.index >= t - pd.Timedelta(days=15)) & (m.index < t + pd.Timedelta(hours=2))]
+    live = m.drop(index=gap)
+    path = str(tmp_path / "store.sqlite")
+    con = schema.connect(path)
+    con.execute("BEGIN")
+    for row in live.itertuples():
+        b = Bar("XAUUSD", row.Index.to_pydatetime(), row.open, row.high, row.low, row.close, 5)
+        schema.insert_bar(con, bar_message(b, source="ibkr", history=False,
+                                           ingest_ts=b.bar_ts + timedelta(minutes=1, seconds=2)))
+    # the missing minute arrives a day later as an IBKR history bar, far off the path
+    px = float(m.loc[gap, "close"]) * 1.01
+    b = Bar("XAUUSD", gap.to_pydatetime(), px, px, px, px, None)
+    schema.insert_bar(con, bar_message(b, source="ibkr", history=True,
+                                       ingest_ts=(t + pd.Timedelta(days=1)).to_pydatetime()))
+    con.execute("COMMIT")
+    con.close()
+
+    # live bars arrive 2 s after their minute ends, so the 14:59 bar is known from 15:00:02
+    as_seen = vb.read_state(params, "XAUUSD", t, db=path,
+                            known_by=(t + pd.Timedelta(seconds=5)).to_pydatetime())
+    best = vb.read_state(params, "XAUUSD", t, db=path)
+    without = vb.state_at(params, live[live.index >= t - vb.LOOKBACK], t)
+    assert as_seen.reason is None and best.reason is None
+    assert as_seen == without                    # the backfill is invisible as of t
+    assert best.S_hd != as_seen.S_hd             # and it does matter once known
+
+
+def test_fit_uses_only_training_rows(syn):
+    m, train, params = syn
+    end = pd.Timestamp(params.train_end)
+    m2 = perturb_after(m, end)
+    again = vb.fit(m2[m2.index < end])
+    assert again.to_json() == params.to_json()
+    m3 = train.copy()
+    m3.iloc[5000:, m3.columns.get_loc("close")] *= 1.02
+    assert vb.fit(m3).profile != params.profile
+
+
+def test_S_hd_hour_means_zero_on_training_window(syn):
+    _, train, params = syn
+    f = vb.transform(params, train)
+    f = f[f.index <= pd.Timestamp(params.train_end)]
+    hm = f["S_hd"].groupby(f.index.hour).mean()
+    assert len(hm) >= 20
+    np.testing.assert_allclose(hm.to_numpy(), 0.0, atol=1e-12)
+
+
+def test_import_datafeed_core_does_not_load_pandas(tmp_path):
+    import subprocess
+    import sys
+    out = subprocess.run(
+        [sys.executable, "-I", "-c",
+         "import sys, datafeed, datafeed.store.query, datafeed.ingest.xauusd_bars;"
+         "print(sorted(m for m in ('numpy', 'pandas', 'datafeed.features') if m in sys.modules))"],
+        cwd=tmp_path, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.strip() == "[]"
