@@ -1,7 +1,8 @@
 # Scanner bar-source switch: notes for the deployment PR
 
 Branch `feat/scanner-stream-source` (from `main` @ 9042270). **Nothing is
-deployed.** This branch doesn't touch the EC2 host, `deploy/` or the running
+deployed.** The deployment itself (compose stack, entrypoint, backups,
+watchdog, runbook) is on `feat/deploy-stack`: see `docs/DEPLOY_RUNBOOK.md`. This branch doesn't touch the EC2 host, `deploy/` or the running
 stack. These notes are for the PR that deploys it.
 
 `backend/deterministic_scanner.py` can now take its live bars from the
