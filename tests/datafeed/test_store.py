@@ -260,3 +260,27 @@ def test_reject_message_idempotent_per_stream_id(db):
     assert json.loads(got[1]["raw"]) == bad
     with pytest.raises(sqlite3.IntegrityError):
         schema.reject_message(con, "s", "8-0", bad, "e", "bogus", T("2026-03-02 10:05"))
+
+
+def test_connections_are_autocommit(tmp_path):
+    # isolation_level=None keeps the explicit BEGIN/COMMIT (migrate, recorder) the only
+    # transactions. Under sqlite3's default, a write outside BEGIN silently opens a
+    # transaction that holds the write lock, and the next explicit BEGIN fails.
+    import sqlite3
+    path = str(tmp_path / "s.sqlite")
+    w, r = schema.connect(path), schema.connect(path, readonly=True)
+    assert w.isolation_level is None and r.isolation_level is None
+    assert not w.in_transaction                                    # migrate() left nothing open
+    schema.insert_bar(w, msg("2026-03-02 10:00", 1.0))             # a write outside BEGIN ...
+    assert not w.in_transaction                                    # ... is committed at once
+    assert r.execute("SELECT COUNT(*) FROM bars").fetchone()[0] == 1
+    w.execute("BEGIN")
+    w.execute("COMMIT")
+    # control: the same write on a default connection leaves a transaction open
+    d = sqlite3.connect(path)
+    schema.insert_bar(d, msg("2026-03-02 10:01", 2.0))
+    assert d.in_transaction
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        d.execute("BEGIN")
+    d.rollback()
+    d.close()

@@ -560,6 +560,23 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     `lag_s` is 1,025 s (from the live bar), not 5 s. History and replay only:
     `lag_s` is None, and both per-kind timestamps are reported.
 
+- **Fix H: autocommit connections, now tested** (owner request, 2026-10-14).
+  - **Confirmed.** `schema.connect()` opens both the writer and the
+    read-only connection with `isolation_level=None`; the recorder and
+    `python -m datafeed.recorder` get their connection from it. No code
+    change.
+  - **Why it matters.** Under sqlite3's default, a write outside an explicit
+    `BEGIN` silently opens a transaction. It holds the write lock until
+    something commits, and the next explicit `BEGIN` fails with "cannot start
+    a transaction within a transaction". Explicit `BEGIN` itself still works
+    under the default; the danger is any stray write.
+  - **Test.** Both connections have `isolation_level is None`; `migrate()`
+    leaves no open transaction; a write outside `BEGIN` is committed at once
+    and visible to a reader; explicit `BEGIN`/`COMMIT` works. A control shows
+    the default connection leaving the transaction open and the next `BEGIN`
+    failing. With `isolation_level=None` removed from `connect()`, the test
+    fails.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,
