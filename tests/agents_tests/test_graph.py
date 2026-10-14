@@ -41,7 +41,7 @@ def test_stub_graph_runs_to_a_blind_none(replay_db):
     assert all(v.abstain and v.abstain_reason.startswith("stub:") for v in out["votes"].values())
     blind = out["final_decisions"]["blind"]
     assert (blind.arm, blind.direction, blind.decided_by) == ("blind", "none", "aggregator_v0")
-    assert blind.reason == "long 0, short 0, none 0, abstain 3 of 3: no strict majority"
+    assert blind.reason == "long 0, short 0, none 0, abstain 3 of 3: no direction has 2 agreeing non-abstaining votes"
     assert (blind.entry, blind.sl, blind.tp, blind.size, blind.sigma) == (None,) * 5     # risk stub
     rec = store.runs["r1"]
     assert rec["run"].status == "done" and rec["run"].snapshot_hash == out["snap"].hash
@@ -180,26 +180,55 @@ def test_sealed_t_raises(replay_db):
         run_once(build_graph(CFG, MemoryStore(), replay_db), ev(datetime(2026, 10, 1, 0, 1, tzinfo=UTC)))
 
 
-# ---- aggregator v0
+# ---- aggregator v0 (owner rule: >= 2 agreeing non-abstaining votes, else none)
+
+def _votes(*dirs):
+    return {f"a{i}": (Vote.abstained(f"a{i}", "x") if d == "abstain" else
+                      Vote(agent=f"a{i}", direction=d, confidence=0.9)) for i, d in enumerate(dirs)}
+
 
 @pytest.mark.parametrize("dirs, want", [
-    (("long", "long", "abstain"), "long"),
-    (("short", "short", "long"), "short"),
+    # abstain cases
+    (("long", "long", "abstain"), "long"),          # two agree, one abstains: enough
+    (("short", "short", "abstain"), "short"),
+    (("long", "abstain", "abstain"), "none"),       # one non-abstaining vote is never enough
+    (("short", "abstain", "abstain"), "none"),
+    (("abstain", "abstain", "abstain"), "none"),
+    (("long", "short", "abstain"), "none"),         # disagreement + abstain
+    (("none", "abstain", "abstain"), "none"),
+    (("long", "none", "abstain"), "none"),
+    # no abstains
+    (("long", "long", "long"), "long"),
+    (("long", "long", "short"), "long"),
+    (("short", "short", "none"), "short"),
     (("long", "short", "none"), "none"),
-    (("long", "abstain", "abstain"), "none"),
     (("long", "none", "none"), "none"),
-    (("abstain",) * 3, "none"),
+    (("none", "none", "none"), "none"),
 ])
-def test_aggregator_v0_strict_majority(dirs, want):
-    votes = {f"a{i}": (Vote.abstained(f"a{i}", "x") if d == "abstain" else
-                       Vote(agent=f"a{i}", direction=d, confidence=0.9)) for i, d in enumerate(dirs)}
-    assert aggregate_v0(votes, "r", "h").direction == want
+def test_aggregator_v0_two_agreeing_non_abstaining(dirs, want):
+    assert aggregate_v0(_votes(*dirs), "r", "h").direction == want
+
+
+def test_aggregator_abstains_do_not_count_against():
+    # The old strict-majority rule counted abstains against. Two agreeing votes
+    # are enough however many voters abstain.
+    d = aggregate_v0(_votes("long", "long", "abstain", "abstain", "abstain"), "r", "h")
+    assert d.direction == "long"
+    assert d.reason == "long 2, short 0, none 0, abstain 3 of 5: 2 non-abstaining votes agree on long"
+
+
+def test_aggregator_both_directions_reaching_two_is_none():
+    d = aggregate_v0(_votes("long", "long", "short", "short"), "r", "h")
+    assert d.direction == "none" and d.reason.endswith("both long and short reach 2")
 
 
 def test_aggregator_ignores_confidence():
     votes = {"a": Vote(agent="a", direction="long", confidence=0.01), "b": Vote(agent="b", direction="long", confidence=0.01),
              "c": Vote(agent="c", direction="short", confidence=1.0)}
     assert aggregate_v0(votes, "r", "h").direction == "long"
+    votes = {"a": Vote(agent="a", direction="long", confidence=1.0), "b": Vote.abstained("b", "x"),
+             "c": Vote.abstained("c", "y")}
+    assert aggregate_v0(votes, "r", "h").direction == "none"         # full confidence, still one vote
 
 
 # ---- misc

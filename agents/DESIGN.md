@@ -783,3 +783,29 @@ every snapshot and decision.
   - Also: `test_agent_store.py` checks that a version-1 database migrates to
     version 2.
 - **Result:** tests/agents_tests 187 passed.
+
+### D2: aggregator v0
+
+Owner: keep it. A direction needs at least 2 agreeing NON-abstaining votes,
+else `none`. Confidence is ignored. Test the abstain cases.
+
+- **The rule is now literal:** a fixed quorum of 2 non-abstaining votes, no
+  longer "a strict majority of all voters".
+  - With 3 voters, the outcomes are the same in every case.
+  - They differ only with more voters: abstains no longer count against.
+    For example, 2 long + 3 abstain is now `long`.
+  - If both long and short reach 2 (possible only with 4 or more voters), the
+    result is `none`.
+- **Reasons** read like `long 2, short 0, none 0, abstain 1 of 3: 2
+  non-abstaining votes agree on long`, or `…: no direction has 2 agreeing
+  non-abstaining votes`.
+- **Tests.** 14 three-voter cases, 8 of them with abstains:
+  - 2 + abstain → that direction;
+  - 1 + 2 abstain → none;
+  - 3 abstain → none;
+  - long/short/abstain → none;
+  - none + abstain cases → none.
+  - Also: abstains don't count against with 5 voters, both directions at 2 →
+    none, and confidence is ignored (one vote at confidence 1.0 is still
+    `none`).
+- **Result:** tests/agents_tests 197 passed.
