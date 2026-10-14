@@ -272,13 +272,15 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
 # ── Append-only SQLite log ─────────────────────────────────────────────────
 # Journal epochs. An epoch is one measurement regime of the TAKE-vs-SKIP
 # experiment; analysis must not pool epochs without saying so. Epoch 1 is every
-# row written before the epoch migration (all from the IBKR live path) and what
-# the ibkr bar source keeps writing; the stream bar source writes epoch 2.
-# Alert ids are numbered per day from the bars, so two epochs can reuse an id on
-# a switch day: every child row (decision, outcome, counterfactual) carries the
-# epoch of its alert, and joins use (alert_id, epoch).
-JOURNAL_EPOCHS = {"ibkr": 1, "stream": 2}
-JOURNAL_VERSION = 1              # PRAGMA user_version once the epoch columns exist
+# row written before the epoch migration (all from the IBKR live path). Every
+# change of bar source starts a NEW epoch, and epochs are never reused: ibkr ->
+# stream is epoch 2, a rollback to ibkr is epoch 3, never 1 again. Each change
+# is a row in source_switches (start_epoch). Alert ids are numbered per day from
+# the bars, so two epochs can reuse an id on a switch day: every child row
+# (decision, outcome, counterfactual) carries the epoch of its alert, and joins
+# use (alert_id, epoch).
+JOURNAL_VERSION = 2              # PRAGMA user_version: 1 epoch columns, 2 source_switches
+PRE_MIGRATION_EPOCH = 1          # rows written before the epoch columns existed
 
 
 def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
@@ -302,24 +304,59 @@ def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
 
 
 def _migrate_journal(con) -> None:
-    """Version 1: epoch on every table, bar_source on alerts. Existing rows get
-    epoch 1 and bar_source 'ibkr' (the column defaults). One transaction, and a
-    no-op once PRAGMA user_version says it ran. Code from before this migration
-    can't write to a migrated journal (its INSERTs are positional), so roll back
-    by switching SCANNER_BAR_SOURCE, not by an older image."""
-    if con.execute("PRAGMA user_version").fetchone()[0] >= JOURNAL_VERSION:
-        return
-    have = {t: {r[1] for r in con.execute(f"PRAGMA table_info({t})")}
-            for t in ("alerts", "decisions", "outcomes", "counterfactuals")}
-    ddl = [f"ALTER TABLE {t} ADD COLUMN epoch INTEGER NOT NULL DEFAULT {JOURNAL_EPOCHS['ibkr']}"
-           for t, cols in have.items() if "epoch" not in cols]
-    if "bar_source" not in have["alerts"]:
-        ddl.append("ALTER TABLE alerts ADD COLUMN bar_source TEXT NOT NULL DEFAULT 'ibkr'")
-    con.executescript("BEGIN; " + "; ".join(ddl + [f"PRAGMA user_version = {JOURNAL_VERSION}"])
-                      + "; COMMIT;")
+    """Numbered steps, each one transaction, recorded in PRAGMA user_version.
+      1  epoch on every table, bar_source on alerts. Existing rows get epoch 1
+         and bar_source 'ibkr' (the column defaults).
+      2  source_switches(switch_ts_utc, from_source, to_source, epoch). A
+         journal that already has alerts gets one row for its current state
+         (from_source NULL, the newest alert's bar_source and epoch).
+    Code from before step 1 can't write to a migrated journal (its INSERTs are
+    positional), so roll back by switching SCANNER_BAR_SOURCE, not by an older
+    image."""
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        have = {t: {r[1] for r in con.execute(f"PRAGMA table_info({t})")}
+                for t in ("alerts", "decisions", "outcomes", "counterfactuals")}
+        ddl = [f"ALTER TABLE {t} ADD COLUMN epoch INTEGER NOT NULL DEFAULT {PRE_MIGRATION_EPOCH}"
+               for t, cols in have.items() if "epoch" not in cols]
+        if "bar_source" not in have["alerts"]:
+            ddl.append("ALTER TABLE alerts ADD COLUMN bar_source TEXT NOT NULL DEFAULT 'ibkr'")
+        con.executescript("BEGIN; " + "; ".join(ddl + ["PRAGMA user_version = 1"]) + "; COMMIT;")
+    if version < 2:
+        con.execute("BEGIN")
+        try:
+            con.execute("CREATE TABLE IF NOT EXISTS source_switches(switch_ts_utc TEXT NOT NULL, "
+                        "from_source TEXT, to_source TEXT NOT NULL, epoch INTEGER NOT NULL)")
+            newest = con.execute("SELECT bar_source, epoch FROM alerts ORDER BY rowid DESC LIMIT 1"
+                                 ).fetchone()
+            if newest:
+                con.execute("INSERT INTO source_switches VALUES(datetime('now'), NULL, ?, ?)", newest)
+            con.execute("PRAGMA user_version = 2")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
 
 
-def insert_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["ibkr"], bar_source: str = "ibkr"):
+def start_epoch(con, bar_source: str) -> int:
+    """The journal epoch this process writes, for its bar source. If the latest
+    source_switches row is for the same source, that epoch continues (a
+    restart). Otherwise a new epoch, one above every epoch in the journal, and
+    a source_switches row (now, previous source, bar_source, epoch)."""
+    last = con.execute("SELECT to_source, epoch FROM source_switches ORDER BY rowid DESC LIMIT 1"
+                       ).fetchone()
+    if last and last[0] == bar_source:
+        return last[1]
+    top = max(con.execute(f"SELECT COALESCE(MAX(epoch), 0) FROM {t}").fetchone()[0]
+              for t in ("source_switches", "alerts", "decisions", "outcomes", "counterfactuals"))
+    epoch = top + 1
+    con.execute("INSERT INTO source_switches VALUES(datetime('now'), ?, ?, ?)",
+                (last[0] if last else None, bar_source, epoch))
+    con.commit()
+    return epoch
+
+
+def insert_alert(con, a: dict, *, epoch: int, bar_source: str):
     con.execute("INSERT INTO alerts (alert_id, alert_ts_utc, level_types, level_price, "
                 "price_at_alert, session, confluence_count, inserted_ts_utc, epoch, bar_source) "
                 "VALUES(?,?,?,?,?,?,?,datetime('now'),?,?)",
@@ -327,7 +364,7 @@ def insert_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["ibkr"], bar_source: 
                  a["price_at_alert"], a["session"], a["confluence_count"], epoch, bar_source))
 
 
-def insert_counterfactual(con, alert_id: str, cf: dict, epoch: int = JOURNAL_EPOCHS["ibkr"]):
+def insert_counterfactual(con, alert_id: str, cf: dict, *, epoch: int):
     con.execute("INSERT INTO counterfactuals (alert_id, fwd_high_1h, fwd_low_1h, mfe_up_1h, "
                 "mfe_dn_1h, fwd_high_4h, fwd_low_4h, mfe_up_4h, mfe_dn_4h, computed_ts_utc, epoch) "
                 "VALUES(?,?,?,?,?,?,?,?,?,datetime('now'),?)",
@@ -348,7 +385,10 @@ def _alert_epoch(con, alert_id, alert_ts=None) -> int:
         sql += " AND alert_ts_utc=?"
         args.append(str(alert_ts))
     row = con.execute(sql + " ORDER BY rowid DESC LIMIT 1", args).fetchone()
-    return row[0] if row else JOURNAL_EPOCHS["ibkr"]
+    if row:
+        return row[0]
+    last = con.execute("SELECT epoch FROM source_switches ORDER BY rowid DESC LIMIT 1").fetchone()
+    return last[0] if last else PRE_MIGRATION_EPOCH
 
 
 def record_decision(con, alert_id, decision, decision_ts, alert_ts, direction=None,
@@ -534,11 +574,12 @@ def replay_day(date: str, con=None) -> pd.DataFrame:
     alerts += scanner.close()
 
     rows = []
+    epoch = start_epoch(con, "parquet") if con is not None else None
     for a in alerts:
         cf = counterfactual(df, a["alert_ts_utc"], a["price_at_alert"])
         if con is not None:
-            insert_alert(con, a, bar_source="parquet")
-            insert_counterfactual(con, a["alert_id"], cf)
+            insert_alert(con, a, epoch=epoch, bar_source="parquet")
+            insert_counterfactual(con, a["alert_id"], cf, epoch=epoch)
         rows.append({**a, **{k: v for k, v in cf.items() if k != "alert_id"}})
     if con is not None:
         con.commit()
@@ -621,6 +662,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
+    epoch = start_epoch(con, "ibkr")
     lock = threading.Lock()
 
     # history first (separate short-lived connection, distinct clientId). A failure
@@ -647,7 +689,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
         hb["last"] = _time.time()
         with lock:
             for a in live.on_bar(ts, o, h, l, c):
-                insert_alert(con, a); con.commit()
+                insert_alert(con, a, epoch=epoch, bar_source="ibkr"); con.commit()
                 if dry:
                     print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
                 else:
@@ -673,7 +715,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
     active = sum(1 for L in build_levels(live.hist)
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
-    print(f"{mode}: scanning {symbol}, {active} levels active. Ctrl-C to stop.", flush=True)
+    print(f"{mode}: scanning {symbol}, {active} levels active, journal epoch {epoch}. "
+          f"Ctrl-C to stop.", flush=True)
 
     offset = 0
     last_sweep = 0.0
@@ -721,18 +764,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                 _time.sleep(5)
                 msgs = []
             for text in msgs:
-                r = parse_reply(text)
-                if not r:
-                    continue
-                with lock:
-                    row = con.execute("SELECT alert_ts_utc FROM alerts WHERE alert_id=?",
-                                      (r["alert_id"],)).fetchone()
-                    if not row:
-                        _send_quietly(tg, f"unknown alert_id {r['alert_id']}"); continue
-                    record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
-                                    row[0], r.get("direction"), r.get("entry"), r.get("stop"),
-                                    r.get("target"), r.get("reasoning"))
-                    _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
+                _handle_reply(con, lock, tg, text, epoch)
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
@@ -1045,8 +1077,7 @@ class StreamFeed:
         return kind
 
 
-def _journal_new_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["stream"],
-                       bar_source: str = "stream") -> bool:
+def _journal_new_alert(con, a: dict, *, epoch: int, bar_source: str) -> bool:
     """Insert the alert unless this exact alert is already journaled in this
     epoch, which happens when a bar is redelivered after a crash between the
     journal commit and the ack. Returns True if it was inserted (and so should
@@ -1060,9 +1091,10 @@ def _journal_new_alert(con, a: dict, epoch: int = JOURNAL_EPOCHS["stream"],
     return True
 
 
-def _handle_reply(con, lock, tg, text: str, epoch: int = JOURNAL_EPOCHS["stream"]):
-    """One Telegram reply -> decision row (same handling as run_live's loop).
-    An id that exists in several epochs (a switch day) means this epoch's alert."""
+def _handle_reply(con, lock, tg, text: str, epoch: int):
+    """One Telegram reply -> decision row (both bar sources). An id that exists
+    in several epochs (a switch day) means the alert of this process's epoch,
+    else the newest one."""
     r = parse_reply(text)
     if not r:
         return
@@ -1096,6 +1128,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
+    epoch = start_epoch(con, "stream")
     lock = threading.Lock()
 
     def notify(text):
@@ -1109,7 +1142,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     live = LiveLevels(hist, now)
 
     def on_alert(a):
-        if not _journal_new_alert(con, a):
+        if not _journal_new_alert(con, a, epoch=epoch, bar_source="stream"):
             print(f"alert {a['alert_id']} already journaled (redelivered bar); not sent again",
                   flush=True)
             return
@@ -1138,7 +1171,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
     print(f"{mode}: scanning {symbol} from stream {STREAM} (group {STREAM_GROUP}, consumer "
-          f"{consumer}), {active} levels active. Ctrl-C to stop.", flush=True)
+          f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
 
     offset = 0
     last_sweep = 0.0
@@ -1159,7 +1192,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
                 _time.sleep(5)
                 msgs = []
             for text in msgs:
-                _handle_reply(con, lock, tg, text)
+                _handle_reply(con, lock, tg, text, epoch)
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
@@ -1240,9 +1273,11 @@ def selftest():
     import tempfile
     con = open_log(Path(tempfile.mkdtemp()) / "t.sqlite")
     insert_alert(con, dict(alert_id="A_old", alert_ts_utc="2025-06-16 00:00:00", level_types="PDH",
-                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1))
+                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     insert_alert(con, dict(alert_id="A_new", alert_ts_utc="2025-06-16 03:30:00", level_types="PDL",
-                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1))
+                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     con.commit()
     n = sweep_auto_missed(con, pd.Timestamp("2025-06-16 04:30:00", tz="UTC"))
     decided = dict(con.execute("SELECT alert_id, decision FROM decisions").fetchall())
@@ -1250,7 +1285,8 @@ def selftest():
         fails.append(f"auto-MISSED: n={n} decided={decided}")
     # 8) counterfactual sweep: only alerts with a full 4h forward window get filled
     insert_alert(con, dict(alert_id="A_cf", alert_ts_utc="2025-06-16 00:00:00", level_types="PDH",
-                           level_price=100.0, price_at_alert=100.0, session="ASIA", confluence_count=1))
+                           level_price=100.0, price_at_alert=100.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     con.commit()
     fdf = pd.DataFrame({"open": 100.0, "high": 110.0, "low": 95.0, "close": 100.0},
                        index=pd.date_range("2025-06-16 00:00", periods=300, freq="1min", tz="UTC"))
@@ -1298,9 +1334,11 @@ def selftest():
               "2026-09-27 18:07": False, "2026-07-14 21:30": False}:
         fails.append(f"live bar filter: {ok}")
 
-    # 12) journal epoch migration: a pre-migration journal (old DDL, old
-    #     positional INSERTs) keeps its rows as epoch 1 / bar_source ibkr; stream
-    #     rows are epoch 2; an alert id reused by both epochs stays two alerts
+    # 12) journal epochs: a pre-migration journal (old DDL, old positional
+    #     INSERTs) keeps its rows as epoch 1 / bar_source ibkr; every bar-source
+    #     change starts a new epoch and is logged in source_switches (ibkr ->
+    #     stream = 2, rollback to ibkr = 3, never 1 again); an alert id reused
+    #     by two epochs stays two alerts
     jp = Path(tempfile.mkdtemp()) / "old.sqlite"
     old = sqlite3.connect(str(jp))
     old.executescript("""
@@ -1325,18 +1363,23 @@ def selftest():
     rows = con.execute("SELECT alert_id, epoch, bar_source FROM alerts").fetchall()
     kids = [con.execute(f"SELECT epoch FROM {t}").fetchall() for t in ("decisions", "counterfactuals")]
     ver = con.execute("PRAGMA user_version").fetchone()[0]
+    epochs = [start_epoch(con, src) for src in ("ibkr", "stream", "stream", "ibkr", "stream")]
+    switches = con.execute("SELECT from_source, to_source, epoch FROM source_switches").fetchall()
     _journal_new_alert(con, dict(alert_id="A20251014-001", alert_ts_utc="2025-10-14 09:00:00",
                                  level_types="NY_L", level_price=2.0, price_at_alert=2.0,
-                                 session="LONDON", confluence_count=1))
+                                 session="LONDON", confluence_count=1), epoch=4, bar_source="stream")
     n_missed = sweep_auto_missed(con, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
     n_cf = sweep_counterfactuals(con, fdf, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
     dec = con.execute("SELECT epoch, decision FROM decisions ORDER BY rowid").fetchall()
     cfe = con.execute("SELECT epoch FROM counterfactuals ORDER BY rowid").fetchall()
     if not (rows == [("A20251014-001", 1, "ibkr")] and kids == [[(1,)], [(1,)]]
-            and ver == JOURNAL_VERSION and n_missed == 1 and n_cf == 1
-            and dec == [(1, "SKIP"), (2, "MISSED")] and cfe == [(1,), (2,)]):
-        fails.append(f"journal epoch: rows={rows} kids={kids} ver={ver} missed={n_missed} "
-                     f"cf={n_cf} dec={dec} cfe={cfe}")
+            and ver == JOURNAL_VERSION == 2 and epochs == [1, 2, 2, 3, 4]
+            and switches == [(None, "ibkr", 1), ("ibkr", "stream", 2), ("stream", "ibkr", 3),
+                             ("ibkr", "stream", 4)]
+            and n_missed == 1 and n_cf == 1
+            and dec == [(1, "SKIP"), (4, "MISSED")] and cfe == [(1,), (4,)]):
+        fails.append(f"journal epoch: rows={rows} kids={kids} ver={ver} epochs={epochs} "
+                     f"switches={switches} missed={n_missed} cf={n_cf} dec={dec} cfe={cfe}")
 
     # 13) live started between UTC midnight and the day's first bar still builds
     #     the day's levels on that first bar (it used to wait for 07:00)

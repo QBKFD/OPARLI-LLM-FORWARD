@@ -88,10 +88,11 @@ def stream_day(day: str, bus, tmp_path):
     hist, detail = ds.stream_warmup(now, db=store, kinds=("replay",))
     live = ds.LiveLevels(hist, now)
     con = ds.open_log(tmp_path / "journal.sqlite")
+    epoch = ds.start_epoch(con, "stream")
     got = []
 
     def on_alert(a):
-        if ds._journal_new_alert(con, a):
+        if ds._journal_new_alert(con, a, epoch=epoch, bar_source="stream"):
             got.append(a)
 
     feed = ds.StreamFeed(bus, STREAM, "scanner-parity", live, on_alert, sources=("replay",),

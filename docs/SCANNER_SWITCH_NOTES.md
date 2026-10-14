@@ -58,10 +58,11 @@ Any other value stops the scanner at startup with an error. `--date` and
    minutes sends one Telegram message. The next live bar sends one recovery
    message. Weekends and the daily break don't count. The ibkr path keeps its
    30-min `SILENCE_WARN_S` heartbeat.
-5. **Journal**: alerts are epoch 2, `bar_source='stream'` (see §4).
+5. **Journal**: alerts get the process's epoch and `bar_source='stream'`. The
+   first stream start after ibkr opens a new epoch (see §4).
 6. **Telegram replies, MISSED sweep, counterfactual sweep**: same as
-   `run_live`. A reply to an id that exists in both epochs means the stream
-   epoch's alert.
+   `run_live`. Both paths share `_handle_reply`. A reply to an id that exists
+   in several epochs means the current epoch's alert.
 
 Expected differences from the ibkr path:
 - The bar contract deviations #1–#7 in `docs/DATAFEED_NOTES.md`: no stale-close
@@ -76,10 +77,72 @@ Stream mode needs three more services and some image changes.
 
 | Service | What | Notes |
 |---|---|---|
-| `redis` | `redis:7.4.x` | Decide on persistence (5g). Healthcheck `redis-cli ping`. |
+| `redis` | `redis:7.4.x` | AOF on a volume, `noeviction` (see the compose plan below). Healthcheck `redis-cli ping`. |
 | `feed` | `python -m datafeed.ingest`, `DATAFEED_SOURCE=ibkr` | **The only client of the production gateway** in stream mode (5f). `IB_HOST=ibgateway`, `IB_PORT=4004`, `IB_CLIENT_ID` unused elsewhere (taken: 11 and 21 by the ibkr-mode scanner, 996 by the watchdog probe, 999 by the entrypoint probe; e.g. 31). `restart: unless-stopped` (crash-only). |
 | `recorder` | `python -m datafeed.recorder` | `DATAFEED_DB=/data/datafeed.sqlite` on a `datafeed_store` volume, `DATAFEED_RECORDER_CONSUMER=recorder-1` |
 | `scanner` | as today, plus the env below | mount `datafeed_store` (see below) |
+
+**Compose plan** (owner decisions 2026-10-14; for the deployment PR, not
+applied to `deploy/` here):
+
+```yaml
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes: [redis_data:/data]          # AOF lives here
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, retries: 10}
+    restart: unless-stopped
+  feed:                                  # the only client of the production gateway
+    command: ["python", "-m", "datafeed.ingest"]
+    environment: {DATAFEED_SOURCE: ibkr, REDIS_URL: "redis://redis:6379/0",
+                  IB_HOST: ibgateway, IB_PORT: "4004", IB_CLIENT_ID: "31"}
+    depends_on:
+      redis: {condition: service_healthy}
+      ibgateway: {condition: service_started}   # the feed itself is crash-only on a down gateway
+    healthcheck:                         # healthy once it has published (it starts with 10 D of history)
+      test: ["CMD", "python", "-c", "import os,redis,sys; sys.exit(0 if redis.Redis.from_url(os.environ['REDIS_URL']).xlen('bars.xauusd.1m') else 1)"]
+      interval: 15s
+      retries: 20
+      start_period: 60s
+    restart: unless-stopped
+  recorder:
+    command: ["python", "-m", "datafeed.recorder"]
+    environment: {REDIS_URL: "redis://redis:6379/0", DATAFEED_DB: /data/datafeed.sqlite,
+                  DATAFEED_RECORDER_CONSUMER: recorder-1}
+    volumes: [datafeed_store:/data]
+    depends_on: {feed: {condition: service_healthy}}
+    healthcheck:                         # healthy once the store has bars
+      test: ["CMD", "python", "-c", "import sqlite3,sys; c=sqlite3.connect('file:/data/datafeed.sqlite?mode=ro', uri=True); sys.exit(0 if c.execute('SELECT COUNT(*) FROM bars').fetchone()[0] else 1)"]
+      interval: 15s
+      retries: 20
+      start_period: 30s
+    restart: unless-stopped
+  scanner:
+    environment: {SCANNER_BAR_SOURCE: stream, REDIS_URL: "redis://redis:6379/0",
+                  DATAFEED_DB: /datafeed/datafeed.sqlite, SCANNER_STREAM_CONSUMER: scanner-1}
+    volumes: [scanner_data:/data, datafeed_store:/datafeed]   # read-write mount, see "Store mount"
+    depends_on: {recorder: {condition: service_healthy}}
+volumes: {redis_data: {}, datafeed_store: {}, scanner_data: {}}
+```
+
+- **Start order**: redis → feed → recorder → scanner, each gated on the
+  previous service's healthcheck. The healthchecks only gate the first start.
+  - After that, every process handles its own dependencies: the feed and
+    recorder are crash-only, and the scanner waits for the store.
+  - So a later restart of one service doesn't need the others restarted.
+- **Redis sizing**: the stream is trimmed to `DEFAULT_MAXLEN` = 100k entries
+  (`XADD MAXLEN ~`).
+  - Measured on Redis 7.4.2: 100,008 bar entries of 294 bytes take 33.8 MB
+    (`MEMORY USAGE`; `used_memory` 31.6 MB).
+  - `maxmemory 256mb` leaves room for the consumer groups' pending lists and
+    the AOF rewrite. Stream trimming controls the size, not eviction.
+  - With `noeviction`, Redis refuses writes when full: an `XADD` fails, so
+    the feed exits (crash-only), and the scanner's staleness message fires
+    after 10 market-open minutes.
+- **AOF `everysec`**: at most ~1 s of entries is lost on a crash. The pending
+  lists and both groups' positions survive a Redis restart.
 
 **Scanner image** (`deploy/scanner/Dockerfile`):
 - Add the `datafeed` package and `redis`: `COPY pyproject.toml` and
@@ -131,22 +194,42 @@ API with a handshake (clientId 999), then runs `--live`.
 
 Tunables are named constants in the scanner: `WARMUP_DAYS`,
 `WARMUP_MIN_COVERAGE`, `WARMUP_MAX_STALE_MIN`, `STORE_RETRY_S`, `STREAM_STALE_MIN`,
-`STREAM_BATCH`, `STREAM_BLOCK_MS`, `JOURNAL_EPOCHS`.
+`STREAM_BATCH` and `STREAM_BLOCK_MS`.
 
-## 4. Journal migration (happens in both modes)
+## 4. Journal migration and epochs (both modes)
 
-- The first `open_log` of the new code migrates the journal, **including in
-  ibkr mode**. It runs in one transaction and sets `PRAGMA user_version` to 1.
-  - `alerts` gets `epoch` and `bar_source`.
-  - `decisions`, `outcomes` and `counterfactuals` get `epoch`.
-- Existing rows get epoch 1 and `bar_source='ibkr'`.
-- From then on:
-  - ibkr mode writes epoch 1, `'ibkr'`;
-  - stream mode writes epoch 2, `'stream'`;
-  - `--date --db` replay rows are `'parquet'`.
-- Alert ids are numbered per day from the bars, so on a switch day both epochs
-  can use the same id. Child rows carry their alert's epoch, and the sweeps join
-  on `(alert_id, epoch)`.
+- **Migration.** The first `open_log` of the new code migrates the journal,
+  **including in ibkr mode**. It runs in numbered steps, one transaction each,
+  recorded in `PRAGMA user_version`:
+  1. `alerts` gets `epoch` and `bar_source`; `decisions`, `outcomes` and
+     `counterfactuals` get `epoch`. Existing rows get epoch 1 and
+     `bar_source='ibkr'`.
+  2. `source_switches(switch_ts_utc, from_source, to_source, epoch)`. A journal
+     that already has alerts gets one row for its state at migration time:
+     `(now, NULL, 'ibkr', 1)` for the production journal.
+- **Epochs** (owner decision 2026-10-14): **every bar-source change starts a
+  new epoch, and epochs are never reused.**
+  - At start, each live path calls `start_epoch(con, source)`:
+    - same source as the latest `source_switches` row: that epoch continues
+      (a restart);
+    - otherwise: a new epoch, one above every epoch in the journal, and a row
+      `(now, previous source, source, epoch)`.
+  - For the production journal:
+    - ibkr (today) = 1;
+    - the switch to stream = 2;
+    - a rollback to ibkr = 3, never 1;
+    - stream again = 4.
+  - `--date --db` replay into a journal is its own epoch too
+    (`bar_source='parquet'`).
+- **One journal, one live scanner.** Two processes on the same journal with
+  different sources would flip epochs back and forth. Any parallel
+  `--dry-live` comparison run must use its own `SCANNER_DB` (§6, step 3).
+- **Same id in two epochs.** Alert ids are numbered per day from the bars, so
+  on a switch day two epochs can use the same id.
+  - Child rows carry their alert's epoch, and the sweeps join on
+    `(alert_id, epoch)`.
+  - A Telegram reply means the current epoch's alert, else the newest one with
+    that id.
 
 **The pre-migration code cannot write to a migrated journal.** Its INSERTs are
 positional: "table alerts has 10 columns but 8 values were supplied". A test
@@ -229,15 +312,12 @@ pins this. So:
     `datafeed/ingest/__main__.py`, `deploy/datafeed/docker-compose.yml` and
     `docs/DATAFEED_NOTES.md`.
   - A test checks that the stream path references no IBKR code.
-- **g. Redis persistence.**
-  - The stream is transport, not storage: the store is the record.
-  - Without persistence, a Redis restart loses both groups' positions and
-    pending entries. Both resume on a new empty stream: the scanner via its
-    warm-up, the recorder from the feed.
-  - `appendonly yes` keeps pending entries across a Redis restart.
-- **h. Epoch on rollback.** After a rollback, ibkr mode writes epoch 1 again.
-  If a stream period between two ibkr periods should split the ibkr data, use
-  a new epoch (3) for ibkr after a rollback.
+- **g. Redis persistence: decided 2026-10-14.** `appendonly yes`, `appendfsync
+  everysec` on a volume, `maxmemory-policy noeviction`. Size comes from stream
+  trimming (see the compose plan in §2).
+- **h. Epoch on rollback: decided 2026-10-14.** Every bar-source change starts a
+  new epoch: a rollback is epoch 3, never 1 again. Each change is logged in
+  `source_switches` (§4).
 - **i. First start of the `scanner` group.** It reads the whole stream from the
   beginning: up to `DEFAULT_MAXLEN` = 100k entries, about 70 days. The scanner
   classifies them as backlog and acks them, with one summary line per batch of
@@ -255,8 +335,9 @@ pins this. So:
    - Check `recorder` health lines: `lag_s` is small and `last_live_bar_ts`
      advances.
    - Optional: run a second scanner with `--dry-live` and
-     `SCANNER_BAR_SOURCE=stream`, with **another consumer name and no
-     Telegram**. Compare its printed alerts with the live ones.
+     `SCANNER_BAR_SOURCE=stream`, with **another consumer name, its own
+     `SCANNER_DB` (never the production journal, §4) and no Telegram**.
+     Compare its printed alerts with the live ones.
 4. Set `SCANNER_BAR_SOURCE=stream` for `scanner` and add `REDIS_URL`,
    `DATAFEED_DB` and `SCANNER_STREAM_CONSUMER`. Then run
    `docker compose up -d scanner`.
@@ -264,7 +345,9 @@ pins this. So:
    - `warm-up via store: ...`. If you see `warm-up: ...; scanner not started,
      retrying in 30s` instead, the reason is on the same line (usually the
      recorder is behind or the store is still too thin);
-   - `scanning XAUUSD from stream bars.xauusd.1m (group scanner, consumer ...)`;
+   - `scanning XAUUSD from stream bars.xauusd.1m (group scanner, consumer ...),
+     ... journal epoch 2`. `source_switches` then has the row
+     `(ts, 'ibkr', 'stream', 2)`;
    - after the first-start backlog summary, no `out_of_order` or `conflict`
      lines.
 6. Within 10 market-open minutes of stopping `feed` (as a test), Telegram gets
@@ -273,9 +356,12 @@ pins this. So:
 ## 7. How to roll back
 
 1. Set `SCANNER_BAR_SOURCE=ibkr`, then run `docker compose up -d scanner`.
-   - That's the whole rollback: `run_live` is the unchanged IBKR path. It
-     reconnects with clientId 11 and 21 and writes epoch 1.
-   - `feed` (clientId 31) can stay up; it doesn't conflict.
+   - That's the whole rollback. `run_live` is the IBKR path, reconnecting with
+     clientId 11 and 21.
+   - It writes a **new** epoch, 3 after a first stream period, and logs
+     `(ts, 'stream', 'ibkr', 3)` in `source_switches`.
+   - `feed` (clientId 31) can stay up; it doesn't conflict. While it runs,
+     the gateway has two bar clients again.
 2. The `scanner` group in Redis keeps its position and any pending entries.
    This is harmless. When stream mode is enabled again, the scanner skips that
    backlog against its warm-up.
@@ -287,16 +373,13 @@ pins this. So:
   The datafeed and scanner Redis tests run against DB 15.
 - **Baseline** (`main` @ 9042270): full pytest 393 passed, 7 skipped; datafeed
   Redis tests 6 passed, 1 skipped (the manual IBKR test); selftest ALL PASSED.
-- **This branch (step 7):**
-  - Selftest: ALL PASSED. It now has a 12th case, for the journal migration.
-  - Full pytest without `REDIS_TEST_URL` (as the baseline): 476 passed,
-    34 skipped, 1 failed.
-    - All 393 baseline tests still pass.
-    - `tests/scanner` adds 111 tests: 83 pass, 27 Redis cases skip, and 1 fails:
-      `test_stream_mode_matches_date_replay[2025-07-04-memory]` (5a, left
-      red on purpose).
-  - With `REDIS_TEST_URL=redis://localhost:6379/15`: 508 passed, 1 skipped
-    (the manual IBKR test), 2 failed (the same 2025-07-04 case on both buses).
+- **This branch, after the owner's decisions (2026-10-14):**
+  - Selftest: ALL PASSED. It has 13 cases: 12 covers the journal epochs and
+    `source_switches`, 13 the midnight start-up.
+  - Full pytest with `REDIS_TEST_URL=redis://localhost:6379/15`: 513 passed,
+    1 skipped (the manual IBKR test), 0 failed.
+  - Without `REDIS_TEST_URL` (as the baseline): 480 passed, 34 skipped
+    (Redis cases), 0 failed. All 393 baseline tests pass.
   - Datafeed Redis tests: 6 passed, 1 skipped.
 - **Smoke test** (`--dry-live`, stream mode, local Redis, synthetic store):
   - warm-up via the store;

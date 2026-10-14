@@ -217,7 +217,9 @@ def test_journal_insert_is_idempotent(tmp_path):
     con = ds.open_log(tmp_path / "j.sqlite")
     a = dict(alert_id="A20250616-001", alert_ts_utc="2025-06-16 10:01:00", level_types="PDH",
              level_price=3401.0, price_at_alert=3400.5, session="ASIA", confluence_count=1)
-    assert ds._journal_new_alert(con, a) is True
-    assert ds._journal_new_alert(con, a) is False
-    assert ds._journal_new_alert(con, {**a, "alert_ts_utc": "2025-06-16 10:16:00"}) is True
-    assert con.execute("SELECT COUNT(*) FROM alerts").fetchone()[0] == 2
+    kw = dict(epoch=2, bar_source="stream")
+    assert ds._journal_new_alert(con, a, **kw) is True
+    assert ds._journal_new_alert(con, a, **kw) is False
+    assert ds._journal_new_alert(con, {**a, "alert_ts_utc": "2025-06-16 10:16:00"}, **kw) is True
+    assert ds._journal_new_alert(con, a, epoch=3, bar_source="stream") is True   # other epoch
+    assert con.execute("SELECT COUNT(*) FROM alerts").fetchone()[0] == 3
