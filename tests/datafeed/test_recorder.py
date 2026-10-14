@@ -257,9 +257,37 @@ def test_health(env):
         bus.publish(STREAM, m)
     now = T0 + timedelta(minutes=3, seconds=10)
     rec = recorder(bus, path, clock=lambda: now)
-    assert rec.health()["last_recorded_bar_ts"] is None and rec.health()["lag_s"] is None
+    assert rec.health()["last_live_bar_ts"] is None and rec.health()["lag_s"] is None
     rec.run(stop_when_idle=True)
     h = rec.health()
-    assert h["last_recorded_bar_ts"] == "2026-03-02T10:02:00+00:00"
+    assert h["last_live_bar_ts"] == "2026-03-02T10:02:00+00:00"
     assert h["lag_s"] == 10.0                                    # 10:02 bar completed at 10:03
     assert h["error_count"] == 0
+
+
+def test_health_lag_uses_live_bars_only(env):
+    # feed start: a history burst up to the forming minute, then live stops after 10:02.
+    # The fresh history must not hide the stalled live feed.
+    bus, path = env
+    for m in bars(3) + bars(20, history=True):   # live 10:00-10:02, history 10:00-10:19
+        bus.publish(STREAM, m)
+    now = T0 + timedelta(minutes=20, seconds=5)
+    rec = recorder(bus, path, clock=lambda: now)
+    rec.run(stop_when_idle=True)
+    h = rec.health()
+    assert h["last_live_bar_ts"] == "2026-03-02T10:02:00+00:00"
+    assert h["last_history_bar_ts"] == "2026-03-02T10:19:00+00:00"
+    assert h["last_replay_bar_ts"] is None
+    assert h["lag_s"] == 17 * 60 + 5.0                           # from the live 10:02 bar, not 5 s
+
+
+def test_health_without_live_bars_has_no_lag(env):
+    bus, path = env
+    for m in bars(5, history=True) + [dict(m, source="replay") for m in bars(5, start=5)]:
+        bus.publish(STREAM, m)
+    rec = recorder(bus, path, clock=lambda: T0 + timedelta(hours=1))
+    rec.run(stop_when_idle=True)
+    h = rec.health()
+    assert h["last_live_bar_ts"] is None and h["lag_s"] is None
+    assert h["last_history_bar_ts"] == "2026-03-02T10:04:00+00:00"
+    assert h["last_replay_bar_ts"] == "2026-03-02T10:09:00+00:00"

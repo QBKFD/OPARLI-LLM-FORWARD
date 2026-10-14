@@ -417,7 +417,8 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     as pending.
   - **Ack error** propagates (crash-only).
   - **Health.** `last_recorded_bar_ts`; `lag_s` = now − (newest bar_ts + 60 s),
-    i.e. measured from when that bar completed; `error_count` / `last_error`;
+    i.e. measured from when that bar completed (Fix G: per kind, and from the
+    newest live bar only); `error_count` / `last_error`;
     counts of inserted / duplicate / conflict / rejected / batches.
     `python -m datafeed.recorder` logs it every 60 s.
   - **Not covered.** A message the store keeps failing on (not a validation
@@ -546,6 +547,19 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     between COMMIT and ack leaves exactly one. Both tests fail without the
     fix.
 
+- **Fix G: recorder lag from live bars only** (owner request, 2026-10-14).
+  - **Problem.** `lag_s` used the newest bar of any kind. At feed start the
+    history warm-up is published up to the forming minute, so it is fresh by
+    construction: a live feed that stopped right after start showed a lag of
+    seconds.
+  - **Rule.** `health()` tracks the newest recorded bar_ts per kind:
+    `last_live_bar_ts`, `last_history_bar_ts`, `last_replay_bar_ts`
+    (replacing `last_recorded_bar_ts`). `lag_s` = now − (newest live bar_ts +
+    60 s), and None until a live bar has been recorded.
+  - **Tests.** Live up to 10:02 and history up to 10:19, checked at 10:20:05:
+    `lag_s` is 1,025 s (from the live bar), not 5 s. History and replay only:
+    `lag_s` is None, and both per-kind timestamps are reported.
+
 ## Scanner bugs to fix at switch time (new journal epoch)
 
 When the scanner switches to this feed, these fixes change which bars it sees,
@@ -660,6 +674,6 @@ Also not run: `docker compose -f deploy/datafeed/docker-compose.yml up`
    switch time" (#1, #2, #4) and the behaviour changes #3 and #7 change which
    bars the scanner sees.
 5. **Staleness.** Replace the scanner's silence heartbeat with
-   `latest_bar_ts` + recorder `lag_s`.
+   `latest_bar_ts(kind="live")` + recorder `lag_s` (live only, Fix G).
 6. **Run the six Redis tests** above, and a paper-gateway smoke test of the
    feed.

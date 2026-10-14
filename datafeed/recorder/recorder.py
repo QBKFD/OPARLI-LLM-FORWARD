@@ -29,6 +29,12 @@ POISON MESSAGES
     is retried after a pause, so a broken store never turns into dropped bars.
     Failure counts live in memory; after a restart a batch gets
     MAX_BATCH_FAILURES fresh attempts.
+
+HEALTH
+    The newest recorded bar_ts is tracked per kind (live, history, replay).
+    lag_s uses the live one only: the history burst at feed start is fresh by
+    construction and would hide a live feed that has stopped. No live bar yet
+    means lag_s is None.
 """
 
 from __future__ import annotations
@@ -59,7 +65,7 @@ class Recorder:
         self.count, self.block_ms, self.clock, self._sleep = count, block_ms, clock, sleep
         self.stats = dict(batches=0, inserted=0, duplicate=0, conflict=0, rejected=0,
                           poison=0, split_batches=0, errors=0)
-        self.last_bar_ts: str | None = None
+        self.last_bar_ts: dict[str, str | None] = dict.fromkeys(schema.KINDS)
         self.last_error: str | None = None
         self._failures: dict[str, int] = {}      # stream id -> failed batch attempts
         self._first_seen: dict[str, str] = {}    # stream id -> time of its first failure
@@ -76,9 +82,9 @@ class Recorder:
             self._whole(batch)
         return len(batch)
 
-    def _record(self, d) -> tuple[str, str | None]:
+    def _record(self, d) -> tuple[str, str | None, str | None]:
         """Validate and write one entry inside the open transaction.
-        Returns (result, canonical bar_ts or None)."""
+        Returns (result, kind, canonical bar_ts); kind and bar_ts are None if rejected."""
         try:
             validate_message(d.msg)
             for f in ("bar_ts", "open", "high", "low", "close"):
@@ -89,8 +95,8 @@ class Recorder:
             schema.reject_message(self.con, self.stream, d.id, d.msg, repr(e), "invalid",
                                   self._first_seen.get(d.id) or self.clock())
             log.error("recorder: rejected %s: %s", d.id, e)
-            return "rejected", None
-        return schema.insert_bar(self.con, d.msg), ts
+            return "rejected", None, None
+        return schema.insert_bar(self.con, d.msg), schema.kind_of(d.msg), ts
 
     def _whole(self, batch) -> None:
         try:
@@ -131,17 +137,17 @@ class Recorder:
                     self._error(e2, "could not record poison message either, store failing")
                     return
                 log.error("recorder: poison message %s moved to rejected_messages: %r", d.id, e)
-                done = ("poison", None)
+                done = ("poison", None, None)
             self.bus.ack(self.stream, GROUP, d.id)       # only after its commit
             self._done([d], [done])
 
     def _done(self, entries, done) -> None:
-        for d, (result, ts) in zip(entries, done):
+        for d, (result, kind, ts) in zip(entries, done):
             self.stats[result] += 1
             self._failures.pop(d.id, None)
             self._first_seen.pop(d.id, None)
-            if ts and (self.last_bar_ts is None or ts > self.last_bar_ts):
-                self.last_bar_ts = ts
+            if ts and (self.last_bar_ts[kind] is None or ts > self.last_bar_ts[kind]):
+                self.last_bar_ts[kind] = ts
 
     def _rollback(self) -> None:
         if self.con.in_transaction:
@@ -162,12 +168,12 @@ class Recorder:
                 return
 
     def health(self) -> dict:
-        lag = None
-        if self.last_bar_ts:
+        lag, live = None, self.last_bar_ts["live"]
+        if live:
             # a bar completes one minute after its bar_ts; lag counts from then
-            lag = (self.clock() - parse_utc(self.last_bar_ts)).total_seconds() - 60
+            lag = (self.clock() - parse_utc(live)).total_seconds() - 60
         return {"stream": self.stream, "consumer": self.consumer,
-                "last_recorded_bar_ts": self.last_bar_ts,
+                **{f"last_{k}_bar_ts": v for k, v in self.last_bar_ts.items()},
                 "lag_s": None if lag is None else round(lag, 1),
                 "error_count": self.stats["errors"], "last_error": self.last_error,
                 **self.stats}
