@@ -1,5 +1,7 @@
 # OPARLI — Architecture Map
 
+> **Describes the pre-cleanup state.** Paths here are as of tag `legacy-agents-v0`. Phase 1 cleanup moved the agent framework to `legacy/` and `scraper_fxfac/` and `fetch_data_xauusd.py` to `tools/`; see `docs/CLEANUP_NOTES.md` for old → new paths.
+
 *Generated 2026-10-11. Read-only survey of branch `research/levels-diag` (commit `29dec96`), which contains every commit of `pipeline-fixes-and-cleanup` (the branch EC2 deploys). The scanner code and `deploy/scanner/` are byte-identical between the two. `main` is 48 commits behind and holds only the initial public release. Server state comes from the repo plus the owner's local notes dated 2026-09-27..29. I did not log into any server, so "deployed" means "configured to deploy / last known running", not "verified running today".*
 
 > The repo is public. This document deliberately leaves out hostnames, IPs, key paths and secret values.

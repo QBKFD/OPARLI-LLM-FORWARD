@@ -198,12 +198,16 @@ def _import_feature_engine():
     __init__ pulls in jumpmodels/sklearn/joblib (not installed). A bare package
     object pointing at the real directory lets the unmodified module and its
     relative import of regime_config load normally (DECISIONS.md #4).
+
+    The two files are byte-identical copies in research/_shared/regime_features/
+    (the original regime_classifier/ moves to legacy/), so research no longer
+    depends on legacy code.
     """
     name = "regime_classifier"
     pkg = sys.modules.get(name)
     if pkg is None or not hasattr(pkg, "__path__"):
         pkg = types.ModuleType(name)
-        pkg.__path__ = [str(ROOT / name)]
+        pkg.__path__ = [str(ROOT / "research" / "_shared" / "regime_features")]
         sys.modules[name] = pkg
     rf = importlib.import_module(f"{name}.regime_features")
     rc = importlib.import_module(f"{name}.regime_config")
