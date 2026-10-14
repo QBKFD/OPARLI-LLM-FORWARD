@@ -381,7 +381,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     - `bars_before(symbol, t, lookback, db=None, known_by=None)` returns one bar
       per minute with `bar_ts` strictly `< t`, live preferred and history as
       fallback, each row with its `kind`. `lookback` is an int (count) or a
-      timedelta (window).
+      timedelta (window). (Fix D tightened this to `bar_ts + 1 min <= t`.)
     - Optional `known_by`: also requires `ingest_ts <= known_by`, so a later
       backfill can't leak into a simulated live view.
     - `latest_bar_ts(symbol, kind=None)` for staleness checks.
@@ -481,6 +481,30 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Other parquet files.** `coverage=` is a parameter. Tests pass the small
     fixture's coverage, and other files need their own.
   - **Docs.** Coverage and window are in `health()` and the README.
+
+- **Fix D: `bars_before` returns only completed bars** (owner go,
+  2026-10-14). Found while verifying the phase 1 cleanup.
+  - **Bug.** The filter was `bar_ts < t`. For a mid-minute t (10:07:30) that
+    returned the 10:07 bar, which only completes at 10:08:00. For replay,
+    history and backfilled bars, whose stored values are the final ones, that
+    was up to 59 s of look-ahead. The step 5 test even asserted it (at
+    10:01:59.999 it expected the 10:01 bar).
+  - **Fix.** The filter is now `bar_ts + 1 min <= t`, i.e. the bar had ended
+    by t. On a minute boundary the result is unchanged, so every caller that
+    passes whole minutes (all current tests and the step 7 end-to-end run)
+    sees the same bars. Live bars were never affected in practice: they reach
+    the store only after their minute ends.
+  - **Timedelta lookback.** Unchanged rule (`bar_ts >= t - lookback`). With
+    the new end rule it keeps the bars that lie wholly inside
+    `[t - lookback, t]`.
+  - **Also.** `t` may now be an ISO string with an offset for a timedelta
+    lookback too (it was parsed only for a count lookback before). A naive
+    datetime still raises.
+  - **Tests.** The step 5 assertion is corrected. A new test covers
+    mid-minute t for live, history and replay, the bar appearing exactly at
+    its end, a string t with a non-UTC offset, the timedelta window and a
+    naive t. Both tests fail on the old code. tests/datafeed: 77 passed,
+    7 skipped (was 76 + 7).
 
 ## Scanner bugs to fix at switch time (new journal epoch)
 

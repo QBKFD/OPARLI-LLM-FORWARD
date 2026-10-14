@@ -128,8 +128,12 @@ SQLite in WAL mode. Migrations are numbered in `datafeed/store/schema.py`.
 
 ## The "as of t" rule
 
-`bars_before(symbol, t, lookback, db=None, known_by=None, kinds=("live", "history"))` returns bars with
-`bar_ts` **strictly before t**: the minute that opens at t is never included.
+`bars_before(symbol, t, lookback, db=None, known_by=None, kinds=("live", "history"))` returns only bars
+that had **ended by t** (`bar_ts + 1 min <= t`).
+- **On a minute boundary** that is `bar_ts < t`: the minute that opens at t
+  is never included.
+- **Mid-minute** (t = 10:07:30) the 10:07 bar is still forming and is
+  excluded too. It appears from 10:08:00.
 - **One bar per minute.** The live bar if there is one, otherwise the history
   bar. Each row says which (`kind`).
 - **Replay bars only on request.** They're returned only with

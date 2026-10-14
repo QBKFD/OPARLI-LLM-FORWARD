@@ -79,12 +79,33 @@ def test_strict_before_t(db):
     got = bars_before("XAUUSD", T("2026-03-02 10:02"), 10, db=path)
     assert [r["bar_ts"] for r in got] == ["2026-03-02T10:00:00+00:00", "2026-03-02T10:01:00+00:00"]
     got = bars_before("XAUUSD", T("2026-03-02 10:01:59.999"), 10, db=path)
-    assert [r["bar_ts"][11:16] for r in got] == ["10:00", "10:01"]
+    assert [r["bar_ts"][11:16] for r in got] == ["10:00"]          # 10:01 ends at 10:02
     assert bars_before("XAUUSD", T("2026-03-02 10:00"), 10, db=path) == []
     # lookback as a count keeps the most recent, as a timedelta keeps a window
     assert [r["open"] for r in bars_before("XAUUSD", T("2026-03-02 11:00"), 2, db=path)] == [2.0, 3.0]
     assert [r["open"] for r in bars_before("XAUUSD", T("2026-03-02 10:03"), timedelta(minutes=2),
                                            db=path)] == [2.0, 3.0]
+
+
+def test_mid_minute_t_excludes_forming_bar(db):
+    # a bar is complete only at bar_ts + 1 min, for every kind
+    path, con = db
+    write(con, [msg("2026-03-02 10:00", 1.0), msg("2026-03-02 10:01", 2.0, history=True),
+                msg("2026-03-02 10:02", 3.0, history=True),
+                msg("2026-03-02 10:00", 1.0, source="replay"), msg("2026-03-02 10:01", 2.0, source="replay")])
+    for t in (T("2026-03-02 10:01:30"), T("2026-03-02 10:01:00.5"), "2026-03-02T11:01:30+01:00"):
+        assert [r["bar_ts"][11:16] for r in bars_before("XAUUSD", t, 10, db=path)] == ["10:00"]
+        assert [r["bar_ts"][11:16] for r in bars_before("XAUUSD", t, 10, db=path,
+                                                         kinds=("replay",))] == ["10:00"]
+    # visible exactly when it ends, and from then on
+    for t in (T("2026-03-02 10:02"), T("2026-03-02 10:02:00.5"), T("2026-03-02 10:02:59")):
+        got = bars_before("XAUUSD", t, 10, db=path)
+        assert [(r["bar_ts"][11:16], r["kind"]) for r in got] == [("10:00", "live"), ("10:01", "history")]
+    # a timedelta window keeps the bars that lie wholly inside [t - lookback, t]
+    got = bars_before("XAUUSD", T("2026-03-02 10:03:30"), timedelta(minutes=2), db=path)
+    assert [r["bar_ts"][11:16] for r in got] == ["10:02"]
+    with pytest.raises(ValueError):
+        bars_before("XAUUSD", datetime(2026, 3, 2, 10, 1, 30), 10, db=path)   # naive t
 
 
 def test_live_preferred_history_fills_gaps(db):

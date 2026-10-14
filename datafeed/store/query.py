@@ -2,11 +2,13 @@
 
 THE "AS OF t" RULE
     A bar is the minute [bar_ts, bar_ts + 1 min). At time t only bars with
-    bar_ts + 1 min <= t are complete, but the bar at bar_ts = t - 1 min only
-    completes exactly at t. So the rule is: bars_before(t) returns bars with
-    bar_ts STRICTLY < t. The minute that opens at t is never included, and
-    neither is any later one. This matches research HistoricalDataProvider
-    (< as_of) and VolBlock ("1-min bars opening before t").
+    bar_ts + 1 min <= t are complete, so that is the rule: bars_before(t)
+    returns only bars that had ENDED by t. When t is on a minute boundary this
+    is the same as bar_ts < t (the minute that opens at t is excluded), which
+    matches research HistoricalDataProvider (< as_of) and VolBlock ("1-min bars
+    opening before t"). When t is mid-minute (10:07:30) the 10:07 bar is still
+    forming and is excluded too; plain bar_ts < t would return it, up to 59 s
+    of look-ahead for replay, history and backfilled bars.
 
     One bar per minute: the live (tick-built) bar if one exists, otherwise the
     IBKR history bar. Each result row carries `kind` so callers can see which.
@@ -36,8 +38,10 @@ import os
 import sqlite3
 from datetime import timedelta
 
+from datafeed.ingest.base import parse_utc
 from datafeed.store.schema import canonical, connect
 
+BAR = timedelta(minutes=1)
 COLUMNS = "symbol, bar_ts, kind, open, high, low, close, n_ticks, source, ingest_ts"
 
 
@@ -64,7 +68,7 @@ def _check_kinds(kinds) -> tuple:
 
 
 def bars_before(symbol, t, lookback, db=None, known_by=None, kinds=DEFAULT_KINDS) -> list[dict]:
-    """Bars with bar_ts < t, one per minute, oldest first.
+    """Bars that had ended by t (bar_ts + 1 min <= t), one per minute, oldest first.
 
     kinds: preference order. Default ("live", "history"): live preferred,
            history as fallback. ("replay",): replay bars only.
@@ -72,10 +76,13 @@ def bars_before(symbol, t, lookback, db=None, known_by=None, kinds=DEFAULT_KINDS
               timedelta -> bars with bar_ts >= t - lookback.
     db: sqlite3.Connection or path (default $DATAFEED_DB)."""
     kinds = _check_kinds(kinds)
+    if isinstance(t, str):
+        t = parse_utc(t)
     con, own = _con(db)
     try:
-        where = ["b.symbol = ?", "b.bar_ts < ?"]
-        args: list = [symbol, canonical(t)]
+        # bar_ts + 1 min <= t; canonical() floors to the second and bar_ts is whole seconds
+        where = ["b.symbol = ?", "b.bar_ts <= ?"]
+        args: list = [symbol, canonical(t - BAR)]
         known = ""
         if known_by is not None:
             where.append("b.ingest_ts <= ?")
