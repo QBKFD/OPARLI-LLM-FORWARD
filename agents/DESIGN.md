@@ -11,6 +11,9 @@ A question that blocks a step goes at the top of this file.
 **Result:** all steps (1–7) finished, and no step was blocked. The report and
 the open questions (Q1–Q4 plus six new ones) are in `agents/REPORT.md`.
 
+**Owner decisions (2026-10-14)** are applied, one commit each. See "Owner
+decisions" at the end of this file and section 0 of `agents/REPORT.md`.
+
 Scope: a LangGraph skeleton under a new top-level `agents/`. Shadow decisions
 only, no broker, no LLM calls, no API keys. It reads no code from `backend/` or
 `legacy/`, and it doesn't modify `datafeed/`, `backend/`, `deploy/` or

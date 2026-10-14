@@ -1,13 +1,124 @@
 # Agents skeleton: report
 
-**Status: steps 0–7 done, on branch `feat/agents-skeleton`. Not pushed, not
-merged. 236 tests pass, 7 are skipped (agents 160, datafeed 76; same skips as
-the datafeed baseline).** No step was blocked, so there's no question at the
-top of `DESIGN.md`. Four design choices were made with the proposed defaults
-and are still yours to confirm (section 5).
+**Status (2026-10-14, after the owner's decisions): every decision is applied,
+one commit each. On branch `feat/agents-skeleton`; not pushed, not merged.
+Committed tree: 305 passed, 7 skipped (agents 229, datafeed 76). The slow exit
+did not recur.**
 
-Date: 2026-10-14 (overnight run). Base: `feat/datafeed-v1` @ c3d25fb.
+**Needs your attention:** this worktree holds an **uncommitted, staged sync of
+`feat/datafeed-v1` @ 5f285d3** (7 datafeed files). I didn't make it. It got
+into one of my commits and I took it out again (section 0.3). It's still
+staged, untouched.
+
 Details of every decision: `agents/DESIGN.md`. Usage: `agents/README.md`.
+Sections 1–6 below are the overnight report, kept as written. Answers to its
+open questions are marked in section 5.
+
+## 0. Owner decisions applied
+
+### 0.1 Commits
+
+| Decision | Commit | Result |
+|---|---|---|
+| 1. Live mode only with a PREREG'd experiment, t within 120 s of the wall clock; replay keeps the seal; `experiment_id` on every snapshot and decision | 79168cf | `agents/prereg.py`, `agents/experiments/`, agent store migration 2; 27 tests (`test_live_mode.py`) |
+| 2. ≥ 2 agreeing non-abstaining votes, else none; confidence ignored | 220cbc1 | fixed quorum of 2; abstains never count; 14 three-voter cases (8 with abstains) + 3 more |
+| 3. Simultaneous openings | — | kept; no change |
+| 4. 4h candles on the NY 17:00 trading-day open, DST-safe | c6c0246 | `bucket_start` / `bucket_end` in NY wall-clock time; 11 tests across 2025-03-09 and 2025-11-02 |
+| Staleness against the last market-open minute | 8b4fc01 | the daily reopen and the Sunday open now run; the break and the weekend are skipped by the gate, not as stale |
+| Pytest timeout | b308208 | `pytest-timeout==2.4.0`, 120 s per test (2.5.0 is yanked upstream); slow-exit watchdog |
+| Lock file | 7fc166d | `requirements.lock`: 56 packages, hashed, build backend included; two-week cutoff on transitive deps |
+| Report | (this commit) | |
+
+### 0.2 Tests
+
+| Run | Result |
+|---|---|
+| Committed tree (git archive of HEAD, old datafeed) | **305 passed, 7 skipped** (agents 229, datafeed 76); exited 0.7 s after pytest |
+| Working tree (with the uncommitted datafeed sync) | 313 passed, 7 skipped (agents 229, datafeed 84) |
+| **Fresh venv from `requirements.lock` only** (`--require-hashes`, `pip check` clean) | 313 passed, 7 skipped; exited ~3 s after pytest |
+| pytest-timeout probe (sleep 10 s, `timeout=2`) | killed at 2.0 s |
+| Exit watchdog probe (a non-daemon thread holds the exit 40 s) | stacks dumped at 30 s, naming the blocking thread |
+
+The 7 skips are unchanged: 6 Redis, 1 manual IBKR. The agents code passes
+with both datafeed versions, because it calls `bars_before` with `floor(t)`,
+where the old and new datafeed rules agree.
+
+**Slow exit: did not recur.** Every run since the watchdog was added exited
+within ~3 s of pytest finishing (about 10 runs in total, including two fresh
+venvs). If it comes back, the run will print every thread's stack 30 s after
+pytest ends, and that is what to send.
+
+### 0.3 Incident: someone else's datafeed sync got into my commit
+
+- **What was found.** At 09:03:10, while I was working on D1, 7 files were
+  written and staged in this worktree, all with the same timestamp, which
+  points to a git checkout:
+  - `datafeed/README.md`, `datafeed/recorder/recorder.py`,
+    `datafeed/store/query.py`, `datafeed/store/schema.py`;
+  - `docs/DATAFEED_NOTES.md`;
+  - `tests/datafeed/test_recorder.py`, `tests/datafeed/test_store.py`.
+
+  They are byte-identical to `feat/datafeed-v1` @ 5f285d3. That branch has
+  moved on 5 commits since c3d25fb, including "bars_before returns only bars
+  that ended by t (no mid-minute look-ahead)", which is overnight finding #1,
+  fixed in datafeed itself.
+- **What went wrong.** My D1 commit used `git add <my paths>` and then a plain
+  `git commit`, which commits everything staged. So the first D1 commit
+  contained those 7 files.
+- **What I did.**
+  - `git reset --soft HEAD~1`, then unstaged those 7 paths.
+  - Re-committed D1 with my 17 files only.
+  - Re-staged the 7 paths, so the index is exactly as it was before my commit:
+    staged and still identical to 5f285d3.
+  - Every later commit used `git commit -- <paths>`.
+  - Nothing was pushed, and the datafeed files were never edited or discarded.
+- **Your call:** keep the sync on this branch (as a proper merge of
+  `feat/datafeed-v1`), or drop it. It's an uncommitted staged change, so a
+  `git commit` or `git restore --staged` would affect it. I left it alone.
+
+### 0.4 Notes on the decisions
+
+- **D1.**
+  - The PREREG path is `agents/experiments/<experiment_id>/PREREG.md`. It must
+    exist and be non-empty. The non-empty check is my addition, so a
+    placeholder can't pass.
+  - Commit order isn't checked: there's no git check that the PREREG was
+    committed before the run.
+  - `experiment_id` is part of the snapshot hash, so two experiments never
+    share a snapshot row. `Snapshot.schema_version` is therefore 2.
+  - The prompt templates say never to render the id, and the experiments
+    README asks for opaque ids (`exp-0001`), so an id can't hint at a
+    hypothesis.
+  - No experiment exists yet, so live mode can't run until you add one.
+- **D2.** With 3 voters the outcomes are the same as before. Only with more
+  voters do abstains stop counting against. With 4 or more voters, if both
+  directions reach 2, the result is `none`.
+- **D4.** A 4h bucket spanning a DST change lasts 3 h (spring) or 5 h
+  (autumn). Both fall early on Sunday, NY time, while the market is closed.
+  The week's first 4h bucket (Sunday 17:00 NY) holds at most 3 h of bars,
+  because the market opens at 18:00.
+- **Staleness.** Holidays still aren't modelled (as in `_market_open`). On a
+  holiday the feed is silent while the market counts as open, so runs are
+  skipped as stale after 5 min.
+- **Lock.**
+  - Resolved on macOS / Python 3.13.1. The Linux wheel hashes are included,
+    but it hasn't been run on Linux or Python 3.12.
+  - `deploy/datafeed/Dockerfile` still installs from `pyproject.toml`
+    (`deploy/` is out of scope).
+  - The worktree `.venv` now equals the lock: 12 transitive packages moved
+    back to releases at least two weeks old (e.g. langchain-core 1.6.10 →
+    1.6.6).
+
+### 0.5 Still open
+
+- **The staged datafeed sync** (0.3).
+- **PREREG commit check:** whether live mode should also require the PREREG to
+  be committed in git (today it checks the file on disk only).
+- **Gate minimums** (`min_bars` = 1 per timeframe) are still a placeholder.
+- **`_market_open`** is still imported under its private name from datafeed.
+- **Timeouts can't kill threads.** Real LLM agents should also set a timeout in
+  their client.
+- **The distribution is still named `datafeed`.**
 
 ## 1. What was built
 
@@ -109,7 +220,7 @@ store, asserting on stored rows:
 - **Graph drawing:** LangGraph's ASCII drawing needs grandalf. Not installed;
   the diagram is in `DESIGN.md` and the README.
 
-## 5. Open questions
+## 5. Open questions (answered 2026-10-14: see section 0)
 
 The proposal's defaults are applied. Each is a small change if you decide
 otherwise.
