@@ -14,7 +14,7 @@ from agents.store import MemoryStore
 from agents.trigger import drive
 from agents.voters import default_voters
 from agents.voters.base import safe_vote, validate_vote
-from agents_fakes import (FixedVoter, MutatingVoter, RaisingVoter, RecordingVoter, ReturnsVoter, SlowVoter)
+from agents_fakes import FixedVoter, MutatingVoter, RaisingVoter, RecordingVoter, SlowVoter
 
 UTC = timezone.utc
 T = datetime(2025, 6, 11, 14, 30, 30, tzinfo=UTC)

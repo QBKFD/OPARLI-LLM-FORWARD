@@ -8,6 +8,9 @@ c3d25fb). Step 0 is the proposal below. Later steps append their decisions.
 applied as the proposed defaults and are still open for the owner to confirm.
 A question that blocks a step goes at the top of this file.
 
+**Result:** all steps (1–7) finished, and no step was blocked. The report and
+the open questions (Q1–Q4 plus six new ones) are in `agents/REPORT.md`.
+
 Scope: a LangGraph skeleton under a new top-level `agents/`. Shadow decisions
 only, no broker, no LLM calls, no API keys. It reads no code from `backend/` or
 `legacy/`, and it doesn't modify `datafeed/`, `backend/`, `deploy/` or
