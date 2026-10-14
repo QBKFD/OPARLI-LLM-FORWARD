@@ -26,16 +26,38 @@ trigger → snapshot ─(stale)────────────────�
 
 ## Install and test
 
+All dependencies are pinned, with hashes, in `requirements.lock` at the repo
+root:
+- every extra (feed, replay, dev, agents);
+- every transitive dependency;
+- the build backend.
+
 ```
 python3.13 -m venv .venv
-.venv/bin/pip install -e '.[feed,replay,dev,agents]'
+.venv/bin/pip install --require-hashes -r requirements.lock
+.venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest tests/agents_tests tests/datafeed
 ```
 
-The `agents` extra pins `langgraph==1.2.12` and `pydantic==2.13.5`. There's no
-LLM SDK. The tests build a synthetic replay store through datafeed's own replay
-path. One test also replays a real parquet day when
-`database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet` is present.
+The direct pins live in `pyproject.toml`: `langgraph==1.2.12`,
+`pydantic==2.13.5`, `pytest-timeout==2.4.0`, etc. There's no LLM SDK. To
+regenerate the lock after changing a pin (pip-tools 7.6.1, in a separate tool
+venv):
+
+```
+pip-compile --all-extras --all-build-deps --generate-hashes --allow-unsafe --strip-extras \
+    --annotation-style=line --constraint requirements.cutoff.txt \
+    --output-file requirements.lock pyproject.toml
+```
+
+`requirements.cutoff.txt` caps the packages whose newest release was under two
+weeks old at lock time. `tests/agents_tests/test_lock.py` checks that the lock
+matches the pyproject pins and the caps.
+
+The tests build a synthetic replay store through datafeed's own replay path.
+One test also replays a real parquet day when
+`database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet` is present. Each test has a
+120 s limit (pytest-timeout).
 
 ## Use
 
