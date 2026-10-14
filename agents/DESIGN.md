@@ -721,3 +721,65 @@ snapshots from the store; they don't use the in-memory objects.
   debate, nodes, prompts, store and voters subpackages,
   `prompts/bull.md`, `prompts/bear.md` and `config.example.toml`.
 - **README.** `agents/README.md`; its usage example was run as written.
+
+## Owner decisions (2026-10-14, after the overnight run)
+
+One commit per decision. Q3 (simultaneous debate openings) is kept as is, with
+no code change.
+
+### D1: seal and live mode
+
+Owner: replay keeps the seal, with no override. Live mode (t within 120 s of
+the wall clock) is allowed only with an `experiment_id` that points to an
+existing PREREG file under `agents/experiments/`. `experiment_id` is stored on
+every snapshot and decision.
+
+- **`agents/prereg.py`.** The PREREG path is
+  `agents/experiments/<experiment_id>/PREREG.md`, one folder per experiment,
+  as in the research studies.
+  - The file must exist and be non-empty. An empty file is refused, a small
+    addition so a placeholder can't pass.
+  - Ids: `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`, so no path separators and no
+    leading dot.
+  - Only the file on disk is checked, not whether it was committed before the
+    run.
+  - `agents/experiments/README.md` documents the convention. No experiment
+    exists yet.
+- **`check_access`** (`snapshot.py`) runs before any bar is read:
+  - **replay:** `as_of > SEAL_START` raises `SealedError`, with or without an
+    experiment.
+  - **live:** no `experiment_id` raises `ExperimentError`; `|t − wall clock| >
+    120 s` raises `LiveClockError`. The limit is inclusive and applies in both
+    directions. With a valid experiment, live mode can read data after the
+    seal, but only at t ≈ now, never at an arbitrary sealed t.
+  - Any `experiment_id`, in either mode, must have its PREREG.
+  - `build_graph` runs the same experiment checks, so a bad config fails at
+    build time. The wall clock can be injected (`wall_clock=`) for tests.
+- **Stored.**
+  - `Snapshot.experiment_id` is part of the content and the hash. Two
+    experiments therefore never share a snapshot row.
+  - `Snapshot.schema_version` is 2. Version-1 snapshot JSON no longer loads,
+    but none exist outside test temp dirs.
+  - `Decision.experiment_id` equals the snapshot's. Both stores refuse a
+    mismatch, and in SQLite the whole run rolls back.
+  - Agent store **migration 2:** `ALTER TABLE snapshots/decisions ADD COLUMN
+    experiment_id`, plus an index on `decisions.experiment_id`. The
+    append-only triggers still apply.
+- **Prompts.** The templates now say never to render `experiment_id` into a
+  prompt. Agents receive the Snapshot object, and an experiment name could hint
+  at a hypothesis. The experiments README asks for opaque ids (`exp-0001`).
+- **Tests** (`test_live_mode.py`, 27):
+  - replay past the seal fails with or without an experiment;
+  - replay before the seal with an experiment stores the id on both tables;
+    without one, it stores NULL;
+  - live without an experiment, with a missing or empty PREREG, or with a bad
+    id fails at build and at snapshot time;
+  - skew of 0, ±120 s passes; ±121 s and 1 day fail;
+  - a full live run after the seal (synthetic live bars, 2026-10-14) stores
+    `exp-0001` on the snapshot and on both decision arms, and a history bar
+    backfilled after t is invisible (`known_by = t`);
+  - the decision/snapshot experiment mismatch is refused;
+  - the real `agents/experiments/` folder is the default.
+  - Also: `test_agent_store.py` checks that a version-1 database migrates to
+    version 2.
+- **Result:** tests/agents_tests 187 passed.

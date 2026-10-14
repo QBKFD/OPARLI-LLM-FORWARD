@@ -11,7 +11,7 @@ from agents.graph import build_graph, run_once
 from agents.schemas import Decision, TriggerEvent, Vote
 from agents.store import SqliteAgentStore
 from agents.store.base import RunRecord, StoreConflict
-from agents.store.sqlite import META, TABLES
+from agents.store.sqlite import META, MIGRATIONS, TABLES
 from agents_fakes import FakeBear, FakeBull, FixedVoter
 
 UTC = timezone.utc
@@ -59,7 +59,21 @@ def test_reopen_does_not_remigrate(tmp_path):
     p = str(tmp_path / "a.sqlite")
     SqliteAgentStore(p).close()
     s = SqliteAgentStore(p)
-    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 1
+    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(MIGRATIONS) == 2
+    s.close()
+
+
+def test_v1_database_is_migrated_to_v2(tmp_path, monkeypatch):
+    from agents.store import sqlite as sq
+    p = str(tmp_path / "v1.sqlite")
+    monkeypatch.setattr(sq, "MIGRATIONS", sq.MIGRATIONS[:1])
+    sq.SqliteAgentStore(p).close()
+    con = sqlite3.connect(p)
+    assert "experiment_id" not in columns(con, "decisions")
+    con.close()
+    monkeypatch.undo()
+    s = SqliteAgentStore(p)
+    assert "experiment_id" in columns(s.con, "decisions") and "experiment_id" in columns(s.con, "snapshots")
     s.close()
 
 

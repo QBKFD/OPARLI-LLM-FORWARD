@@ -15,7 +15,8 @@ from agents.schemas import Decision, Vote
 NAME = "aggregator_v0"
 
 
-def aggregate_v0(votes: Mapping[str, Vote], run_id: str, snapshot_hash: str) -> Decision:
+def aggregate_v0(votes: Mapping[str, Vote], run_id: str, snapshot_hash: str,
+                 experiment_id: str | None = None) -> Decision:
     n = len(votes)
     count = {d: sum(1 for v in votes.values() if not v.abstain and v.direction == d)
              for d in ("long", "short", "none")}
@@ -26,4 +27,4 @@ def aggregate_v0(votes: Mapping[str, Vote], run_id: str, snapshot_hash: str) -> 
     reason = (f"{tally}: strict majority {direction}" if direction != "none"
               else f"{tally}: no strict majority")
     return Decision(run_id=run_id, snapshot_hash=snapshot_hash, arm="blind", direction=direction,
-                    reason=reason, decided_by=NAME)
+                    reason=reason, decided_by=NAME, experiment_id=experiment_id)

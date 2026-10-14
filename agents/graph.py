@@ -38,7 +38,8 @@ from agents.nodes import gate
 from agents.nodes.aggregator import aggregate_v0
 from agents.nodes.risk import apply_risk
 from agents.schemas import DebateResult, Decision, Snapshot, TriggerEvent, Vote
-from agents.snapshot import Stale, floor_minute, prepare_snapshot
+from agents.prereg import ExperimentError, require_prereg
+from agents.snapshot import Stale, _utcnow, floor_minute, prepare_snapshot
 from agents.store.base import AgentStore, RunRecord
 from agents.voters import default_voters, safe_vote
 
@@ -74,13 +75,22 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 voters: Mapping[str, object] | None = None,
                 debaters: Mapping[str, object] | None = None,
                 judge=None,
-                clock: Callable[[], float] = time.monotonic):
+                clock: Callable[[], float] = time.monotonic,
+                wall_clock: Callable[[], object] = _utcnow):
     """db: the datafeed store (path or sqlite3.Connection; default $DATAFEED_DB).
     voters: name -> VoteAgent (default: the three stubs).
     debaters: {"bull": Debater, "bear": Debater}. Needed only when
         config.debate.enabled; no real debaters ship yet.
     judge: default make_judge(config.debate.judge). The name is checked even
-        when the debate is disabled, so a bad config fails at build time."""
+        when the debate is disabled, so a bad config fails at build time.
+    clock: monotonic clock for latencies. wall_clock: UTC now, for the live-mode
+        "t within 120 s" rule.
+    Live mode without an experiment, or an experiment without its PREREG,
+    fails here at build time, and again in every snapshot."""
+    if config.snapshot.experiment_id is not None:
+        require_prereg(config.snapshot.experiment_id)
+    elif config.snapshot.mode == "live":
+        raise ExperimentError("live mode needs snapshot.experiment_id with a PREREG under agents/experiments/")
     voters = dict(default_voters() if voters is None else voters)
     if not voters:
         raise ValueError("at least one voter")
@@ -101,7 +111,7 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 "as_of": floor_minute(ev.t), "status": "running", "skip_reason": None}
 
     def snapshot_node(state: RunState):
-        out = prepare_snapshot(state["event"].t, config.snapshot, db, store)
+        out = prepare_snapshot(state["event"].t, config.snapshot, db, store, wall_clock)
         if isinstance(out, Stale):
             return {"status": "skipped", "skip_reason": out.reason}
         return {"snap": out}
@@ -119,7 +129,8 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
         return voter_node
 
     def aggregator_node(state: RunState):
-        return {"decisions": {"blind": aggregate_v0(state["votes"], state["run_id"], state["snap"].hash)}}
+        snap = state["snap"]
+        return {"decisions": {"blind": aggregate_v0(state["votes"], state["run_id"], snap.hash, snap.experiment_id)}}
 
     def risk_node(state: RunState):
         return {"final_decisions": {arm: apply_risk(d) for arm, d in state["decisions"].items()}}

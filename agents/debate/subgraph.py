@@ -124,7 +124,7 @@ def make_debate_node(debaters: Mapping[str, Debater], judge: Judge, cfg: DebateC
         result = run_debate(compiled, snap, votes, state["decisions"]["blind"].direction, cfg.max_rounds)
         decision = Decision(run_id=state["run_id"], snapshot_hash=snap.hash, arm="debate",
                             direction=outcome_to_direction(result.outcome), reason=result.reason,
-                            decided_by=result.judge_name)
+                            decided_by=result.judge_name, experiment_id=snap.experiment_id)
         return {"debate_result": result, "decisions": {"debate": decision}}
 
     return debate_node

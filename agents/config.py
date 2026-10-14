@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agents.hashing import canonical_json, sha256_hex
+from agents.prereg import EXPERIMENT_ID
 from agents.schemas import TIMEFRAMES
 
 
@@ -32,9 +33,14 @@ class SnapshotConfig(_Cfg):
     keep: dict[str, int] = Field(default_factory=lambda: {"1m": 240, "15m": 192, "1h": 120, "4h": 120})
     # newest 1m bar must have completed at most this long before as_of
     max_staleness: timedelta = timedelta(minutes=5)
+    # agents/experiments/<experiment_id>/PREREG.md. Required in live mode;
+    # optional in replay. Stored on every snapshot and decision.
+    experiment_id: str | None = None
 
     @model_validator(mode="after")
     def _check(self):
+        if self.experiment_id is not None and not EXPERIMENT_ID.fullmatch(self.experiment_id):
+            raise ValueError(f"bad experiment_id {self.experiment_id!r}")
         if "1m" not in self.keep or not set(self.keep) <= set(TIMEFRAMES):
             raise ValueError(f"keep must include '1m' and use only {list(TIMEFRAMES)}")
         if any(n < 1 for n in self.keep.values()):

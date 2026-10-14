@@ -100,7 +100,7 @@ class Event(_Frozen):
 
 
 class Snapshot(_Frozen):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[2] = 2       # 2: experiment_id added
     symbol: str = Field(min_length=1)
     as_of: UtcDatetime                   # every bar has ts < as_of
     kinds: tuple[str, ...]
@@ -110,6 +110,7 @@ class Snapshot(_Frozen):
     levels: tuple[Level, ...] = ()
     features: dict[str, float] = Field(default_factory=dict)
     events: tuple[Event, ...] = ()
+    experiment_id: str | None = None     # provenance; never render it into a prompt
     hash: str = ""                       # computed; a wrong value raises
 
     def content_hash(self) -> str:
@@ -245,6 +246,7 @@ class Decision(_ModelMeta):
     direction: Direction
     reason: str
     decided_by: str                      # "aggregator_v0" or the judge's name
+    experiment_id: str | None = None     # = the snapshot's
     entry: float | None = None           # entry .. sigma: filled by risk/ later
     sl: float | None = None
     tp: float | None = None

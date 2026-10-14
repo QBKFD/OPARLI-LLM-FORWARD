@@ -22,5 +22,10 @@ class MemoryStore:
             raise StoreConflict(f"run {run.run_id} already stored")
         if run.snapshot_hash is not None and run.snapshot_hash not in self.snapshots:
             raise StoreConflict(f"run {run.run_id}: snapshot {run.snapshot_hash} was never saved")
+        for d in decisions:
+            snap = self.snapshots.get(d.snapshot_hash)
+            if snap is not None and snap.experiment_id != d.experiment_id:
+                raise ValueError(f"decision {d.arm} has experiment_id {d.experiment_id!r}, "
+                                 f"its snapshot has {snap.experiment_id!r}")
         self.runs[run.run_id] = {"run": run, "votes": tuple(votes), "decisions": tuple(decisions),
                                  "debate": debate}

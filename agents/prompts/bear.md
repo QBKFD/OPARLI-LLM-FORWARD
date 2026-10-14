@@ -1,5 +1,6 @@
 <!--
 Template for a FUTURE LLM bear debater. NOT called anywhere in this PR.
+Never render snapshot.experiment_id (or any experiment name) into the prompt.
 Placeholders ({{...}}) are filled by code from the DebaterView only:
 role, round, snapshot_json, round1_votes_json, opponent_previous_turn_json.
 The prompt_hash stored with each turn is the sha256 of the rendered prompt.

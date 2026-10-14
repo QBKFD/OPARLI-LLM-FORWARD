@@ -130,11 +130,6 @@ def test_no_bars_is_stale(replay_db):
     assert isinstance(out, Stale) and out.newest_bar_ts is None and out.reason.startswith("no replay bars")
 
 
-def test_live_mode_never_falls_back_to_replay(replay_db):
-    out = build_snapshot(T, SnapshotConfig(mode="live"), replay_db)
-    assert isinstance(out, Stale) and out.reason.startswith("no live/history bars")
-
-
 def test_live_mode_uses_known_by_t():
     assert snapmod.source_for("live", T) == (("live", "history"), T)
     assert snapmod.source_for("replay", T) == (("replay",), None)

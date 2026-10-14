@@ -1,6 +1,6 @@
 """SQLite agent store. Its own file ($AGENTS_DB), separate from the datafeed store.
 
-Tables (migration 1):
+Tables (migration 1; migration 2 adds experiment_id to snapshots and decisions):
   snapshots     one row per snapshot hash; canonical content JSON
   runs          one row per trigger: done, or skipped + reason
   votes         round-1 votes (round 1 = blind)
@@ -113,7 +113,14 @@ CREATE TABLE decisions (
     f"CREATE TRIGGER {t}_no_delete BEFORE DELETE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;\n"
     for t in TABLES)
 
-MIGRATIONS = [(1, _V1)]
+# Owner decision 2026-10-14: experiment_id on every snapshot and decision.
+_V2 = """
+ALTER TABLE snapshots ADD COLUMN experiment_id TEXT;
+ALTER TABLE decisions ADD COLUMN experiment_id TEXT;
+CREATE INDEX decisions_experiment ON decisions (experiment_id);
+"""
+
+MIGRATIONS = [(1, _V1), (2, _V2)]
 
 
 def _utcnow() -> str:
@@ -200,11 +207,11 @@ class SqliteAgentStore:
             else:
                 self.con.execute(
                     "INSERT INTO snapshots (snapshot_hash, schema_version, symbol, as_of, kinds, known_by,"
-                    f" newest_bar_ts, content_json, {', '.join(META)}, created_ts)"
-                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    f" newest_bar_ts, content_json, experiment_id, {', '.join(META)}, created_ts)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (snapshot.hash, snapshot.schema_version, snapshot.symbol, _iso(snapshot.as_of),
                      json.dumps(list(snapshot.kinds)), _iso(snapshot.known_by), _iso(snapshot.newest_bar_ts),
-                     content, None, None, None, None, None, self.now()))
+                     content, snapshot.experiment_id, None, None, None, None, None, self.now()))
             self.con.execute("COMMIT")
         except BaseException:
             self.con.execute("ROLLBACK")
@@ -241,12 +248,18 @@ class SqliteAgentStore:
                            t.n_valid(), int(t.conceded), t.error, *_meta(t), now))
             for d in decisions:
                 deb = debate if d.arm == "debate" else None
+                snap_exp = c.execute("SELECT experiment_id FROM snapshots WHERE snapshot_hash = ?",
+                                     (d.snapshot_hash,)).fetchone()
+                if snap_exp is not None and snap_exp[0] != d.experiment_id:
+                    raise ValueError(f"decision {d.arm} has experiment_id {d.experiment_id!r}, "
+                                     f"its snapshot has {snap_exp[0]!r}")
                 c.execute(f"INSERT INTO decisions (run_id, arm, snapshot_hash, direction, reason, decided_by,"
-                          f" debate_outcome, debate_max_rounds, entry, sl, tp, size, sigma, {', '.join(META)},"
-                          " created_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          f" debate_outcome, debate_max_rounds, entry, sl, tp, size, sigma, experiment_id,"
+                          f" {', '.join(META)}, created_ts)"
+                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (d.run_id, d.arm, d.snapshot_hash, d.direction, d.reason, d.decided_by,
                            deb.outcome if deb else None, deb.max_rounds if deb else None,
-                           d.entry, d.sl, d.tp, d.size, d.sigma, *_meta(d), now))
+                           d.entry, d.sl, d.tp, d.size, d.sigma, d.experiment_id, *_meta(d), now))
             c.execute("COMMIT")
         except BaseException:
             c.execute("ROLLBACK")
@@ -284,7 +297,7 @@ class SqliteAgentStore:
         decisions = tuple(Decision(run_id=d["run_id"], snapshot_hash=d["snapshot_hash"], arm=d["arm"],
                                    direction=d["direction"], reason=d["reason"], decided_by=d["decided_by"],
                                    entry=d["entry"], sl=d["sl"], tp=d["tp"], size=d["size"], sigma=d["sigma"],
-                                   **meta(d)) for d in rows)
+                                   experiment_id=d["experiment_id"], **meta(d)) for d in rows)
         debate = None
         deb_row = next((d for d in rows if d["arm"] == "debate"), None)
         if deb_row is not None:
