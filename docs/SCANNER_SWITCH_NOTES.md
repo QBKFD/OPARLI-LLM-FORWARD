@@ -42,18 +42,31 @@ Any other value stops the scanner at startup with an error. `--date` and
 3. **Consumption** (`StreamFeed`).
    - Every entry is classified once:
      - `invalid_msg`
-     - `history_skipped`: `history=true` is never live.
-     - `wrong_source`: only `source=ibkr` is accepted.
+     - `wrong_source`: only `source=ibkr` is accepted, history entries
+       included.
+     - `history_filled`: `history=true` for a minute without a bar, inside
+       the warm-up window. It is added to the levels' bars
+       (`LiveLevels.fill`), and the levels are rebuilt once per batch
+       (`refresh`). It never reaches the Scanner, so it never alerts (5e).
+     - `history_skipped`: `history=true` for a minute that already has a bar
+       (the live bar is kept).
      - `invalid_bars`
      - `before_warmup`
      - `duplicate`
      - `conflict`: same minute, different OHLC; the first bar is kept.
      - `out_of_order`: dropped.
      - `live_bars`: only these reach the level engine.
-   - A live bar that skips market-open minutes is logged as a gap.
+   - A live bar that skips market-open minutes is logged as a gap. That's a gap
+     in live coverage, logged even when history later fills those minutes.
+   - An alert dated on a history-filled minute is suppressed
+     (`history_touch_suppressed`): never sent, never journaled.
    - An entry is acked only after its alerts are journaled and sent.
-   - Alerts are journaled once, so a bar redelivered after a crash doesn't
-     resend its alert.
+   - Alerts go through `AlertSink` (both bar sources, 5d):
+     - journaled once, so a bar redelivered after a crash doesn't resend its
+       alert;
+     - an alert id is never reused within an epoch;
+     - touches made while no scanner was running are journaled as
+       `missed_while_down`, never sent.
 4. **Staleness**: no new live bar for `STREAM_STALE_MIN` = 10 market-open
    minutes sends one Telegram message. The next live bar sends one recovery
    message. Weekends and the daily break don't count. The ibkr path keeps its
@@ -207,6 +220,16 @@ Tunables are named constants in the scanner: `WARMUP_DAYS`,
   2. `source_switches(switch_ts_utc, from_source, to_source, epoch)`. A journal
      that already has alerts gets one row for its state at migration time:
      `(now, NULL, 'ibkr', 1)` for the production journal.
+  3. `alerts.status`: `'sent'` for every existing row, or
+     `'missed_while_down'`. Also
+     `scanner_state(key, value, updated_ts_utc)`, holding `last_live_bar_ts`:
+     the newest bar any live scanner processed, written after each live bar's
+     alerts.
+- **Alert status.** A `missed_while_down` alert was never shown to the human.
+  - It gets counterfactuals.
+  - It never gets an auto-MISSED decision.
+  - A Telegram reply can't decide it ("unknown alert_id").
+  - In the TAKE/SKIP analysis, count it as coverage lost, not as a decision.
 - **Epochs** (owner decision 2026-10-14): **every bar-source change starts a
   new epoch, and epochs are never reused.**
   - At start, each live path calls `start_epoch(con, source)`:
@@ -232,15 +255,17 @@ Tunables are named constants in the scanner: `WARMUP_DAYS`,
     that id.
 
 **The pre-migration code cannot write to a migrated journal.** Its INSERTs are
-positional: "table alerts has 10 columns but 8 values were supplied". A test
+positional: "table alerts has 11 columns but 8 values were supplied". A test
 pins this. So:
 - Back up the journal before the first deploy, e.g.
   `sqlite3 /data/scanner_decisions.sqlite ".backup /data/pre-epoch.sqlite"`.
 - Roll back with the switch, not with an older image.
 - If an older image is ever unavoidable, either restore the backup (rows written
   since are lost) or drop the columns (SQLite ≥ 3.35):
-  `ALTER TABLE alerts DROP COLUMN bar_source;`, then
-  `ALTER TABLE <t> DROP COLUMN epoch;` for all four tables, then
+  `ALTER TABLE alerts DROP COLUMN status;`,
+  `ALTER TABLE alerts DROP COLUMN bar_source;`,
+  `ALTER TABLE <t> DROP COLUMN epoch;` for all four tables,
+  `DROP TABLE source_switches; DROP TABLE scanner_state;`, then
   `PRAGMA user_version = 0;`.
 
 ## 5. Open decisions (owner)
@@ -293,16 +318,53 @@ pins this. So:
     IBKR history. A 13-day window on Thu–Sun may then fall below 80 %
     coverage, and the scanner waits (§1, point 1). Flip on Mon–Wed, or once the
     store holds two weeks.
-- **d. Restart semantics.**
-  - Touches during scanner downtime aren't alerted. The warm-up covers them
-    silently, as the ibkr path does today.
-  - If the scanner crashes after a bar reached the level engine but before its
-    alert was journaled, and the recorder already has that bar, the alert is
-    lost. The ibkr path has the same window.
-  - The alternative: persist the last processed bar_ts and replay the gap with
-    alerts.
-- **e.** History-flagged entries are ignored. They are not merged into the
-  levels' history, even when they fill minutes the scanner missed.
+- **d. Touches while down: decided 2026-10-14.** They are never sent as late
+  Telegram alerts. Both bar sources journal them as status
+  `missed_while_down` with the process's epoch, so coverage gaps are explicit
+  (`AlertSink`).
+  - **At start.** The first warm-up pass's alerts are journaled as missed if
+    they come from the 15-min bucket that was still open when the previous
+    process stopped, or later. That means
+    `alert_ts >= floor(last_live_bar_ts, 15 min)`; the previous process can't
+    have sent them. On the first start on a journal (no `last_live_bar_ts`),
+    nothing is recorded.
+  - **Live.** An alert flushed after the restart whose earliest touch is on a
+    warm-up bar (`alert_ts <= newest warm-up bar`) is journaled as missed, not
+    sent. Example: a touch while down, in a bucket that closes after the
+    restart.
+  - An alert already journaled (same id, time and types, any epoch) is not
+    repeated. This covers a crash between the journal write and the progress
+    write.
+  - Edge case: a bucket can combine a touch from before the restart with a
+    touch at the same price after it, into one alert. It is dated by the
+    earlier touch, so it is journaled as missed: the arrival at that level
+    happened while down.
+  - `test_restart_coverage_is_complete_and_nothing_is_sent_late` checks
+    2025-06-16 with the scanner down 07:05–07:13 and 07:05–09:00. The alerts
+    sent before, the alerts sent after, and the alerts journaled as missed
+    together equal one continuous run exactly, and nothing touched before the
+    restart is sent.
+  - Not covered: a touch on a live bar the scanner processed whose alert was
+    lost to a crash *and* whose bar the warm-up never re-derives. That can't
+    happen with the store warm-up (it re-derives every bar), only if the
+    warm-up window is shorter than the downtime (> 10–13 days).
+- **e. History-flagged bars: decided 2026-10-14.** They fill gaps for levels
+  and warm-up only, and never trigger an alert.
+  - **Filling.** A history bar for a minute without a bar, inside the warm-up
+    window, joins the levels' bars. A minute that already has a bar keeps it.
+  - **Rebuild.** After a batch with fills, the levels and first-touch state are
+    rebuilt once from all bars before the newest live bar. A level touched only
+    on a history bar is consumed silently, like a touch during warm-up.
+  - **Suppression.** An alert dated on a history-filled minute is suppressed.
+    That catches a touch from a history bar in a bucket that closes on a live
+    bar.
+  - **Ids.** A rebuild over fills can renumber a day's alerts, so `AlertSink`
+    never reuses an id within an epoch: a taken id gets the day's next free
+    number, which is logged.
+  - **Tests.** In `test_history_fill.py`, 2025-06-16's first 31 or 25 minutes
+    arrive only as history. The day's first three touches are never alerted;
+    DOPEN, ASIA_H and ASIA_L include the filled bars; every other alert equals
+    a continuous replay.
 - **f. Gateway rule: decided 2026-10-14.**
   - With stream mode, the feed is the **only** client of the production
     gateway. The scanner in stream mode never connects: it has no IBKR
@@ -373,17 +435,17 @@ pins this. So:
   The datafeed and scanner Redis tests run against DB 15.
 - **Baseline** (`main` @ 9042270): full pytest 393 passed, 7 skipped; datafeed
   Redis tests 6 passed, 1 skipped (the manual IBKR test); selftest ALL PASSED.
-- **This branch, after the owner's decisions (2026-10-14):**
-  - Selftest: ALL PASSED. It has 13 cases: 12 covers the journal epochs and
-    `source_switches`, 13 the midnight start-up.
-  - Full pytest with `REDIS_TEST_URL=redis://localhost:6379/15`: 513 passed,
+- **This branch, after all owner decisions (2026-10-14):**
+  - Selftest: ALL PASSED, 13 cases.
+  - Full pytest with `REDIS_TEST_URL=redis://localhost:6379/15`: 532 passed,
     1 skipped (the manual IBKR test), 0 failed.
-  - Without `REDIS_TEST_URL` (as the baseline): 480 passed, 34 skipped
-    (Redis cases), 0 failed. All 393 baseline tests pass.
+  - Without `REDIS_TEST_URL` (as the baseline): 496 passed, 37 skipped (Redis cases), 0 failed. All 393
+    baseline tests pass.
   - Datafeed Redis tests: 6 passed, 1 skipped.
 - **Smoke test** (`--dry-live`, stream mode, local Redis, synthetic store):
   - warm-up via the store;
-  - a history entry skipped and a replay-source entry ignored;
+  - a history entry skipped (that build ignored history entries; they now
+    fill gaps, 5e) and a replay-source entry ignored;
   - a gap logged;
   - one alert journaled as epoch 2, `stream`;
   - a restart with nothing redelivered and no duplicate alert;
