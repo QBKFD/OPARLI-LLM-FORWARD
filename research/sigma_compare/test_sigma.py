@@ -247,3 +247,57 @@ def test_rule_needs_both_horizons():
     assert one["choice"] == "a" and one["tests"]["b|H60"]["significant"]
     tie = rs.verdict({60: rows_for_rule(1, False), 240: rows_for_rule(2, False)})
     assert tie["choice"] == "a"                          # ties go to the plug-in
+
+
+# ---------------------------------------------------------------- step 3: model file and proposed sigma
+
+import har_sigma as hs  # noqa: E402
+
+MODEL = HERE / "model" / "sigma_har_v1.json"
+
+
+def test_model_file_verifies_and_detects_tampering(tmp_path):
+    if not MODEL.exists():
+        pytest.skip("model file not written yet")
+    d = hs.verify(MODEL)
+    model = hs.from_payload(d)
+    assert model.version == 1 and set(model.horizons) == {60, 240}
+    assert all(len(beta) == 4 for beta, _ in model.horizons.values())
+    assert pd.Timestamp(model.params.train_end) <= pd.Timestamp("2024-01-01", tz=UTC)
+    d.pop("sha256")
+    d["horizons"]["60"]["beta"][1] += 1e-9
+    bad = tmp_path / "bad.json"
+    bad.write_text(__import__("json").dumps({**d, "sha256": hs.verify(MODEL)["sha256"]}))
+    with pytest.raises(ValueError, match="sha256"):
+        hs.verify(bad)
+
+
+def model_from_fit(fit):
+    return hs.HarSigmaModel(version=0, sha256="", params=fit.params,
+                            horizons={H: (tuple(fit.model[H]["beta"]), fit.model[H]["c"])
+                                      for H in rs.HORIZONS})
+
+
+def test_proposed_sigma_equals_study_har_forecast(syn):
+    m, ctx = syn
+    fit = rs.fit_fold(ctx, CFG, CFG["edges"][0])
+    model = model_from_fit(fit)
+    rng = np.random.default_rng(12345)
+    for H in rs.HORIZONS:
+        rows = rs.common_rows(rs.fold_rows(ctx, fit, H, CFG["edges"][1], 1, "x", "all"))
+        assert rows.crossing.any() and (~rows.crossing).any()
+        for t in rows.index[rng.choice(len(rows), 40, replace=False)]:
+            st = vb.state_at(fit.params, m[(m.index >= t - pd.Timedelta(days=21)) & (m.index < t)], t)
+            assert st.reason is None
+            s = hs.sigma_har(model, st, H)
+            assert s.sigma_ret ** 2 == pytest.approx(rows.at[t, "h_b"], rel=1e-9)
+            assert s.crosses_close == rows.at[t, "crossing"]
+
+
+def test_proposed_sigma_refuses_unfitted_horizon(syn):
+    _, ctx = syn
+    fit = rs.fit_fold(ctx, CFG, CFG["edges"][0])
+    st = vb.VolState(pd.Timestamp("2021-03-24 10:00", tz=UTC).to_pydatetime(), None,
+                     0.0, 0.0, 0.0, 1800.0, None, None)
+    with pytest.raises(ValueError, match="not fitted"):
+        hs.sigma_har(model_from_fit(fit), st, 120)
