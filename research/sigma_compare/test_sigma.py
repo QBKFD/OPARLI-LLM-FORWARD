@@ -301,3 +301,22 @@ def test_proposed_sigma_refuses_unfitted_horizon(syn):
                      0.0, 0.0, 0.0, 1800.0, None, None)
     with pytest.raises(ValueError, match="not fitted"):
         hs.sigma_har(model_from_fit(fit), st, 120)
+
+
+# ---------------------------------------------------------------- post-hoc helpers
+
+def test_posthoc_rows_match_the_study_forecasts(syn):
+    import posthoc as ph
+    _, ctx = syn
+    fit = rs.fit_fold(ctx, CFG, CFG["edges"][0])
+    X, ok_x, P = ph.refeature(ctx, fit.params)
+    np.testing.assert_array_equal(X, fit.X)
+    for H in rs.HORIZONS:
+        np.testing.assert_array_equal(P[H], fit.P[H])
+    rows = ph.rows_from(ctx, X, ok_x, P, fit.model, CFG["edges"][0], CFG["edges"][1])
+    for H in rs.HORIZONS:
+        ref = rs.common_rows(rs.fold_rows(ctx, fit, H, CFG["edges"][1], 1, "x", "all"))
+        ref = ref[~ref.crossing]
+        assert rows[H].index.equals(ref.index)
+        np.testing.assert_array_equal(rows[H].h_a, ref.h_a)
+        np.testing.assert_array_equal(rows[H].h_b, ref.h_b)
