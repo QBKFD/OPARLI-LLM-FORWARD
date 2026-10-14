@@ -421,7 +421,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     `python -m datafeed.recorder` logs it every 60 s.
   - **Not covered.** A message the store keeps failing on (not a validation
     error) is retried forever and shows up only in `error_count`. No
-    dead-letter stream in v1.
+    dead-letter stream in v1. (Fixed later by Fix E.)
 
 - **Step 7: local run.**
   - **Files.** `deploy/datafeed/docker-compose.yml` (header: "Not deployed.
@@ -505,6 +505,32 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     its end, a string t with a non-UTC offset, the timedelta window and a
     naive t. Both tests fail on the old code. tests/datafeed: 77 passed,
     7 skipped (was 76 + 7).
+
+- **Fix E: poison messages** (owner request, 2026-10-14).
+  - **Problem.** A message that passes validation but makes the store write
+    fail (e.g. `open: null` → NOT NULL) rolled back its whole batch, and the
+    batch was redelivered and failed forever: the recorder was stuck.
+  - **Rule.** Every failed batch counts a failure against each of its
+    entries. Once an entry has failed `MAX_BATCH_FAILURES` = 3 times, its batch
+    is reprocessed one message per transaction. A message that still fails is
+    written to `rejected_messages` (stage `poison`) and acked; the rest are
+    recorded and acked one by one.
+  - **Failing store is not poison.** If the `rejected_messages` row can't be
+    written either, the store itself is failing (disk full, locked). Nothing
+    more is acked, the error is counted and the batch is retried after 5 s.
+    Bars are never given up on because of a broken store.
+  - **Failure counts are in memory.** After a restart a batch gets 3 fresh
+    attempts.
+  - **Migration 0003: `rejected_messages`.** Columns `stream`, `stream_id`,
+    `raw` (message JSON), `error`, `stage` (`invalid` | `poison`),
+    `first_seen` (first failure). Primary key `(stream, stream_id)`; a
+    redelivery after a crash between COMMIT and ack is a no-op.
+  - **Health.** New counters `poison` and `split_batches`.
+  - **Tests.** One bad message in a batch of 10: three batch failures, then
+    9 recorded, 1 in `rejected_messages`, all 10 acked, and later messages go
+    through as normal batches. A failing store (insert and reject both fail)
+    records nothing, gives up on nothing and records everything once it
+    recovers. `reject_message` is idempotent per stream id.
 
 ## Scanner bugs to fix at switch time (new journal epoch)
 

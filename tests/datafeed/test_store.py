@@ -1,5 +1,6 @@
 """Step 5: store schema, idempotent writes, conflicts, point-in-time reads."""
 
+import json
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -40,10 +41,10 @@ def write(con, msgs):
 
 def test_schema_version_and_wal(db):
     path, con = db
-    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 2
+    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 3
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con2 = schema.connect(path)                     # re-open: migrations not re-applied
-    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 2
+    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 3
     con2.close()
 
 
@@ -236,8 +237,26 @@ def test_migration_2_moves_v1_replay_rows(tmp_path):
                      m["open"], m["high"], m["low"], m["close"], m["n_ticks"], m["source"],
                      1, schema.canonical(m["ingest_ts"]), "2026-03-02T12:00:00+00:00"))
     con.execute("COMMIT")
-    assert schema.migrate(con) == 2
+    assert schema.migrate(con) == len(schema.MIGRATIONS)
     got = {(r["bar_ts"][11:16], r["kind"], r["source"]) for r in con.execute("SELECT * FROM bars")}
     assert got == {("10:00", "replay", "replay"), ("10:00", "history", "ibkr"), ("10:01", "live", "ibkr")}
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("INSERT INTO bars VALUES ('X','t','bogus',1,1,1,1,NULL,'s',1,'t','t')")
+
+
+def test_reject_message_idempotent_per_stream_id(db):
+    import sqlite3
+    path, con = db
+    bad = dict(msg("2026-03-02 10:00", 1.0), open=None)
+    con.execute("BEGIN")
+    schema.reject_message(con, "s", "7-0", bad, "IntegrityError('x')", "poison", T("2026-03-02 10:05"))
+    schema.reject_message(con, "s", "7-0", bad, "again", "poison", T("2026-03-02 11:00"))  # redelivery
+    schema.reject_message(con, "other", "7-0", bad, "y", "invalid", T("2026-03-02 10:06"))
+    con.execute("COMMIT")
+    got = [dict(r) for r in con.execute("SELECT * FROM rejected_messages ORDER BY stream")]
+    assert [(r["stream"], r["stage"], r["first_seen"], r["error"]) for r in got] == [
+        ("other", "invalid", "2026-03-02T10:06:00+00:00", "y"),
+        ("s", "poison", "2026-03-02T10:05:00+00:00", "IntegrityError('x')")]
+    assert json.loads(got[1]["raw"]) == bad
+    with pytest.raises(sqlite3.IntegrityError):
+        schema.reject_message(con, "s", "8-0", bad, "e", "bogus", T("2026-03-02 10:05"))

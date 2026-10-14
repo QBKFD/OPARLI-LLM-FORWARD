@@ -1,12 +1,15 @@
-"""Step 6: recorder over InMemoryBus — commit-then-ack, crash windows, health."""
+"""Step 6: recorder over InMemoryBus — commit-then-ack, crash windows, poison
+messages, health."""
 
+import json
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from datafeed.bus import InMemoryBus
 from datafeed.ingest.xauusd_bars import STREAM, Bar, bar_message
-from datafeed.recorder.recorder import GROUP, Recorder
+from datafeed.recorder.recorder import GROUP, MAX_BATCH_FAILURES, Recorder
 from datafeed.store import schema
 from datafeed.store.query import bars_before
 
@@ -128,6 +131,67 @@ def test_store_error_rolls_back_and_retries(env, monkeypatch):
     assert rows(path) == [] and rec.health()["error_count"] == 1
     rec.run(stop_when_idle=True)
     assert len(rows(path)) == 5
+
+
+def rejected(path):
+    con = schema.connect(path)
+    out = [dict(r) for r in con.execute("SELECT * FROM rejected_messages ORDER BY stream_id")]
+    con.close()
+    return out
+
+
+def test_poison_message_isolated_after_n_failures(env):
+    bus, path = env
+    msgs = bars(10)
+    msgs[4] = dict(msgs[4], open=None)            # passes validation, fails NOT NULL in the store
+    ids = [bus.publish(STREAM, m) for m in msgs]
+    now = T0 + timedelta(minutes=12)
+    rec = recorder(bus, path, count=10, clock=lambda: now)
+    for i in range(MAX_BATCH_FAILURES):           # the whole batch rolls back each time
+        rec.step()
+        assert rows(path) == [] and rec.stats["errors"] == i + 1
+    rec.step()                                    # redelivered again: one message per transaction
+    assert len(rows(path)) == 9 and rec.stats["inserted"] == 9
+    assert rec.stats["poison"] == 1 and rec.stats["split_batches"] == 1
+    (r,) = rejected(path)
+    assert (r["stream"], r["stream_id"], r["stage"]) == (STREAM, ids[4], "poison")
+    assert "NOT NULL" in r["error"] and json.loads(r["raw"]) == msgs[4]
+    assert r["first_seen"] == schema.canonical(now)
+    assert bus.consume(STREAM, GROUP, "recorder-1") == []          # all 10 acked
+    for m in bars(3, start=10):                   # not stuck: later messages go through as batches
+        bus.publish(STREAM, m)
+    rec.run(stop_when_idle=True)
+    assert len(rows(path)) == 12 and rec.stats["batches"] == 1
+
+
+def test_failing_store_never_drops_bars(env, monkeypatch):
+    # the store itself fails (disk full): even the rejected_messages row can't be
+    # written, so nothing is acked or given up on, and everything lands once it recovers
+    bus, path = env
+    for m in bars(5):
+        bus.publish(STREAM, m)
+    rec = recorder(bus, path, count=5)
+    broken = {"on": True}
+    real_insert, real_reject = schema.insert_bar, schema.reject_message
+
+    def insert(con, msg):
+        if broken["on"]:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real_insert(con, msg)
+
+    def reject(*a, **kw):
+        if broken["on"]:
+            raise sqlite3.OperationalError("database or disk is full")
+        return real_reject(*a, **kw)
+    monkeypatch.setattr(schema, "insert_bar", insert)
+    monkeypatch.setattr(schema, "reject_message", reject)
+    for _ in range(MAX_BATCH_FAILURES + 2):
+        rec.step()
+    assert rows(path) == [] and rejected(path) == [] and rec.stats["poison"] == 0
+    broken["on"] = False
+    rec.run(stop_when_idle=True)
+    assert len(rows(path)) == 5 and rejected(path) == []
+    assert bus.consume(STREAM, GROUP, "recorder-1") == []
 
 
 def test_invalid_message_rejected_and_acked(env):

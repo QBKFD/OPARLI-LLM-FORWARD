@@ -124,6 +124,12 @@ SQLite in WAL mode. Migrations are numbered in `datafeed/store/schema.py`.
     `bar_conflicts`, and the first recorded row is kept.
 - **`bar_conflicts`**: append-only log of rejected writes (stored row + incoming
   message, as JSON).
+- **`rejected_messages`**: bus entries the recorder acked without a bar row,
+  with the raw message JSON, the error, `first_seen` and the stream id.
+  Stage `poison`: a message that still failed the store write when retried on
+  its own, after its batch failed 3 times (`MAX_BATCH_FAILURES`). The other
+  messages in that batch are recorded. If the store itself is failing, nothing
+  is given up on: the batch waits until the store recovers.
 - **`schema_version`**: applied migrations.
 
 ## The "as of t" rule
