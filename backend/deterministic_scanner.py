@@ -817,6 +817,22 @@ def _market_open(now) -> bool:
     return True
 
 
+def beat(path) -> None:
+    """Heartbeat: write the current UTC time to `path` (SCANNER_HEARTBEAT), via a
+    temp file and os.replace so a reader never sees a partial write. The compose
+    healthcheck and watchdog.sh treat a stale file as a hung main loop. No path:
+    no file (the default). A write error is logged, never raised."""
+    if not path:
+        return
+    try:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w") as f:
+            f.write(pd.Timestamp.now(tz="UTC").isoformat())
+        os.replace(tmp, path)
+    except OSError as e:
+        print(f"heartbeat write to {path} failed ({e!r})", flush=True)
+
+
 def _send_quietly(tg, text: str):
     """Confirmation messages are best-effort: the decision is already logged."""
     try:
@@ -907,8 +923,10 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 
     offset = 0
     last_sweep = 0.0
+    heartbeat = os.environ.get("SCANNER_HEARTBEAT")
     try:
         while True:
+            beat(heartbeat)
             # Crash-only: a dropped gateway (daily restart / weekly 2FA) surfaces
             # as not-connected. Back off, then exit so Docker restarts us into a
             # clean full reconnect. The backoff stops a fast restart-loop while the
@@ -972,6 +990,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 # ibkr path doesn't need the package installed.
 BAR_SOURCES = ("ibkr", "stream")
 STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
+                                 # (SCANNER_STREAM_GROUP overrides it, e.g. for a parallel dry run: consumers
+                                 # of ONE group split the entries, separate groups each get all of them)
 STREAM_BATCH = 500               # entries per consume call
 STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
 WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
@@ -1068,17 +1088,21 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
 
 def wait_for_store(notify, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
                    clock=lambda: pd.Timestamp.now(tz="UTC"), sleep=None,
-                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print):
+                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print,
+                   beat=None):
     """stream_warmup, retried every retry_s until the store is usable. Returns
     (hist, now, detail), where now is the moment of the successful read.
 
     One notify() message once the store has been unusable for `n` market-open
     minutes since the wait began (weekends and the daily break don't count),
-    and one more when it becomes usable after that message."""
+    and one more when it becomes usable after that message. beat() runs on
+    every pass (the heartbeat: waiting is alive, not hung)."""
     import time as _time
     sleep = sleep or _time.sleep
     began, warned = _utc(clock()), False
     while True:
+        if beat:
+            beat()
         now = _utc(clock())
         try:
             hist, detail = stream_warmup(now, db=db, symbol=symbol, kinds=kinds)
@@ -1170,7 +1194,7 @@ class StreamFeed:
                  last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
                  count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print,
                  staleness: StreamStaleness | None = None, clock=lambda: pd.Timestamp.now(tz="UTC"),
-                 progress=None, on_history=None):
+                 progress=None, on_history=None, group: str = STREAM_GROUP):
         import contextlib
         self.bus, self.stream, self.consumer = bus, stream, consumer
         self.live, self.on_alert = live, on_alert
@@ -1179,6 +1203,7 @@ class StreamFeed:
         self.count, self.block_ms, self.log = count, block_ms, log
         self.staleness, self.clock, self.progress = staleness, clock, progress
         self.on_history = on_history
+        self.group = group
         self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
         self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
         hist = getattr(live, "hist", None)
@@ -1189,13 +1214,13 @@ class StreamFeed:
              "out_of_order", "gaps", "gap_minutes", "alerts", "history_touch_suppressed"), 0)
 
     def step(self) -> int:
-        batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
+        batch = self.bus.consume(self.stream, self.group, self.consumer,
                                  count=self.count, block_ms=self.block_ms)
         seen: dict[str, int] = {}
         filled_before = self.stats["history_filled"]
         for d in batch:
             kind = self._handle(d)
-            self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
+            self.bus.ack(self.stream, self.group, d.id)        # only after it was handled
             self.stats[kind] += 1
             self.stats["entries"] += 1
             seen[kind] = seen.get(kind, 0) + 1
@@ -1358,6 +1383,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     from datafeed.ingest.xauusd_bars import STREAM
 
     consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
+    group = env.get("SCANNER_STREAM_GROUP", STREAM_GROUP)         # a dry run alongside: its own group
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
@@ -1371,7 +1397,9 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
             _send_quietly(tg, text)
 
     down_from = last_live_bar(con)            # before this process records any progress
-    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol)
+    heartbeat = env.get("SCANNER_HEARTBEAT")
+    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol,
+                                       beat=lambda: beat(heartbeat))
     print(f"warm-up via {detail}", flush=True)
     live = LiveLevels(hist, now)
     warm_end = hist.index.max() if len(hist) else None
@@ -1381,7 +1409,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
 
     feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, sink,
                       lock=lock, last_bar_ts=warm_end, progress=sink.progress,
-                      on_history=sink.missed_history,
+                      on_history=sink.missed_history, group=group,
                       staleness=StreamStaleness(notify, started=now))
     fatal: list[BaseException] = []
 
@@ -1396,13 +1424,14 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     active = sum(1 for L in build_levels(live.hist)
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
-    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {STREAM_GROUP}, consumer "
+    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {group}, consumer "
           f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
 
     offset = 0
     last_sweep = 0.0
     try:
         while True:
+            beat(heartbeat)
             if fatal:
                 print(f"stream feed failed ({fatal[0]!r}); backing off then exiting for restart",
                       flush=True)
