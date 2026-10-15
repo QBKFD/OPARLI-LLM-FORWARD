@@ -178,14 +178,30 @@ The required number of trades is n = ((z₁₋α + z₁₋β) · σ_d / δ)² ·
     choices, never on forward data.
   - **N = the largest n over the three tests** at δ = 0.15 R. The table above
     is only a guide.
+- **Reported from the dev backtest,** because N and the expected duration
+  depend on them (both go into the final text next to N):
+  - **eligible trades per trading day** (alerts that pass §2), overall and by
+    year;
+  - **the abstention rate** (share of eligible alerts where the agent
+    abstains), overall, by year and by reason, with `no_structure_*` counted
+    separately;
+  - from these, the agent's **trades per day** = eligible per day × (1 −
+    abstention rate), and the expected months to reach N.
+  The forward abstention rate and trades per day are reported in the final
+  analysis next to these dev values. A difference is reported; it doesn't
+  change N or the cap.
 
 ## 9. Stopping rule
 
 - **Fixed size.** The analysis runs **once**, when N eligible agent trades
   have been scored. A trade counts once its 60-minute window has closed.
-- **Calendar cap: 12 months after the evidence start** (owner decision). If
-  the cap comes first, the analysis runs at the cap with the achieved n, and
-  the achieved power is reported. There is no extension.
+- **Calendar cap: 12 months after the evidence start** (owner decision).
+  - If N isn't reached by the cap, the analysis runs **at the cap with the N
+    achieved**, using the same tests, α and decision table.
+  - **Its power is reported:** the power each test had, at the achieved n,
+    to detect δ = 0.15 R, using the dev backtest's σ_d and DE. It is computed
+    before the outcomes are analysed, from n alone.
+  - **There is no extension,** of the window or of N, for any reason.
 - **No interim efficacy looks.** Weekly integrity checks are allowed:
   - event counts;
   - exclusions by reason;
