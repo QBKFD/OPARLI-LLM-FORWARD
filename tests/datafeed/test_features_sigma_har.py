@@ -20,8 +20,11 @@ ROOT = Path(__file__).resolve().parents[2]
 UTC = "UTC"
 
 
-def state(t, L=0.0, S_hd=0.0, T=0.0, close=2000.0, reason=None):
-    return vb.VolState(pd.Timestamp(t, tz=UTC).to_pydatetime(), None, L, S_hd, T, close, None, reason)
+def state(t, L=0.0, S_hd=0.0, T=0.0, close=2000.0, reason=None, model=None):
+    """A hand-built state stamped with the params hash of `model` (default model if None)."""
+    h = (model or vb.load_sigma_model()).params.sha256
+    return vb.VolState(pd.Timestamp(t, tz=UTC).to_pydatetime(), None, L, S_hd, T, close, None, reason,
+                       params_sha256=h)
 
 
 # ---------------------------------------------------------------- loading
@@ -37,11 +40,11 @@ def test_shipped_models_load_with_their_pinned_sha256(name):
 
 def test_default_and_config_selection(monkeypatch):
     monkeypatch.delenv(vb.SIGMA_MODEL_ENV, raising=False)
-    assert vb.DEFAULT_SIGMA_MODEL == "txt2007_2023"
-    assert vb.load_sigma_model().name == "txt2007_2023"
-    monkeypatch.setenv(vb.SIGMA_MODEL_ENV, "parquet2021_2023")
+    assert vb.DEFAULT_SIGMA_MODEL == "parquet2021_2023"
     assert vb.load_sigma_model().name == "parquet2021_2023"
-    assert vb.load_sigma_model("txt2007_2023").name == "txt2007_2023"     # explicit wins
+    monkeypatch.setenv(vb.SIGMA_MODEL_ENV, "txt2007_2023")
+    assert vb.load_sigma_model().name == "txt2007_2023"
+    assert vb.load_sigma_model("parquet2021_2023").name == "parquet2021_2023"   # explicit wins
     monkeypatch.setenv(vb.SIGMA_MODEL_ENV, "plugin")
     with pytest.raises(ValueError, match="unknown sigma model"):
         vb.load_sigma_model()
@@ -108,14 +111,14 @@ GOLDEN = {
 def test_equals_the_research_reference(name):
     model = vb.load_sigma_model(name)
     for t, H, (L, S_hd, T), close, s_ret, s_px, crosses in GOLDEN[name]:
-        s = vb.sigma_over(model, state(t, L, S_hd, T, close), H)
+        s = vb.sigma_over(model, state(t, L, S_hd, T, close, model=model), H)
         assert (s.sigma_ret, s.sigma_px, s.crosses_close, s.open_minutes, s.H) == \
             (s_ret, s_px, crosses, H, H)
 
 
 def test_formula_by_hand():
     model = vb.load_sigma_model("txt2007_2023")
-    st = state("2021-03-24 10:00", L=-0.2, S_hd=0.1, T=-0.05, close=1900.0)
+    st = state("2021-03-24 10:00", L=-0.2, S_hd=0.1, T=-0.05, close=1900.0, model=model)
     beta, c = model.horizons[240]
     minutes = [st.t + timedelta(minutes=k) for k in range(240)]            # no close inside
     assert all(_market_open(u) for u in minutes)
@@ -173,3 +176,46 @@ def test_from_a_real_state_built_with_the_model_params():
     for H in (60, 240):
         s = vb.sigma_over(model, st, H)
         assert s.sigma_ret > 0 and s.sigma_px == st.close_ref * s.sigma_ret
+
+
+# ---------------------------------------------------------------- the state's params must be the model's
+
+def bars_until(t_end, seed=12345):
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2021-03-01", t_end, freq="1min", tz=UTC, inclusive="left")
+    idx = idx[[_market_open(t.to_pydatetime()) for t in idx]]
+    close = 1800 * np.exp(np.cumsum(rng.normal(0, 2e-4, len(idx))))
+    return pd.DataFrame({"open": close, "high": close, "low": close, "close": close}, index=idx)
+
+
+def test_state_at_stamps_the_params_hash():
+    m = bars_until("2021-03-24 10:00")
+    for name in vb.SIGMA_MODELS:
+        params = vb.load_sigma_model(name).params
+        for t in ("2021-03-24 10:00", "2021-02-01 00:00"):          # valid, and no bars at all
+            assert vb.state_at(params, m, pd.Timestamp(t, tz=UTC)).params_sha256 == params.sha256
+    a, b = (vb.load_sigma_model(n).params.sha256 for n in sorted(vb.SIGMA_MODELS))
+    assert a != b and len(a) == 64
+
+
+def test_sigma_over_refuses_a_state_from_other_params():
+    m = bars_until("2021-03-24 10:00")
+    t = pd.Timestamp("2021-03-24 10:00", tz=UTC)
+    txt, parquet = vb.load_sigma_model("txt2007_2023"), vb.load_sigma_model("parquet2021_2023")
+    st_txt = vb.state_at(txt.params, m, t)
+    assert st_txt.reason is None
+    assert vb.sigma_over(txt, st_txt, 60).sigma_ret > 0                  # matching params: fine
+    with pytest.raises(ValueError, match="other VolParams"):
+        vb.sigma_over(parquet, st_txt, 60)                                # txt state, parquet model
+    unstamped = vb.VolState(st_txt.t, st_txt.label, st_txt.L, st_txt.S_hd, st_txt.T,
+                            st_txt.close_ref, st_txt.last_bar_ts, None)   # hand-built, no hash
+    with pytest.raises(ValueError, match="other VolParams"):
+        vb.sigma_over(txt, unstamped, 60)
+
+
+def test_params_hash_tracks_the_content():
+    p = vb.load_sigma_model().params
+    assert p.sha256 == vb.VolParams.from_json(p.to_json()).sha256         # stable over a round trip
+    prof = list(p.profile)
+    prof[0] = prof[0] * (1 + 1e-12)
+    assert vb.VolParams(tuple(prof), p.s_hour_mean, p.train_start, p.train_end).sha256 != p.sha256

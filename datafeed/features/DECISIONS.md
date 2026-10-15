@@ -63,3 +63,34 @@ here.
     from `research/sigma_compare/har_sigma.py` cover both models, crossing and
     non-crossing windows, mid-minute t and both DST seasons. They must match
     exactly (bit for bit).
+
+## Owner review (2026-10-15)
+
+12. **The default model is now `parquet2021_2023`** (owner's decision;
+    supersedes #3). Reasons:
+    - QLIKE is the study's primary metric, and it favours the parquet fit on
+      the 2022–2023 out-of-sample quarters (0.196 vs 0.209 at 60 min, 0.145 vs
+      0.157 at 240 min);
+    - it comes from the same data source as live;
+    - its calibration gap to the txt fit (P2 score 0.022 vs 0.018) is within
+      noise.
+    `txt2007_2023` stays selectable with `DATAFEED_SIGMA_MODEL=txt2007_2023`.
+
+    Note (added when applying): `research/vol_features/DATA_AUDIT_LONG.md`
+    found the parquet identical to `XAUUSD.txt` close for close for 2020–2023.
+    So what separates the two fits is the training window (2021–23 against
+    2007–23), not the data source. The QLIKE reason is unaffected.
+
+13. **#10 is now enforced** (supersedes #10).
+    - `VolParams.sha256` (the SHA-256 of `to_json()`) identifies a parameter
+      set. `state_at`, and so `read_state`, stamps it on every `VolState` as
+      `params_sha256`, a new last field defaulting to None. Positional
+      construction is unchanged.
+    - `sigma_over` raises when the state's hash differs from
+      `model.params.sha256`. A hand-built state without a hash also raises.
+    - `sigma_plugin` takes its `VolParams` explicitly and doesn't check the
+      hash; it is unchanged.
+    - Tested:
+      - a state from the txt params is refused by the parquet model;
+      - an unstamped state is refused;
+      - the hash survives a JSON round trip and changes with the content.

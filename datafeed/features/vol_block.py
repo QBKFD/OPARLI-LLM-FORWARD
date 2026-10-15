@@ -44,9 +44,11 @@ SIGMA OVER H MINUTES: sigma_over IS HAR (research/sigma_compare)
     Gap returns are dropped by the definitions above, so sigma holds no
     daily-break or weekend gap; `crosses_close` says the window spans a close.
     Whether such a trade is allowed is the caller's decision.
-    Two fits ship, chosen by name or $DATAFEED_SIGMA_MODEL: txt2007_2023
-    (default: the fit the parquet calibration check favoured) and
-    parquet2021_2023 (lower QLIKE on 2022-2023). See features/DECISIONS.md.
+    Two fits ship, chosen by name or $DATAFEED_SIGMA_MODEL: parquet2021_2023
+    (default: lower QLIKE on 2022-2023, the live data source) and txt2007_2023
+    (2007-2023). See features/DECISIONS.md.
+    The state must come from model.params: state_at stamps VolParams.sha256 on
+    every VolState, and sigma_over raises when it differs from the model's.
 
     sigma_plugin is the former plug-in, an engineering decision (owner,
     2026-10-14): exp(L) × the profile summed over the market-open minutes of
@@ -167,6 +169,12 @@ class VolParams:
             "train_start": _iso(self.train_start), "train_end": _iso(self.train_end),
         }, allow_nan=False)
 
+    @property
+    def sha256(self) -> str:
+        """SHA-256 of to_json(): identifies these parameters. state_at stamps it
+        on every VolState, and sigma_over checks it against the model's."""
+        return hashlib.sha256(self.to_json().encode()).hexdigest()
+
     @classmethod
     def from_json(cls, s: str) -> "VolParams":
         d = json.loads(s)
@@ -240,6 +248,7 @@ class VolState:
     last_bar_ts: datetime | None  # open time of that bar
     reason: str | None            # None, "no_bars_before_t", "no_label",
                                   # "insufficient_history" or "nan_features"
+    params_sha256: str | None = None   # VolParams.sha256 of the params that computed it
 
 
 def _utc_ts(t) -> pd.Timestamp:
@@ -255,22 +264,25 @@ def state_at(params: VolParams, m_1min: pd.DataFrame, t) -> VolState:
     t = _utc_ts(t)
     m = _check(m_1min)
     m = m[m.index + BAR <= t]
-    nan = math.nan
+    nan, h = math.nan, params.sha256
+
+    def out(*fields) -> VolState:
+        return VolState(t.to_pydatetime(), *fields, params_sha256=h)
+
     if m.empty:
-        return VolState(t.to_pydatetime(), None, nan, nan, nan, nan, None, "no_bars_before_t")
+        return out(None, nan, nan, nan, nan, None, "no_bars_before_t")
     close_ref, last_ts = float(m["close"].iat[-1]), m.index[-1].to_pydatetime()
     f = transform(params, m)
     f = f[f.index <= t]
     if f.empty:
-        return VolState(t.to_pydatetime(), None, nan, nan, nan, close_ref, last_ts, "no_label")
+        return out(None, nan, nan, nan, close_ref, last_ts, "no_label")
     i, label = len(f) - 1, f.index[-1].to_pydatetime()
     if i < WINDOWS[-1]:          # the longest window would reach row 0, which may be partial
-        return VolState(t.to_pydatetime(), label, nan, nan, nan, close_ref, last_ts,
-                        "insufficient_history")
+        return out(label, nan, nan, nan, close_ref, last_ts, "insufficient_history")
     L, S_hd, T = (float(f[c].iat[i]) for c in ("L", "S_hd", "T"))
     if not all(math.isfinite(x) for x in (L, S_hd, T)):
-        return VolState(t.to_pydatetime(), label, nan, nan, nan, close_ref, last_ts, "nan_features")
-    return VolState(t.to_pydatetime(), label, L, S_hd, T, close_ref, last_ts, None)
+        return out(label, nan, nan, nan, close_ref, last_ts, "nan_features")
+    return out(label, L, S_hd, T, close_ref, last_ts, None)
 
 
 def read_state(params: VolParams, symbol: str, t, *, db=None, kinds=DEFAULT_KINDS,
@@ -324,10 +336,11 @@ SIGMA_MODELS = {
     "parquet2021_2023": ("sigma_har_parquet2021_2023_v1.json",
                          "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"),
 }
-# The fit the parquet calibration check favoured (POSTHOC_RESULT.md, P2: score
-# 0.018 vs 0.022). The parquet fit had the lower QLIKE on 2022-2023; select it
-# with DATAFEED_SIGMA_MODEL=parquet2021_2023.
-DEFAULT_SIGMA_MODEL = "txt2007_2023"
+# The parquet fit (owner, 2026-10-15; features/DECISIONS.md #12): it has the lower
+# QLIKE (the study's primary metric) on 2022-2023 and comes from the same data
+# source as live; its calibration gap to the txt fit (0.022 vs 0.018) is within
+# noise. The txt fit stays selectable: DATAFEED_SIGMA_MODEL=txt2007_2023.
+DEFAULT_SIGMA_MODEL = "parquet2021_2023"
 MAX_WINDOW_SEARCH = timedelta(days=7)      # longer than any closure in the calendar
 
 
@@ -389,10 +402,14 @@ def open_window(t, H: int) -> tuple[list[datetime], datetime]:
 def sigma_over(model: SigmaModel, state: VolState, H: int) -> Sigma:
     """HAR sigma over the next H market-open minutes from state.t (see the
     module docstring). H must be a fitted horizon (60 or 240). The state must
-    come from state_at / read_state with model.params. Raises without a usable
-    state."""
+    come from state_at / read_state with model.params: its params hash is
+    checked. Raises without a usable state."""
     if isinstance(H, bool) or not isinstance(H, int) or H not in model.horizons:
         raise ValueError(f"H must be one of {sorted(model.horizons)} (minutes), got {H!r}")
+    if state.params_sha256 != model.params.sha256:
+        raise ValueError(f"state was computed with other VolParams (params hash "
+                         f"{state.params_sha256!r}, model {model.name!r} needs "
+                         f"{model.params.sha256!r}); use state_at / read_state with model.params")
     if state.reason is not None or not all(
             math.isfinite(x) for x in (state.L, state.S_hd, state.T, state.close_ref)):
         raise ValueError(f"no sigma without a valid state (reason {state.reason!r})")

@@ -83,7 +83,7 @@ crash-only: on any connection problem it backs off 20 s and exits non-zero.
 | `DATAFEED_DB` | recorder, query | SQLite store path |
 | `DATAFEED_RECORDER_CONSUMER` | recorder | consumer name, stable across restarts |
 | `REDIS_TEST_URL` | tests | a **throwaway** Redis; tests flush it |
-| `DATAFEED_SIGMA_MODEL` | `vol_block.load_sigma_model` | `txt2007_2023` (default) or `parquet2021_2023`, see `features/DECISIONS.md` |
+| `DATAFEED_SIGMA_MODEL` | `vol_block.load_sigma_model` | `parquet2021_2023` (default) or `txt2007_2023`, see `features/DECISIONS.md` |
 | `DATAFEED_IBKR_LIVE=1` | tests | enables the manual paper-gateway test |
 
 ## Message schema: stream `bars.xauusd.1m`, schema_version 1
