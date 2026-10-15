@@ -188,7 +188,7 @@ def test_dockerfile_pins_and_copies():
 
 def test_env_example_has_no_real_values():
     env = (DEPLOY / ".env.example").read_text()
-    for k in ("SCANNER_BAR_SOURCE=ibkr", "FEED_IB_CLIENT_ID=31", "BACKUP_S3_BUCKET=", "#COMPOSE_PROFILES=stream"):
+    for k in ("SCANNER_BAR_SOURCE=ibkr", "FEED_IB_CLIENT_ID=31", "BACKUP_S3_URI=s3://", "#COMPOSE_PROFILES=stream"):
         assert k in env
     assert "AWS_ACCESS_KEY" not in env and "AWS_SECRET" not in env
 

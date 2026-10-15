@@ -57,8 +57,7 @@ what has to be checked by hand the first time.
   SCANNER_BAR_SOURCE=ibkr
   FEED_IB_CLIENT_ID=31
   SCANNER_STREAM_CONSUMER=scanner-1
-  BACKUP_S3_BUCKET=YOUR-BUCKET
-  BACKUP_S3_PREFIX=oparli/scanner
+  BACKUP_S3_URI=s3://YOUR-BUCKET/oparli/scanner
   ```
 
 ## 1. Back up the journal first (old image)
@@ -109,10 +108,24 @@ Watch one market session: alerts and replies should look as before.
 ```
 
 The watchdog line is today's. Its state file gains new keys; the old file still
-loads. Run the backup once by hand, then check S3:
+loads.
+
+The backup also archives the datafeed store's bars as daily parquet, under
+`$BACKUP_S3_URI/archive/bars/date=YYYY-MM-DD/XAUUSD.parquet` (stream profile
+only):
+- It covers the last 7 completed UTC days and uploads only the days that are
+  missing, so a missed night is caught up the next night.
+- A day is exported once. History bars that reach the store for that day later
+  stay in the `store/` backups only.
+- The archive holds data from 2026-10-01 onward, which `research/SEALING.md`
+  seals: no study may read it before the final strategy test.
+- Each successful run writes `last_ok=<epoch>` to `~/.scanner-backup`. The
+  watchdog alerts when that is over 26 h old.
+
+Run the backup once by hand, then check S3:
 
 ```bash
-./backup.sh && aws s3 ls s3://YOUR-BUCKET/oparli/scanner/journal/
+./backup.sh && aws s3 ls --recursive s3://YOUR-BUCKET/oparli/scanner/
 ./restore.sh journal s3://YOUR-BUCKET/oparli/scanner/journal/<that file> # dry run: download + verify only
 ```
 

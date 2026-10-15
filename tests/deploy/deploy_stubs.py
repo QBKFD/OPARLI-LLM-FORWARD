@@ -18,6 +18,7 @@ from pathlib import Path
 
 DEPLOY = Path(__file__).resolve().parents[2] / "deploy" / "scanner"
 BACKUP_SQLITE = DEPLOY / "backup_sqlite.py"
+EXPORT_PARQUET = DEPLOY / "export_parquet.py"
 
 DOCKER = r'''#!PYTHON
 import json, os, shutil, subprocess, sys
@@ -37,6 +38,12 @@ def host(p):
 def run_in(cmd):
     if cmd[:2] == ["python", "/app/backup_sqlite.py"]:
         return subprocess.call([sys.executable, "BACKUP_SQLITE"] + [host(a) for a in cmd[2:]])
+    if cmd[:2] == ["python", "/app/export_parquet.py"]:
+        return subprocess.call([sys.executable, "EXPORT_PARQUET"] + [host(a) for a in cmd[2:]])
+    if cmd[:2] == ["rm", "-rf"]:
+        for a in cmd[2:]:
+            shutil.rmtree(host(a), ignore_errors=True)
+        return 0
     if cmd[:2] == ["rm", "-f"]:
         for a in cmd[2:]:
             try: os.remove(host(a))
@@ -66,8 +73,11 @@ if a[0] == "exec":
     svc, cmd = a[0], a[1:]
     sys.exit(run_in(cmd))
 if a[0] == "cp":
-    src, dst = a[1], a[2]
-    shutil.copyfile(host(src.split(":", 1)[1]), dst); sys.exit(0)
+    src, dst = host(a[1].split(":", 1)[1]), a[2]
+    if not os.path.exists(src):
+        print(f"docker stub: no such path {a[1]}", file=sys.stderr); sys.exit(1)
+    shutil.copytree(src, dst) if os.path.isdir(src) else shutil.copyfile(src, dst)
+    sys.exit(0)
 if a[0] == "run":
     a = a[1:]; ent = None
     while a and a[0].startswith("-"):
@@ -89,11 +99,13 @@ root = os.environ["STUB_ROOT"]
 args = sys.argv[1:]
 with open(os.path.join(root, "calls.jsonl"), "a") as f:
     f.write(json.dumps(["aws"] + args) + "\n")
+s3 = lambda u: os.path.join(root, "s3", u[len("s3://"):])
+if args[:2] == ["s3", "ls"]:
+    sys.exit(0 if os.path.exists(s3(args[2])) else 1)
 if os.environ.get("AWS_STUB_RC"):
     sys.exit(int(os.environ["AWS_STUB_RC"]))
 paths = [x for x in args[2:] if not x.startswith("--") and x != "AES256"]
 src, dst = paths
-s3 = lambda u: os.path.join(root, "s3", u[len("s3://"):])
 if dst.startswith("s3://"):
     os.makedirs(os.path.dirname(s3(dst)), exist_ok=True); shutil.copyfile(src, s3(dst))
 else:
@@ -112,7 +124,8 @@ with open(os.path.join(root, "calls.jsonl"), "a") as f:
 
 
 def _write(path, body):
-    path.write_text(body.replace("PYTHON", sys.executable).replace("BACKUP_SQLITE", str(BACKUP_SQLITE)))
+    path.write_text(body.replace("PYTHON", sys.executable).replace("BACKUP_SQLITE", str(BACKUP_SQLITE))
+                    .replace("EXPORT_PARQUET", str(EXPORT_PARQUET)))
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
 
 
@@ -134,7 +147,7 @@ class Stubs:
             if f.suffix in (".sh", ".py"):
                 shutil.copy2(f, self.dir / f.name)
         (self.dir / ".env").write_text("TELEGRAM_BOT_TOKEN=test-token  # comment\nTELEGRAM_CHAT_ID=42\n"
-                                       "BACKUP_S3_BUCKET=test-bucket\nBACKUP_S3_PREFIX=oparli/scanner\n")
+                                       "BACKUP_S3_URI=s3://test-bucket/oparli/scanner/\n")
         self.state = {}
 
     def env(self, **extra):

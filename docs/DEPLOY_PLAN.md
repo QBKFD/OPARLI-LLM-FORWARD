@@ -69,7 +69,7 @@ stack is run here. Those checks are listed for the owner in
   1. snapshots the journal (and the store, if the stream profile is up) inside
      the scanner container;
   2. copies it out, gzips it, and uploads it with
-     `aws s3 cp --sse AES256` to `s3://$BACKUP_S3_BUCKET/$BACKUP_S3_PREFIX/<kind>/<host>-<ts>.sqlite.gz`;
+     `aws s3 cp --sse AES256` to `$BACKUP_S3_URI/<kind>/<host>-<ts>.sqlite.gz`;
   3. removes the local copies.
 
   It never deletes from S3; retention is an S3 lifecycle rule (runbook). On

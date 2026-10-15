@@ -19,6 +19,7 @@ COPY backend/deterministic_scanner.py   /app/deterministic_scanner.py
 # datafeed is imported from /app (the working directory), not pip-installed
 COPY datafeed                           /app/datafeed
 COPY deploy/scanner/backup_sqlite.py    /app/backup_sqlite.py
+COPY deploy/scanner/export_parquet.py   /app/export_parquet.py
 COPY deploy/scanner/entrypoint.sh       /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh && find /app -name __pycache__ -prune -exec rm -rf {} +
 
