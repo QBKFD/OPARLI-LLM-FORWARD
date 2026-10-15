@@ -20,6 +20,17 @@ conservative option, log it here, continue. The workflow is
 | C8 | IBKR tests are deselected (`-m "not ibkr"`); they also skip without `DATAFEED_IBKR_LIVE=1`. | Never a gateway connection from CI. | none |
 | C9 | Bumped to the current majors on the owner's request: checkout v4.2.2 → **v7.0.1**, setup-python v5.6.0 → **v7.0.0** (both released 2026-07-20). Neither changelog affects this workflow: v7 setup-python drops the `pip-install` input, which isn't used, and v7 checkout blocks fork checkouts for `pull_request_target`/`workflow_run`, which aren't used. Pinned by SHA. | Removes the Node 20 deprecation warning, with versions ≥ 2 weeks old. | Stay on v4/v5. |
 
+## chore/loose-ends (merged in #8)
+
+Overnight run, 2026-10-15, unattended. Rule: on any decision, take the
+conservative option, log it here, continue.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| L1 | An undecodable bus entry is delivered as `Delivery(id, {"_undecodable": raw}, error=...)`, a dict that fails every consumer's validation, rather than `msg=None`. | Consumers that don't know the new `error` field reject it instead of crashing: the recorder via `validate_message`, and the scanner's `StreamFeed` on `feat/scanner-stream-source` as `invalid_msg`, which is acked. `msg=None` would crash both. | `msg=None`, with every consumer checking `error`. |
+| L2 | The recorder stores them in `rejected_messages` with stage `invalid` and the error prefixed `undecodable:`, with the raw text JSON-encoded in `raw`. | No migration: `stage` has a CHECK constraint (`invalid`, `poison`), and SQLite can only change it by rebuilding the table. | A store migration adding stage `undecodable`. |
+| L3 | The default Redis client is built with `encoding_errors="replace"`. | Invalid UTF-8 in an entry would otherwise raise inside redis-py's `XREADGROUP`, before the bus can catch it, and crash-loop every consumer of the stream. | Raw (bytes) client and manual decoding. |
+
 ## feat/deploy-stack
 
 Overnight run, 2026-10-15, unattended. Rule: on any decision, take the
