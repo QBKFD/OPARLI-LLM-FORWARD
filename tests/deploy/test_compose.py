@@ -3,10 +3,8 @@ local files and Redis, the entrypoint per bar source, and the Dockerfile."""
 
 import os
 import re
-import sqlite3
 import subprocess
 import time
-from pathlib import Path
 
 import pytest
 import yaml
