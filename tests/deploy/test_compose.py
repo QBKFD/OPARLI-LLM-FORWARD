@@ -138,7 +138,9 @@ def _entrypoint(tmp_path, py_rc, **env):
     b = tmp_path / "bin"
     b.mkdir(exist_ok=True)
     log = tmp_path / "py.log"
-    (b / "python").write_text(f'#!/bin/sh\necho "$@" >> {log}\ncase "$1" in -c) exit {py_rc};; esac\nexit 0\n')
+    (b / "python").write_text(f'#!/bin/sh\necho "$@" >> {log}\n'
+                              f'[ -n "$ALERT_TEXT" ] && echo "ALERT_TEXT=$ALERT_TEXT" >> {log}\n'
+                              f'case "$1" in -c) exit {py_rc};; esac\nexit 0\n')
     (b / "sleep").write_text("#!/bin/sh\nexit 0\n")
     for f in ("python", "sleep"):
         (b / f).chmod(0o755)
@@ -155,10 +157,40 @@ def test_entrypoint_stream_waits_for_redis_never_the_gateway(tmp_path):
     assert calls[-1] == "/app/deterministic_scanner.py --live"
 
 
-def test_entrypoint_stream_retries_then_starts_anyway(tmp_path):
+def test_entrypoint_stream_redis_timeout_alerts_and_exits_nonzero(tmp_path):
     r, calls = _entrypoint(tmp_path, 1, SCANNER_BAR_SOURCE="stream", REDIS_URL="redis://x")
+    assert r.returncode == 1
     assert sum("ping()" in c for c in calls) == 120           # 120 x 5 s, as the gateway wait
-    assert calls[-1] == "/app/deterministic_scanner.py --live"  # crash-only from here
+    assert not any("deterministic_scanner.py" in c for c in calls)          # never started
+    assert any("sendMessage" in c for c in calls)
+    assert any(c.startswith("ALERT_TEXT=⚠️ scanner: Redis not reachable for 10 min") for c in calls)
+    assert "alerting and exiting 1" in r.stderr
+
+
+def test_entrypoint_redis_wait_length_is_configurable(tmp_path):
+    r, calls = _entrypoint(tmp_path, 1, SCANNER_BAR_SOURCE="stream", REDIS_URL="redis://x",
+                           REDIS_WAIT_TRIES="3")
+    assert r.returncode == 1 and sum("ping()" in c for c in calls) == 3
+
+
+def test_entrypoint_alert_snippet_is_hourly(tmp_path):
+    """The Python the entrypoint runs to alert, executed for real (no token:
+    nothing is sent; the hourly marker logic is what's tested)."""
+    import sys
+    src = (DEPLOY / "entrypoint.sh").read_text()
+    code = re.search(r'ALERT_PY="(.*?)"\n', src, re.S).group(1)
+    marker = tmp_path / "marker"
+    env = {"PATH": os.environ["PATH"], "ENTRYPOINT_ALERT_MARKER": str(marker), "ALERT_TEXT": "x"}
+    assert subprocess.run([sys.executable, "-c", code], env=env, timeout=30).returncode == 0
+    assert marker.exists()
+    old = time.time() - 600
+    os.utime(marker, (old, old))
+    subprocess.run([sys.executable, "-c", code], env=env, timeout=30)
+    assert abs(marker.stat().st_mtime - old) < 1               # within the hour: not touched (no alert)
+    older = time.time() - 4000
+    os.utime(marker, (older, older))
+    subprocess.run([sys.executable, "-c", code], env=env, timeout=30)
+    assert marker.stat().st_mtime > time.time() - 60           # after an hour: alerted again
 
 
 @pytest.mark.parametrize("env", [{}, {"SCANNER_BAR_SOURCE": "ibkr"}])

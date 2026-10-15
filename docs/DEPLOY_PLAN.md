@@ -124,3 +124,13 @@ Shell scripts are linted with `shellcheck` if it can be installed locally
 
 Done when: full pytest with Redis is green, selftest is green, there's a secret
 scan, and the branch is pushed.
+
+## Addendum, 2026-10-15: items from the owner's original spec (gap D2)
+
+Added after the first build, one commit each:
+- **memory limits per service** for a 3.8 GB host, plus a swap file (D14);
+- **a daily parquet export** to `$BACKUP_S3_URI/archive/` (D15, D16);
+- **watchdog checks** for disk, memory, backup age, recorder lag and
+  rejected_messages growth, plus a daily heartbeat (D17–D19);
+- **an entrypoint Redis-wait timeout** with an alert and exit 1 (D20).
+

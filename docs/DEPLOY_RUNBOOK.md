@@ -173,7 +173,8 @@ docker compose logs -f scanner
 
 Expect, in order:
 1. `entrypoint: stream mode, waiting for Redis ... (no gateway probe)`, then
-   `Redis up`;
+   `Redis up`. If Redis doesn't answer within 10 min, the entrypoint sends one
+   Telegram alert (at most hourly) and exits 1, and Docker retries;
 2. `warm-up via store: ...` (if instead `warm-up: ...; scanner not started,
    retrying in 30s`, the reason is on the line);
 3. `LIVE (Telegram): scanning XAUUSD from stream bars.xauusd.1m (group scanner,
@@ -239,18 +240,30 @@ local IB Gateway paper on 4002. Run it on a Thursday or Friday:
 - If the verdict is "calendar days", the ibkr path builds PWH/PWL from part of
   a week from Thursday to Sunday. That's worth a follow-up.
 
-## 9. Monitoring after the flip
+## 9. Monitoring
 
 - **Telegram, from the scanner**: the staleness message after 10 market-open
   minutes without bars, and the store-wait message.
-- **Telegram, from the watchdog**:
+- **Telegram, from the entrypoint** (stream mode): Redis not reachable for
+  10 min.
+- **Telegram, from the watchdog** (every 5 min, one alert per kind per hour,
+  each with a recovery message):
   - gateway down;
   - scanner crash loop;
   - scanner hung (heartbeat);
   - feed or recorder crash loop;
   - Redis down;
-  - a recovery message for each.
-- **Telegram, from backup**: a message if the nightly backup fails.
+  - disk ≥ 85 %;
+  - memory available < 10 %;
+  - last successful backup > 26 h;
+  - recorder lag ≥ 15 market-open min;
+  - new `rejected_messages` (as a delta).
+
+  Thresholds are constants at the top of `watchdog.sh`.
+- **Daily heartbeat** from the watchdog, at or after 07:00 UTC, every day: a
+  one-line summary of all of the above. **No heartbeat by about 08:00 UTC
+  means the watchdog or its cron is broken.**
+- **Telegram, from backup**: a message if the nightly backup or archive fails.
 - **Logs**: `~/scanner-watchdog.log`, `~/scanner-backup.log`,
   `docker compose logs`.
 
@@ -274,4 +287,9 @@ Nothing below could be run where this was written (no Docker, no host access):
       A `--yes` restore on a copy is tested on purpose once.
 - [ ] The IAM role allows exactly what's listed in §0.
 - [ ] The watchdog cron's first runs log nothing unexpected
-      (`~/scanner-watchdog.log`).
+      (`~/scanner-watchdog.log`). The first daily heartbeat arrives after
+      07:00 UTC, and its disk, memory and backup numbers look right.
+- [ ] `docker stats --no-stream` after a day: every container well under its
+      `mem_limit`; the swap file is active (`swapon --show`).
+- [ ] The `archive/bars/date=.../XAUUSD.parquet` objects appear in S3 the
+      morning after the stream profile's first full day.
