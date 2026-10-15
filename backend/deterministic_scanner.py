@@ -18,6 +18,14 @@ unit test in --selftest), which keeps the replay and live paths identical.
 
 Replay:   python backend/deterministic_scanner.py --date 2025-06-16
 Self-test: python backend/deterministic_scanner.py --selftest
+Live:     python backend/deterministic_scanner.py --live | --dry-live
+
+Live bar source: SCANNER_BAR_SOURCE=ibkr (default) | stream.
+  ibkr    this process's own IBKR connection (run_live). Unchanged; it is the
+          rollback.
+  stream  the datafeed stream bars.xauusd.1m via datafeed.bus, consumer group
+          "scanner" (run_live_stream). Needs REDIS_URL and DATAFEED_DB. Never
+          connects to IBKR: the datafeed feed is the only gateway client.
 """
 from __future__ import annotations
 
@@ -218,24 +226,193 @@ class LiveLevels:
 
     def __init__(self, hist: pd.DataFrame, now):
         self.hist = hist
-        self._rebuild(now)
+        self.filled: set = set()        # minutes added from history bars (fill)
+        self.history_touches: list = []  # rebuild-derived alerts dated on filled minutes
+        # what the first warm-up pass derived but didn't emit: AlertSink.startup
+        # journals the part of it that fell into a downtime
+        self.warmup_alerts = self._rebuild(now)
+        self._epoch_from_bars(now)
+
+    def _epoch_from_bars(self, now):
+        # Compare against the epoch of the newest bar the levels were built from,
+        # not of `now`. Started after an epoch boundary but before that epoch's
+        # first bar (e.g. 00:00:30, before the 00:00 bar), the first bar is in
+        # now's epoch and wouldn't rebuild, so the day's levels (DOPEN, WOPEN,
+        # PDH, PDL, PWH, PWL; build_levels creates them only for days with bars)
+        # would be missing until the next session close. On 2025-06-16 that lost
+        # the 00:06, 00:14 and 00:24 alerts.
+        built = self.hist.index[self.hist.index < now]
+        self.epoch = self._epoch(built.max()) if len(built) else None
 
     @staticmethod
     def _epoch(ts):
         # changes exactly when new levels can activate: midnight, session closes
         return ts.normalize(), sum(ts.hour >= h1 for _, h1 in SESSIONS.values())
 
-    def _rebuild(self, now):
+    def _rebuild(self, now) -> list[dict]:
+        """Fresh levels and Scanner, warmed on every bar before now. Returns the
+        alerts that warm-up pass produced; they are never emitted."""
         self.epoch = self._epoch(now)
         self.scanner = Scanner(build_levels(self.hist))
+        warm = []
         for ts, o, h, l, c in self.hist[self.hist.index < now].itertuples(name=None):
-            self.scanner.on_bar(ts, o, h, l, c)
+            warm += self.scanner.on_bar(ts, o, h, l, c)
+        if self.filled:     # touches only history bars made: the caller journals them
+            self.history_touches += [a for a in warm if _utc(a["alert_ts_utc"]) in self.filled]
+        return warm
 
     def on_bar(self, ts, o, h, l, c) -> list[dict]:
         self.hist.loc[ts] = [o, h, l, c]
+        if len(self.hist) > 1 and self.hist.index[-2] > ts:     # after a newer history fill
+            self.hist.sort_index(inplace=True)
         if self._epoch(ts) != self.epoch:
             self._rebuild(ts)
         return self.scanner.on_bar(ts, o, h, l, c)
+
+    def fill(self, ts, o, h, l, c) -> bool:
+        """A history bar for a minute that has no bar: it joins the bars levels
+        and warm-up passes are built from, and is never fed to the Scanner, so
+        it can never trigger an alert. Returns False if the minute has a bar."""
+        if ts in self.hist.index:
+            return False
+        self.hist.loc[ts] = [o, h, l, c]
+        self.hist.sort_index(inplace=True)
+        self.filled.add(ts)
+        return True
+
+    def refresh(self, now) -> None:
+        """Rebuild levels and first-touch state from all bars before now (fills
+        included) after fills; the warm-up pass's alerts are dropped."""
+        self._rebuild(now)
+        self._epoch_from_bars(now)
+
+
+class AlertSink:
+    """Where a live path's alerts go (both bar sources).
+
+    An alert is delivered (send(): Telegram, or the terminal in --dry-live) and
+    journaled as status 'sent' only if the scanner received its touch live.
+    Touches that happened while no scanner was running are never sent late. They
+    are journaled as 'missed_while_down', in this process's epoch, so coverage
+    gaps are explicit:
+      startup()   alerts the first warm-up pass derived from the 15-min bucket
+                  that was still open when the previous process stopped, or
+                  later (alert_ts >= floor(down_from)); that process can't have
+                  sent them. Without a down_from (first start on this journal)
+                  nothing is recorded.
+      __call__()  alerts flushed live whose earliest touch is on a warm-up bar
+                  (alert_ts <= warm_end): a touch made while down, in a bucket
+                  that closes after the restart.
+    An alert already in the journal (same id, time and types) is not repeated.
+    missed_history() journals a touch made only on history bars (stream mode,
+    LiveLevels.fill) as 'missed_history': never sent either.
+    progress() records the newest live bar, which is the next start's down_from."""
+
+    def __init__(self, con, epoch: int, bar_source: str, send, *, down_from=None,
+                 warm_end=None, log=print):
+        self.con, self.epoch, self.bar_source, self.send, self.log = con, epoch, bar_source, send, log
+        self.down_from = None if down_from is None else _utc(down_from)
+        self.warm_end = None if warm_end is None else _utc(warm_end)
+        self.stats = dict(sent=0, missed_while_down=0, missed_history=0, duplicate=0)
+
+    def _known(self, a, any_epoch: bool) -> bool:
+        sql = "SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=?"
+        args = [a["alert_id"], a["alert_ts_utc"], a["level_types"]]
+        if not any_epoch:
+            sql += " AND epoch=?"
+            args.append(self.epoch)
+        return self.con.execute(sql, args).fetchone() is not None
+
+    def _free_id(self, a) -> dict:
+        """Ids are numbered per day by the Scanner. A rebuild over history fills
+        can renumber a day, so an id may already be taken in this epoch by
+        another alert: then take the day's next free number. Never reuse an id."""
+        if not self.con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND epoch=?",
+                                (a["alert_id"], self.epoch)).fetchone():
+            return a
+        prefix = a["alert_id"].rsplit("-", 1)[0]
+        used = [int(r[0].rsplit("-", 1)[1]) for r in self.con.execute(
+            "SELECT alert_id FROM alerts WHERE alert_id LIKE ? AND epoch=?",
+            (prefix + "-%", self.epoch))]
+        new = dict(a, alert_id=f"{prefix}-{max(used) + 1:03d}")
+        self.log(f"alert id {a['alert_id']} already used in epoch {self.epoch}; "
+                 f"this alert is {new['alert_id']}", flush=True)
+        return new
+
+    def _missed(self, a) -> str:
+        if self._known(a, any_epoch=True):
+            self.stats["duplicate"] += 1
+            return "duplicate"
+        a = self._free_id(a)
+        insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source,
+                     status="missed_while_down")
+        self.con.commit()
+        self.stats["missed_while_down"] += 1
+        self.log(f"missed while down (journaled, not sent): {a['alert_id']} {a['alert_ts_utc']} "
+                 f"{a['level_types']} @ {a['level_price']}", flush=True)
+        return "missed_while_down"
+
+    def missed_history(self, a) -> str:
+        """A level touched only on history bars. Every rebuild over the filled bars
+        derives the touch again, possibly under another id, so it is known by
+        its touch (time, types, price) within this epoch, not by its id."""
+        if self.con.execute("SELECT 1 FROM alerts WHERE alert_ts_utc=? AND level_types=? AND "
+                            "level_price=? AND epoch=?", (a["alert_ts_utc"], a["level_types"],
+                                                          a["level_price"], self.epoch)).fetchone():
+            self.stats["duplicate"] += 1
+            return "duplicate"
+        a = self._free_id(a)
+        insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source,
+                     status="missed_history")
+        self.con.commit()
+        self.stats["missed_history"] += 1
+        self.log(f"touch on history bars only (journaled as missed_history, not sent): "
+                 f"{a['alert_id']} {a['alert_ts_utc']} {a['level_types']} @ {a['level_price']}",
+                 flush=True)
+        return "missed_history"
+
+    def startup(self, warmup_alerts) -> int:
+        if self.down_from is None:
+            return 0
+        bound = self.down_from.floor(f"{WINDOW_MIN}min")
+        n = sum(self._missed(a) == "missed_while_down"
+                for a in warmup_alerts if _utc(a["alert_ts_utc"]) >= bound)
+        if n:
+            self.log(f"{n} touch(es) while down since {self.down_from}: journaled as "
+                     f"missed_while_down", flush=True)
+        return n
+
+    def __call__(self, a) -> str:
+        if self.warm_end is not None and _utc(a["alert_ts_utc"]) <= self.warm_end:
+            return self._missed(a)
+        if self._known(a, any_epoch=False):
+            self.stats["duplicate"] += 1
+            self.log(f"alert {a['alert_id']} already journaled (redelivered bar); not sent again",
+                     flush=True)
+            return "duplicate"
+        a = self._free_id(a)
+        insert_alert(self.con, a, epoch=self.epoch, bar_source=self.bar_source)
+        self.con.commit()
+        self.send(a)
+        self.stats["sent"] += 1
+        return "sent"
+
+    def progress(self, ts) -> None:
+        record_progress(self.con, ts)
+
+
+def _alert_sender(tg, dry: bool):
+    """Deliver one alert: the terminal in --dry-live, else Telegram. A send
+    failure must not stop the feed; the alert is already journaled."""
+    def send(a):
+        if dry:
+            print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
+            return
+        try:
+            tg.send(format_alert(a))
+        except Exception as e:
+            print(f"telegram send failed for {a['alert_id']}: {e}")
+    return send
 
 
 # ── Counterfactual: forward MFE/MAE at 1h/4h (direction-agnostic) ──────────
@@ -253,6 +430,21 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
 
 
 # ── Append-only SQLite log ─────────────────────────────────────────────────
+# Journal epochs. An epoch is one measurement regime of the TAKE-vs-SKIP
+# experiment; analysis must not pool epochs without saying so. Epoch 1 is every
+# row written before the epoch migration (all from the IBKR live path). Every
+# change of bar source starts a NEW epoch, and epochs are never reused: ibkr ->
+# stream is epoch 2, a rollback to ibkr is epoch 3, never 1 again. Each change
+# is a row in source_switches (start_epoch). Alert ids are numbered per day from
+# the bars, so two epochs can reuse an id on a switch day: every child row
+# (decision, outcome, counterfactual) carries the epoch of its alert, and joins
+# use (alert_id, epoch).
+JOURNAL_VERSION = 3              # PRAGMA user_version: 1 epoch columns, 2 source_switches,
+                                 # 3 alert status + scanner_state
+ALERT_STATUSES = ("sent", "missed_while_down", "missed_history")
+PRE_MIGRATION_EPOCH = 1          # rows written before the epoch columns existed
+
+
 def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
     con = sqlite3.connect(str(path), check_same_thread=check_same_thread)
     con.executescript("""
@@ -269,19 +461,103 @@ def open_log(path=DB_PATH, check_same_thread=True) -> sqlite3.Connection:
         alert_id TEXT, fwd_high_1h REAL, fwd_low_1h REAL, mfe_up_1h REAL, mfe_dn_1h REAL,
         fwd_high_4h REAL, fwd_low_4h REAL, mfe_up_4h REAL, mfe_dn_4h REAL, computed_ts_utc REAL);
     """)
+    _migrate_journal(con)
     return con
 
 
-def insert_alert(con, a: dict):
-    con.execute("INSERT INTO alerts VALUES(?,?,?,?,?,?,?,datetime('now'))",
+def _migrate_journal(con) -> None:
+    """Numbered steps, each one transaction, recorded in PRAGMA user_version.
+      1  epoch on every table, bar_source on alerts. Existing rows get epoch 1
+         and bar_source 'ibkr' (the column defaults).
+      2  source_switches(switch_ts_utc, from_source, to_source, epoch). A
+         journal that already has alerts gets one row for its current state
+         (from_source NULL, the newest alert's bar_source and epoch).
+      3  alerts.status ('sent' for every existing row; 'missed_while_down' and
+         'missed_history', see AlertSink) and scanner_state(key, value, updated_ts_utc), which holds
+         last_live_bar_ts, the newest bar any live scanner processed.
+    Code from before step 1 can't write to a migrated journal (its INSERTs are
+    positional), so roll back by switching SCANNER_BAR_SOURCE, not by an older
+    image."""
+    version = con.execute("PRAGMA user_version").fetchone()[0]
+    if version < 1:
+        have = {t: {r[1] for r in con.execute(f"PRAGMA table_info({t})")}
+                for t in ("alerts", "decisions", "outcomes", "counterfactuals")}
+        ddl = [f"ALTER TABLE {t} ADD COLUMN epoch INTEGER NOT NULL DEFAULT {PRE_MIGRATION_EPOCH}"
+               for t, cols in have.items() if "epoch" not in cols]
+        if "bar_source" not in have["alerts"]:
+            ddl.append("ALTER TABLE alerts ADD COLUMN bar_source TEXT NOT NULL DEFAULT 'ibkr'")
+        con.executescript("BEGIN; " + "; ".join(ddl + ["PRAGMA user_version = 1"]) + "; COMMIT;")
+    if version < 2:
+        con.execute("BEGIN")
+        try:
+            con.execute("CREATE TABLE IF NOT EXISTS source_switches(switch_ts_utc TEXT NOT NULL, "
+                        "from_source TEXT, to_source TEXT NOT NULL, epoch INTEGER NOT NULL)")
+            newest = con.execute("SELECT bar_source, epoch FROM alerts ORDER BY rowid DESC LIMIT 1"
+                                 ).fetchone()
+            if newest:
+                con.execute("INSERT INTO source_switches VALUES(datetime('now'), NULL, ?, ?)", newest)
+            con.execute("PRAGMA user_version = 2")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+    if version < 3:
+        con.executescript("""BEGIN;
+          ALTER TABLE alerts ADD COLUMN status TEXT NOT NULL DEFAULT 'sent';
+          CREATE TABLE IF NOT EXISTS scanner_state(key TEXT PRIMARY KEY, value TEXT NOT NULL,
+                                                   updated_ts_utc TEXT NOT NULL);
+          PRAGMA user_version = 3;
+          COMMIT;""")
+
+
+def start_epoch(con, bar_source: str) -> int:
+    """The journal epoch this process writes, for its bar source. If the latest
+    source_switches row is for the same source, that epoch continues (a
+    restart). Otherwise a new epoch, one above every epoch in the journal, and
+    a source_switches row (now, previous source, bar_source, epoch)."""
+    last = con.execute("SELECT to_source, epoch FROM source_switches ORDER BY rowid DESC LIMIT 1"
+                       ).fetchone()
+    if last and last[0] == bar_source:
+        return last[1]
+    top = max(con.execute(f"SELECT COALESCE(MAX(epoch), 0) FROM {t}").fetchone()[0]
+              for t in ("source_switches", "alerts", "decisions", "outcomes", "counterfactuals"))
+    epoch = top + 1
+    con.execute("INSERT INTO source_switches VALUES(datetime('now'), ?, ?, ?)",
+                (last[0] if last else None, bar_source, epoch))
+    con.commit()
+    return epoch
+
+
+def insert_alert(con, a: dict, *, epoch: int, bar_source: str, status: str = "sent"):
+    if status not in ALERT_STATUSES:
+        raise ValueError(f"alert status {status!r}")
+    con.execute("INSERT INTO alerts (alert_id, alert_ts_utc, level_types, level_price, "
+                "price_at_alert, session, confluence_count, inserted_ts_utc, epoch, bar_source, "
+                "status) VALUES(?,?,?,?,?,?,?,datetime('now'),?,?,?)",
                 (a["alert_id"], a["alert_ts_utc"], a["level_types"], a["level_price"],
-                 a["price_at_alert"], a["session"], a["confluence_count"]))
+                 a["price_at_alert"], a["session"], a["confluence_count"], epoch, bar_source,
+                 status))
 
 
-def insert_counterfactual(con, alert_id: str, cf: dict):
-    con.execute("INSERT INTO counterfactuals VALUES(?,?,?,?,?,?,?,?,?,datetime('now'))",
+def last_live_bar(con) -> pd.Timestamp | None:
+    """Newest bar a live scanner (either bar source) processed on this journal."""
+    row = con.execute("SELECT value FROM scanner_state WHERE key = 'last_live_bar_ts'").fetchone()
+    return _utc(row[0]) if row else None
+
+
+def record_progress(con, ts) -> None:
+    con.execute("INSERT INTO scanner_state VALUES('last_live_bar_ts', ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_ts_utc = excluded.updated_ts_utc", (str(_utc(ts)),))
+    con.commit()
+
+
+def insert_counterfactual(con, alert_id: str, cf: dict, *, epoch: int):
+    con.execute("INSERT INTO counterfactuals (alert_id, fwd_high_1h, fwd_low_1h, mfe_up_1h, "
+                "mfe_dn_1h, fwd_high_4h, fwd_low_4h, mfe_up_4h, mfe_dn_4h, computed_ts_utc, epoch) "
+                "VALUES(?,?,?,?,?,?,?,?,?,datetime('now'),?)",
                 (alert_id, cf["fwd_high_1h"], cf["fwd_low_1h"], cf["mfe_up_1h"], cf["mfe_dn_1h"],
-                 cf["fwd_high_4h"], cf["fwd_low_4h"], cf["mfe_up_4h"], cf["mfe_dn_4h"]))
+                 cf["fwd_high_4h"], cf["fwd_low_4h"], cf["mfe_up_4h"], cf["mfe_dn_4h"], epoch))
 
 
 def _utc(ts) -> pd.Timestamp:
@@ -290,28 +566,52 @@ def _utc(ts) -> pd.Timestamp:
     return t.tz_localize("UTC") if t.tz is None else t.tz_convert("UTC")
 
 
+def _alert_epoch(con, alert_id, alert_ts=None) -> int:
+    """Epoch of the alert row (newest one if the id exists in several epochs)."""
+    sql, args = "SELECT epoch FROM alerts WHERE alert_id=?", [alert_id]
+    if alert_ts is not None:
+        sql += " AND alert_ts_utc=?"
+        args.append(str(alert_ts))
+    row = con.execute(sql + " ORDER BY rowid DESC LIMIT 1", args).fetchone()
+    if row:
+        return row[0]
+    last = con.execute("SELECT epoch FROM source_switches ORDER BY rowid DESC LIMIT 1").fetchone()
+    return last[0] if last else PRE_MIGRATION_EPOCH
+
+
 def record_decision(con, alert_id, decision, decision_ts, alert_ts, direction=None,
-                    entry=None, stop=None, target=None, reasoning="", source="telegram"):
+                    entry=None, stop=None, target=None, reasoning="", source="telegram",
+                    epoch: int | None = None):
     """Append a decision. reasoning_ts == decision_ts, which is the proof that the
-    reasoning was recorded at decision time, not reconstructed with hindsight."""
+    reasoning was recorded at decision time, not reconstructed with hindsight.
+    epoch: the decided alert's epoch; None looks it up from (alert_id, alert_ts)."""
+    if epoch is None:
+        epoch = _alert_epoch(con, alert_id, alert_ts)
     mins = (_utc(decision_ts) - _utc(alert_ts)).total_seconds() / 60
-    con.execute("INSERT INTO decisions VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+    con.execute("INSERT INTO decisions (alert_id, decision, decision_ts_utc, minutes_from_alert, "
+                "direction, entry, stop, target, reasoning, reasoning_ts_utc, source, epoch) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (alert_id, decision, str(decision_ts), round(mins, 2), direction,
-                 entry, stop, target, reasoning, str(decision_ts), source))
+                 entry, stop, target, reasoning, str(decision_ts), source, epoch))
     con.commit()
 
 
-def record_outcome(con, alert_id, exit_price, r_multiple, exit_type):
-    con.execute("INSERT INTO outcomes VALUES(?,?,?,?,datetime('now'))",
-                (alert_id, exit_price, r_multiple, exit_type))
+def record_outcome(con, alert_id, exit_price, r_multiple, exit_type, epoch: int | None = None):
+    if epoch is None:
+        epoch = _alert_epoch(con, alert_id)
+    con.execute("INSERT INTO outcomes (alert_id, exit_price, r_multiple, exit_type, "
+                "filled_ts_utc, epoch) VALUES(?,?,?,?,datetime('now'),?)",
+                (alert_id, exit_price, r_multiple, exit_type, epoch))
     con.commit()
 
 
 def undecided_alerts(con):
-    """alert rows that have no decision row yet, with their alert timestamp."""
+    """(alert_id, alert_ts, epoch) of sent alerts with no decision row in their
+    epoch. missed_while_down alerts were never shown, so they never get one."""
     return con.execute(
-        "SELECT a.alert_id, a.alert_ts_utc FROM alerts a "
-        "LEFT JOIN decisions d ON a.alert_id = d.alert_id WHERE d.alert_id IS NULL"
+        "SELECT a.alert_id, a.alert_ts_utc, a.epoch FROM alerts a "
+        "LEFT JOIN decisions d ON a.alert_id = d.alert_id AND a.epoch = d.epoch "
+        "WHERE d.alert_id IS NULL AND a.status = 'sent'"
     ).fetchall()
 
 
@@ -320,10 +620,11 @@ def sweep_auto_missed(con, now_utc) -> int:
     it is excluded from the TAKE-vs-SKIP comparison rather than polluting it."""
     now = _utc(now_utc)
     n = 0
-    for alert_id, alert_ts in undecided_alerts(con):
+    for alert_id, alert_ts, epoch in undecided_alerts(con):
         if (now - _utc(alert_ts)).total_seconds() >= MISSED_AFTER_H * 3600:
             record_decision(con, alert_id, "MISSED", now, alert_ts,
-                            reasoning=f"auto: no reply within {MISSED_AFTER_H}h", source="auto")
+                            reasoning=f"auto: no reply within {MISSED_AFTER_H}h", source="auto",
+                            epoch=epoch)
             n += 1
     return n
 
@@ -331,11 +632,13 @@ def sweep_auto_missed(con, now_utc) -> int:
 def alerts_needing_counterfactual(con, now_utc):
     """Alerts old enough that a full 4h forward window exists but with no
     counterfactual row yet — the SKIP/MISSED 'what would have happened' data
-    can't be computed at alert time, only once the future bars arrive."""
+    can't be computed at alert time, only once the future bars arrive.
+    Rows are (alert_id, alert_ts, price_at_alert, epoch)."""
     now = _utc(now_utc)
     rows = con.execute(
-        "SELECT a.alert_id, a.alert_ts_utc, a.price_at_alert FROM alerts a "
-        "LEFT JOIN counterfactuals cf ON a.alert_id = cf.alert_id WHERE cf.alert_id IS NULL"
+        "SELECT a.alert_id, a.alert_ts_utc, a.price_at_alert, a.epoch FROM alerts a "
+        "LEFT JOIN counterfactuals cf ON a.alert_id = cf.alert_id AND a.epoch = cf.epoch "
+        "WHERE cf.alert_id IS NULL"
     ).fetchall()
     horizon = max(CF_HORIZONS.values())
     return [r for r in rows if (now - _utc(r[1])).total_seconds() >= horizon * 60]
@@ -345,9 +648,9 @@ def sweep_counterfactuals(con, df, now_utc) -> int:
     """Fill forward MFE/MAE for alerts whose 4h window has elapsed, from the
     accumulated live bar frame. Runs live so the experiment data is captured."""
     n = 0
-    for alert_id, alert_ts, price in alerts_needing_counterfactual(con, now_utc):
+    for alert_id, alert_ts, price, epoch in alerts_needing_counterfactual(con, now_utc):
         cf = counterfactual(df, alert_ts, price)
-        insert_counterfactual(con, alert_id, cf)
+        insert_counterfactual(con, alert_id, cf, epoch=epoch)
         n += 1
     if n:
         con.commit()
@@ -460,11 +763,12 @@ def replay_day(date: str, con=None) -> pd.DataFrame:
     alerts += scanner.close()
 
     rows = []
+    epoch = start_epoch(con, "parquet") if con is not None else None
     for a in alerts:
         cf = counterfactual(df, a["alert_ts_utc"], a["price_at_alert"])
         if con is not None:
-            insert_alert(con, a)
-            insert_counterfactual(con, a["alert_id"], cf)
+            insert_alert(con, a, epoch=epoch, bar_source="parquet")
+            insert_counterfactual(con, a["alert_id"], cf, epoch=epoch)
         rows.append({**a, **{k: v for k, v in cf.items() if k != "alert_id"}})
     if con is not None:
         con.commit()
@@ -547,6 +851,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 
     tg = None if dry else Telegram()
     con = open_log(check_same_thread=False)
+    epoch = start_epoch(con, "ibkr")
     lock = threading.Lock()
 
     # history first (separate short-lived connection, distinct clientId). A failure
@@ -559,7 +864,11 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
         _time.sleep(RECONNECT_BACKOFF_S)
         raise SystemExit(1)
     hist = hist[[_valid_bar(*r) for r in hist.itertuples(name=None)]]
+    down_from = last_live_bar(con)            # before this process records any progress
     live = LiveLevels(hist, pd.Timestamp.now(tz="UTC"))
+    sink = AlertSink(con, epoch, "ibkr", _alert_sender(tg, dry), down_from=down_from,
+                     warm_end=hist.index.max() if len(hist) else None)
+    sink.startup(live.warmup_alerts)
 
     hb = {"last": _time.time(), "warned": False}   # last final bar (wall clock)
 
@@ -573,14 +882,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
         hb["last"] = _time.time()
         with lock:
             for a in live.on_bar(ts, o, h, l, c):
-                insert_alert(con, a); con.commit()
-                if dry:
-                    print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
-                else:
-                    try:
-                        tg.send(format_alert(a))
-                    except Exception as e:  # a send failure must not kill the feed
-                        print(f"telegram send failed for {a['alert_id']}: {e}")
+                sink(a)
+            sink.progress(ts)
 
     tws = TWSConnector(host=host, port=port, client_id=client_id, readonly=True)
     # Crash-only design: surface disconnects instead of relying on the connector's
@@ -599,7 +902,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
     active = sum(1 for L in build_levels(live.hist)
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
-    print(f"{mode}: scanning {symbol}, {active} levels active. Ctrl-C to stop.", flush=True)
+    print(f"{mode}: scanning {symbol}, {active} levels active, journal epoch {epoch}. "
+          f"Ctrl-C to stop.", flush=True)
 
     offset = 0
     last_sweep = 0.0
@@ -647,18 +951,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                 _time.sleep(5)
                 msgs = []
             for text in msgs:
-                r = parse_reply(text)
-                if not r:
-                    continue
-                with lock:
-                    row = con.execute("SELECT alert_ts_utc FROM alerts WHERE alert_id=?",
-                                      (r["alert_id"],)).fetchone()
-                    if not row:
-                        _send_quietly(tg, f"unknown alert_id {r['alert_id']}"); continue
-                    record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
-                                    row[0], r.get("direction"), r.get("entry"), r.get("stop"),
-                                    r.get("target"), r.get("reasoning"))
-                    _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
+                _handle_reply(con, lock, tg, text, epoch)
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
@@ -669,6 +962,471 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                 last_sweep = _time.time()
     except KeyboardInterrupt:
         print("\nstopping."); tws.disconnect()
+
+
+# ── Stream bar source (SCANNER_BAR_SOURCE=stream) ──────────────────────────
+# Bars come from the datafeed stream instead of this process's own IBKR
+# connection. Level engine, journal and Telegram are the same code as run_live;
+# only where the bars come from changes. run_live above is left as it was: it is
+# the rollback (SCANNER_BAR_SOURCE=ibkr). datafeed is imported lazily, so the
+# ibkr path doesn't need the package installed.
+BAR_SOURCES = ("ibkr", "stream")
+STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
+STREAM_BATCH = 500               # entries per consume call
+STREAM_BLOCK_MS = 5000           # consume blocks this long when the stream is idle
+WARMUP_DAYS = 10                 # stream warm-up window, see warmup_start
+WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's market-open minutes
+WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
+STREAM_STALE_MIN = 10            # no new live bar for this many market-open minutes -> one Telegram alert
+STORE_RETRY_S = 30               # unusable store at start: check it again this often
+
+
+def bar_source(env=os.environ) -> str:
+    """SCANNER_BAR_SOURCE, default ibkr. Anything else is a startup error, never a guess."""
+    s = env.get("SCANNER_BAR_SOURCE", "ibkr")
+    if s not in BAR_SOURCES:
+        raise SystemExit(f"SCANNER_BAR_SOURCE={s!r}: must be one of {', '.join(BAR_SOURCES)}")
+    return s
+
+
+def _open_minutes(start, end) -> pd.DatetimeIndex:
+    """Complete market-open minutes between start and end: minute opens m with
+    start <= m, m + 1 min <= end and _market_open(m). A vectorised copy of
+    _market_open (New York weekday and hour); a test pins the two together."""
+    a, b = _utc(start).ceil("min"), _utc(end).floor("min")
+    if b <= a:                   # date_range(a, a, inclusive="left") would still return [a]
+        return pd.DatetimeIndex([], tz="UTC")
+    idx = pd.date_range(a, b, freq="1min", inclusive="left")
+    et = idx.tz_convert("America/New_York")
+    wd, h = et.weekday, et.hour
+    closed = (wd == 5) | ((wd == 6) & (h < 18)) | ((wd == 4) & (h >= 17)) | (h == 17)
+    return idx[~closed]
+
+
+def warmup_start(now) -> pd.Timestamp:
+    """WARMUP_DAYS before now, or Monday 00:00 UTC of the previous ISO week if
+    that is earlier. build_levels takes PWH/PWL from the whole previous ISO week;
+    from Thursday to Sunday a plain 10-day window starts inside that week and
+    would build them from part of it."""
+    now = _utc(now)
+    prev_monday = now.normalize() - pd.Timedelta(days=now.weekday() + 7)
+    return min(now - pd.Timedelta(days=WARMUP_DAYS), prev_monday)
+
+
+def _only_valid(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows passing _valid_bar (a boolean mask, so an empty frame keeps its columns)."""
+    ok = [_valid_bar(ts, o, h, l, c) for ts, o, h, l, c in
+          df[["open", "high", "low", "close"]].itertuples(name=None)]
+    return df[pd.Series(ok, index=df.index, dtype=bool)]
+
+
+def _store_bars(now, start, db, symbol, kinds) -> pd.DataFrame:
+    from datafeed.store.query import bars_before
+    rows = bars_before(symbol, now.to_pydatetime(), (now - start).to_pytimedelta(), db=db, kinds=kinds)
+    df = pd.DataFrame(rows, columns=["bar_ts", "kind", "open", "high", "low", "close"])
+    df.index = pd.DatetimeIndex(pd.to_datetime(df.pop("bar_ts"), utc=True), name="timestamp")
+    df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].astype(float)
+    return df
+
+
+class StoreNotReady(Exception):
+    """The datafeed store can't warm the scanner yet (missing, too thin or stale)."""
+
+
+def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history")):
+    """Bars that warm LiveLevels before the stream takes over, from the datafeed
+    store only: stream mode never opens an IBKR connection. Returns
+    (hist, detail); hist has open/high/low/close, only _valid_bar rows.
+
+    Reads datafeed.store.query.bars_before over [warmup_start(now), now) (one bar
+    per minute: live preferred, history as fallback). Raises StoreNotReady unless
+    it holds >= WARMUP_MIN_COVERAGE of that window's market-open minutes and its
+    newest bar ended <= WARMUP_MAX_STALE_MIN market-open minutes ago."""
+    now = _utc(now)
+    start = warmup_start(now)
+    try:
+        df = _store_bars(now, start, db, symbol, kinds)
+    except Exception as e:
+        raise StoreNotReady(f"store unavailable ({e!r})") from e
+    df = _only_valid(df)
+    expected = len(_open_minutes(start, now))
+    cov = len(df) / expected if expected else 0.0
+    if df.empty:
+        raise StoreNotReady(f"store has no bars since {start}")
+    if cov < WARMUP_MIN_COVERAGE:
+        raise StoreNotReady(f"store too thin: {len(df)} bars = {cov:.1%} of {expected} market-open "
+                            f"minutes since {start} (< {WARMUP_MIN_COVERAGE:.0%})")
+    stale = len(_open_minutes(df.index[-1] + pd.Timedelta(minutes=1), now))
+    if stale > WARMUP_MAX_STALE_MIN:
+        raise StoreNotReady(f"store stale: newest bar {df.index[-1]} ended {stale} market-open "
+                            f"minutes before now (> {WARMUP_MAX_STALE_MIN})")
+    kinds_n = ", ".join(f"{k} {n}" for k, n in df["kind"].value_counts().sort_index().items())
+    return df[["open", "high", "low", "close"]], (
+        f"store: {len(df)} bars ({kinds_n}) {df.index[0]} .. {df.index[-1]}, "
+        f"{cov:.1%} of market-open minutes, newest bar {stale} market-open min old")
+
+
+def wait_for_store(notify, *, db=None, symbol: str = "XAUUSD", kinds=("live", "history"),
+                   clock=lambda: pd.Timestamp.now(tz="UTC"), sleep=None,
+                   retry_s: float = STORE_RETRY_S, n: int = STREAM_STALE_MIN, log=print):
+    """stream_warmup, retried every retry_s until the store is usable. Returns
+    (hist, now, detail), where now is the moment of the successful read.
+
+    One notify() message once the store has been unusable for `n` market-open
+    minutes since the wait began (weekends and the daily break don't count),
+    and one more when it becomes usable after that message."""
+    import time as _time
+    sleep = sleep or _time.sleep
+    began, warned = _utc(clock()), False
+    while True:
+        now = _utc(clock())
+        try:
+            hist, detail = stream_warmup(now, db=db, symbol=symbol, kinds=kinds)
+        except StoreNotReady as e:
+            waited = len(_open_minutes(began, now))
+            log(f"warm-up: {e}; scanner not started, retrying in {retry_s:g}s", flush=True)
+            if not warned and waited >= n:
+                notify(f"scanner: datafeed store unusable for {waited} market-open minutes "
+                       f"({e}) - scanner not started, check the datafeed")
+                warned = True
+            sleep(retry_s)
+            continue
+        if warned:
+            notify(f"scanner: datafeed store usable again, scanner starting ({detail})")
+        return hist, now, detail
+
+
+class StreamStaleness:
+    """One message when no new live bar has arrived for `n` market-open minutes,
+    one recovery message when bars resume.
+
+    Silence is counted in complete market-open minutes (_open_minutes) since
+    the newest live bar ended (bar_ts + 1 min), or since the feed started if it
+    has seen none, so weekends and the daily break never count. Bars the feed
+    skips (history, duplicates, other sources) don't reset it."""
+
+    def __init__(self, notify, started, n: int = STREAM_STALE_MIN):
+        self.notify, self.started, self.n = notify, _utc(started), n
+        self.alerted_at_bar = None      # newest bar when the alert went out; None = not alerted
+        self.alerted = False
+
+    def _silent(self, now, last_bar_ts) -> int:
+        since = self.started if last_bar_ts is None else last_bar_ts + pd.Timedelta(minutes=1)
+        return len(_open_minutes(since, now))
+
+    def check(self, now, last_bar_ts) -> None:
+        if self.alerted:
+            return
+        silent = self._silent(now, last_bar_ts)
+        if silent >= self.n:
+            last = "none since start" if last_bar_ts is None else f"last bar {last_bar_ts}"
+            self.notify(f"scanner: no new XAUUSD bar from the datafeed stream for {silent} "
+                        f"market-open minutes ({last}) - check the datafeed")
+            self.alerted, self.alerted_at_bar = True, last_bar_ts
+
+    def bar(self, ts) -> None:
+        """A new live bar reached the level engine."""
+        if not self.alerted:
+            return
+        silent = self._silent(ts, self.alerted_at_bar)
+        self.notify(f"scanner: XAUUSD bars from the datafeed stream resumed (bar {ts}) after "
+                    f"{silent} market-open minutes without one")
+        self.alerted, self.alerted_at_bar = False, None
+
+
+class StreamFeed:
+    """bars.xauusd.1m entries -> LiveLevels.on_bar, one consume batch per step().
+
+    Each entry is classified once (the counter of the same name in stats):
+      invalid_msg      malformed or not schema_version 1 / this symbol
+      history_filled   history=True for a minute without a bar: added to the
+                       levels' bars (LiveLevels.fill), then the levels are
+                       rebuilt once per batch; never fed to the Scanner
+      history_skipped  history=True for a minute that already has a bar (live
+                       is preferred) or when the levels can't be filled
+      wrong_source     source not in `sources` (default ibkr; a replay feed on
+                       the production stream must never reach Telegram)
+      invalid_bars     fails _valid_bar
+      before_warmup    older than the warm-up's first bar (backlog of a new group)
+      duplicate        bar_ts already seen with the same OHLC
+      conflict         bar_ts already seen with other OHLC; the first one is kept
+      out_of_order     older than the newest bar seen but not seen itself; dropped,
+                       because the level engine only moves forward
+      live_bars        newer than everything seen: drives on_bar
+    Only live_bars reach the Scanner. A touch made only on history bars never
+    alerts; it goes to on_history (AlertSink.missed_history: journaled as
+    'missed_history'), whether a live bar flushes it (history_touch_suppressed)
+    or a rebuild over the filled bars derives it (LiveLevels.history_touches). A live bar that skips market-open
+    minutes is also logged as a gap (minutes without ticks produce no bar, so
+    short gaps are normal in quiet markets).
+
+    An entry is acked only after it has been handled: its bar fed to the level
+    engine and any alerts it produced passed to on_alert (journaled and sent).
+    An exception propagates without the ack, so on restart the same consumer
+    name gets the entry back first (datafeed.bus: own pending entries first)
+    and the new warm-up decides whether it is a duplicate or still new."""
+
+    def __init__(self, bus, stream: str, consumer: str, live, on_alert, *, lock=None,
+                 last_bar_ts=None, sources=("ibkr",), symbol: str = "XAUUSD",
+                 count: int = STREAM_BATCH, block_ms: int | None = STREAM_BLOCK_MS, log=print,
+                 staleness: StreamStaleness | None = None, clock=lambda: pd.Timestamp.now(tz="UTC"),
+                 progress=None, on_history=None):
+        import contextlib
+        self.bus, self.stream, self.consumer = bus, stream, consumer
+        self.live, self.on_alert = live, on_alert
+        self.lock = lock or contextlib.nullcontext()
+        self.sources, self.symbol = tuple(sources), symbol
+        self.count, self.block_ms, self.log = count, block_ms, log
+        self.staleness, self.clock, self.progress = staleness, clock, progress
+        self.on_history = on_history
+        self.last_bar_ts = last_bar_ts          # newest bar the level engine has seen
+        self.start_ts = last_bar_ts             # warm-up end: older entries are backlog
+        hist = getattr(live, "hist", None)
+        self.first_ts = hist.index.min() if hist is not None and len(hist) else None
+        self.stats = dict.fromkeys(
+            ("entries", "live_bars", "history_filled", "history_skipped", "wrong_source",
+             "invalid_msg", "invalid_bars", "before_warmup", "duplicate", "conflict",
+             "out_of_order", "gaps", "gap_minutes", "alerts", "history_touch_suppressed"), 0)
+
+    def step(self) -> int:
+        batch = self.bus.consume(self.stream, STREAM_GROUP, self.consumer,
+                                 count=self.count, block_ms=self.block_ms)
+        seen: dict[str, int] = {}
+        filled_before = self.stats["history_filled"]
+        for d in batch:
+            kind = self._handle(d)
+            self.bus.ack(self.stream, STREAM_GROUP, d.id)      # only after it was handled
+            self.stats[kind] += 1
+            self.stats["entries"] += 1
+            seen[kind] = seen.get(kind, 0) + 1
+            if kind == "live_bars" and self.staleness:
+                self.staleness.bar(self.last_bar_ts)
+        if self.stats["history_filled"] > filled_before and self.last_bar_ts is not None:
+            with self.lock:                     # one rebuild per batch, not per fill
+                self.live.refresh(self.last_bar_ts + pd.Timedelta(minutes=1))
+                self._history_touches()
+        if self.staleness:
+            self.staleness.check(self.clock(), self.last_bar_ts)
+        other = {k: n for k, n in seen.items() if k != "live_bars"}
+        if other:
+            self.log(f"stream: batch of {len(batch)}: "
+                     + ", ".join(f"{n} {k}" for k, n in sorted(other.items())), flush=True)
+        return len(batch)
+
+    def _parse(self, msg):
+        if msg.get("schema_version") != 1:
+            raise ValueError(f"schema_version {msg.get('schema_version')!r}")
+        if msg.get("symbol") != self.symbol:
+            raise ValueError(f"symbol {msg.get('symbol')!r}")
+        if not isinstance(msg.get("history"), bool):
+            raise ValueError(f"history {msg.get('history')!r}")
+        ts = pd.Timestamp(msg["bar_ts"])
+        if ts.tz is None:
+            raise ValueError(f"bar_ts {msg['bar_ts']!r} has no UTC offset")
+        return ts.tz_convert("UTC"), tuple(float(msg[k]) for k in ("open", "high", "low", "close"))
+
+    def _handle(self, d) -> str:
+        msg = d.msg
+        try:
+            ts, ohlc = self._parse(msg)
+        except (KeyError, TypeError, ValueError) as e:
+            self.log(f"stream: invalid entry {d.id} skipped ({e!r}): {str(msg)[:200]}", flush=True)
+            return "invalid_msg"
+        if msg.get("source") not in self.sources:
+            if self.stats["wrong_source"] % 1000 == 0:
+                self.log(f"stream: entry {d.id} from source {msg.get('source')!r} ignored "
+                         f"(accepting {', '.join(self.sources)})", flush=True)
+            return "wrong_source"
+        if not _valid_bar(ts, *ohlc):
+            return "invalid_bars"
+        if msg["history"]:
+            return self._history(ts, ohlc)
+        with self.lock:
+            last = self.last_bar_ts
+            if last is not None and ts <= last:
+                return self._old(d.id, ts, ohlc)
+            missing = len(_open_minutes(last + pd.Timedelta(minutes=1), ts)) if last is not None else 0
+            if missing:
+                self.stats["gaps"] += 1
+                self.stats["gap_minutes"] += missing
+                self.log(f"stream: gap of {missing} market-open minute(s) without a bar "
+                         f"between {last} and {ts}", flush=True)
+            alerts = self.live.on_bar(ts, *ohlc)
+            self.last_bar_ts = ts
+            self._history_touches()             # a natural rebuild may have derived some
+            filled = getattr(self.live, "filled", ())
+            for a in alerts:
+                if filled and _utc(a["alert_ts_utc"]) in filled:
+                    self.stats["history_touch_suppressed"] += 1
+                    self._history_touch(a)
+                    continue
+                self.on_alert(a)
+                self.stats["alerts"] += 1
+            if self.progress:
+                self.progress(ts)               # after its alerts are journaled
+        return "live_bars"
+
+    def _history_touch(self, a) -> None:
+        if self.on_history:
+            self.on_history(a)
+        else:
+            self.log(f"stream: {a['alert_id']} {a['alert_ts_utc']} {a['level_types']} is a touch "
+                     f"on history bars only; never alerted", flush=True)
+
+    def _history_touches(self) -> None:
+        """Hand over the touches the last rebuilds derived from filled minutes."""
+        touches = getattr(self.live, "history_touches", None)
+        while touches:
+            self._history_touch(touches.pop(0))
+
+    def _history(self, ts, ohlc) -> str:
+        """A history bar: fills a minute without a bar, inside the warm-up window."""
+        if self.first_ts is not None and ts < self.first_ts:
+            return "before_warmup"
+        fill = getattr(self.live, "fill", None)
+        if fill is None:
+            return "history_skipped"
+        with self.lock:
+            return "history_filled" if fill(ts, *ohlc) else "history_skipped"
+
+    def _old(self, id, ts, ohlc) -> str:
+        """Classify an entry that is not newer than the newest bar seen."""
+        if self.first_ts is not None and ts < self.first_ts:
+            return "before_warmup"
+        hist = getattr(self.live, "hist", None)
+        if hist is not None and ts in hist.index:
+            row = hist.loc[ts]
+            stored = tuple(float(x) for x in row[["open", "high", "low", "close"]])
+            kind = "duplicate" if stored == ohlc else "conflict"
+        else:
+            stored, kind = None, "out_of_order"
+        # entries up to the warm-up end are the backlog and only go in the batch
+        # summary; after it, every conflict or late bar is worth a line of its own
+        if kind != "duplicate" and (self.start_ts is None or ts > self.start_ts):
+            what = (f"conflicts with the bar already used {stored}; first one kept"
+                    if kind == "conflict" else f"arrived after {self.last_bar_ts}; dropped")
+            self.log(f"stream: {kind} entry {id} bar {ts} {ohlc} {what}", flush=True)
+        return kind
+
+
+def _journal_new_alert(con, a: dict, *, epoch: int, bar_source: str) -> bool:
+    """Insert the alert unless this exact alert is already journaled in this
+    epoch, which happens when a bar is redelivered after a crash between the
+    journal commit and the ack. Returns True if it was inserted (and so should
+    be sent)."""
+    if con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=? "
+                   "AND epoch=?", (a["alert_id"], a["alert_ts_utc"], a["level_types"],
+                                   epoch)).fetchone():
+        return False
+    insert_alert(con, a, epoch=epoch, bar_source=bar_source)
+    con.commit()
+    return True
+
+
+def _handle_reply(con, lock, tg, text: str, epoch: int):
+    """One Telegram reply -> decision row (both bar sources). Only sent alerts
+    can be decided (a missed_while_down id was never shown). An id that exists
+    in several epochs (a switch day) means the alert of this process's epoch,
+    else the newest one."""
+    r = parse_reply(text)
+    if not r:
+        return
+    with lock:
+        row = con.execute("SELECT alert_ts_utc, epoch FROM alerts WHERE alert_id=? "
+                          "AND status = 'sent' ORDER BY epoch = ? DESC, rowid DESC LIMIT 1",
+                          (r["alert_id"], epoch)).fetchone()
+        if not row:
+            _send_quietly(tg, f"unknown alert_id {r['alert_id']}")
+            return
+        record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
+                        row[0], r.get("direction"), r.get("entry"), r.get("stop"),
+                        r.get("target"), r.get("reasoning"), epoch=row[1])
+        _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
+
+
+def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
+    """Live path fed by the datafeed stream. Same journal, Telegram, replies and
+    sweeps as run_live; dry=True prints alerts instead of sending them.
+
+    Never connects to IBKR: the datafeed feed is the only gateway client. The
+    warm-up comes from the datafeed store; while it is unusable the scanner
+    waits (wait_for_store). Crash-only like run_live: a failing bus (Redis down)
+    backs off and exits so Docker restarts a clean cold start."""
+    import threading
+    import time as _time
+    from datafeed.bus import RedisStreamBus
+    from datafeed.ingest.xauusd_bars import STREAM
+
+    consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
+
+    tg = None if dry else Telegram()
+    con = open_log(check_same_thread=False)
+    epoch = start_epoch(con, "stream")
+    lock = threading.Lock()
+
+    def notify(text):
+        if dry:
+            print("FEED   " + text, flush=True)
+        else:
+            _send_quietly(tg, text)
+
+    down_from = last_live_bar(con)            # before this process records any progress
+    hist, now, detail = wait_for_store(notify, db=env.get("DATAFEED_DB"), symbol=symbol)
+    print(f"warm-up via {detail}", flush=True)
+    live = LiveLevels(hist, now)
+    warm_end = hist.index.max() if len(hist) else None
+    sink = AlertSink(con, epoch, "stream", _alert_sender(tg, dry), down_from=down_from,
+                     warm_end=warm_end)
+    sink.startup(live.warmup_alerts)
+
+    feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, sink,
+                      lock=lock, last_bar_ts=warm_end, progress=sink.progress,
+                      on_history=sink.missed_history,
+                      staleness=StreamStaleness(notify, started=now))
+    fatal: list[BaseException] = []
+
+    def pump():
+        try:
+            while True:
+                feed.step()
+        except Exception as e:
+            fatal.append(e)
+
+    threading.Thread(target=pump, name="stream-feed", daemon=True).start()
+    active = sum(1 for L in build_levels(live.hist)
+                 if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
+    mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
+    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {STREAM_GROUP}, consumer "
+          f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
+
+    offset = 0
+    last_sweep = 0.0
+    try:
+        while True:
+            if fatal:
+                print(f"stream feed failed ({fatal[0]!r}); backing off then exiting for restart",
+                      flush=True)
+                _time.sleep(RECONNECT_BACKOFF_S)
+                raise SystemExit(1)
+            if dry:
+                _time.sleep(2)
+                continue
+            try:
+                msgs, offset = tg.poll(offset)
+            except Exception as e:
+                print(f"telegram poll failed ({e!r}); retrying", flush=True)
+                _time.sleep(5)
+                msgs = []
+            for text in msgs:
+                _handle_reply(con, lock, tg, text, epoch)
+            if _time.time() - last_sweep > 300:      # every 5 min
+                with lock:
+                    now = pd.Timestamp.now(tz="UTC")
+                    sweep_auto_missed(con, now)
+                    sweep_counterfactuals(con, live.hist.sort_index(), now)
+                last_sweep = _time.time()
+    except KeyboardInterrupt:
+        print("\nstopping.")
 
 
 # ── Self-test: no look-ahead + first-touch dedup (from the notebook) ────────
@@ -741,9 +1499,11 @@ def selftest():
     import tempfile
     con = open_log(Path(tempfile.mkdtemp()) / "t.sqlite")
     insert_alert(con, dict(alert_id="A_old", alert_ts_utc="2025-06-16 00:00:00", level_types="PDH",
-                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1))
+                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     insert_alert(con, dict(alert_id="A_new", alert_ts_utc="2025-06-16 03:30:00", level_types="PDL",
-                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1))
+                           level_price=1.0, price_at_alert=1.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     con.commit()
     n = sweep_auto_missed(con, pd.Timestamp("2025-06-16 04:30:00", tz="UTC"))
     decided = dict(con.execute("SELECT alert_id, decision FROM decisions").fetchall())
@@ -751,7 +1511,8 @@ def selftest():
         fails.append(f"auto-MISSED: n={n} decided={decided}")
     # 8) counterfactual sweep: only alerts with a full 4h forward window get filled
     insert_alert(con, dict(alert_id="A_cf", alert_ts_utc="2025-06-16 00:00:00", level_types="PDH",
-                           level_price=100.0, price_at_alert=100.0, session="ASIA", confluence_count=1))
+                           level_price=100.0, price_at_alert=100.0, session="ASIA", confluence_count=1),
+                 epoch=1, bar_source="ibkr")
     con.commit()
     fdf = pd.DataFrame({"open": 100.0, "high": 110.0, "low": 95.0, "close": 100.0},
                        index=pd.date_range("2025-06-16 00:00", periods=300, freq="1min", tz="UTC"))
@@ -799,6 +1560,69 @@ def selftest():
               "2026-09-27 18:07": False, "2026-07-14 21:30": False}:
         fails.append(f"live bar filter: {ok}")
 
+    # 12) journal epochs: a pre-migration journal (old DDL, old positional
+    #     INSERTs) keeps its rows as epoch 1 / bar_source ibkr; every bar-source
+    #     change starts a new epoch and is logged in source_switches (ibkr ->
+    #     stream = 2, rollback to ibkr = 3, never 1 again); an alert id reused
+    #     by two epochs stays two alerts
+    jp = Path(tempfile.mkdtemp()) / "old.sqlite"
+    old = sqlite3.connect(str(jp))
+    old.executescript("""
+      CREATE TABLE alerts(alert_id TEXT, alert_ts_utc TEXT, level_types TEXT, level_price REAL,
+        price_at_alert REAL, session TEXT, confluence_count INTEGER, inserted_ts_utc TEXT);
+      CREATE TABLE decisions(alert_id TEXT, decision TEXT, decision_ts_utc TEXT,
+        minutes_from_alert REAL, direction TEXT, entry REAL, stop REAL, target REAL,
+        reasoning TEXT, reasoning_ts_utc TEXT, source TEXT);
+      CREATE TABLE outcomes(alert_id TEXT, exit_price REAL, r_multiple REAL, exit_type TEXT,
+        filled_ts_utc TEXT);
+      CREATE TABLE counterfactuals(alert_id TEXT, fwd_high_1h REAL, fwd_low_1h REAL,
+        mfe_up_1h REAL, mfe_dn_1h REAL, fwd_high_4h REAL, fwd_low_4h REAL, mfe_up_4h REAL,
+        mfe_dn_4h REAL, computed_ts_utc REAL);
+      INSERT INTO alerts VALUES('A20251014-001','2025-10-14 01:00:00','PDH',1,1,'ASIA',1,'x');
+      INSERT INTO decisions VALUES('A20251014-001','SKIP','2025-10-14 01:05:00',5,NULL,NULL,
+        NULL,NULL,'r','2025-10-14 01:05:00','telegram');
+      INSERT INTO counterfactuals VALUES('A20251014-001',1,1,0,0,1,1,0,0,'x');
+    """)
+    old.close()
+    con = open_log(jp)
+    open_log(jp).close()                                   # idempotent
+    rows = con.execute("SELECT alert_id, epoch, bar_source FROM alerts").fetchall()
+    kids = [con.execute(f"SELECT epoch FROM {t}").fetchall() for t in ("decisions", "counterfactuals")]
+    ver = con.execute("PRAGMA user_version").fetchone()[0]
+    epochs = [start_epoch(con, src) for src in ("ibkr", "stream", "stream", "ibkr", "stream")]
+    switches = con.execute("SELECT from_source, to_source, epoch FROM source_switches").fetchall()
+    _journal_new_alert(con, dict(alert_id="A20251014-001", alert_ts_utc="2025-10-14 09:00:00",
+                                 level_types="NY_L", level_price=2.0, price_at_alert=2.0,
+                                 session="LONDON", confluence_count=1), epoch=4, bar_source="stream")
+    n_missed = sweep_auto_missed(con, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
+    n_cf = sweep_counterfactuals(con, fdf, pd.Timestamp("2025-10-14 14:00:00", tz="UTC"))
+    dec = con.execute("SELECT epoch, decision FROM decisions ORDER BY rowid").fetchall()
+    cfe = con.execute("SELECT epoch FROM counterfactuals ORDER BY rowid").fetchall()
+    if not (rows == [("A20251014-001", 1, "ibkr")] and kids == [[(1,)], [(1,)]]
+            and ver == JOURNAL_VERSION == 3 and epochs == [1, 2, 2, 3, 4]
+            and switches == [(None, "ibkr", 1), ("ibkr", "stream", 2), ("stream", "ibkr", 3),
+                             ("ibkr", "stream", 4)]
+            and n_missed == 1 and n_cf == 1
+            and dec == [(1, "SKIP"), (4, "MISSED")] and cfe == [(1,), (4,)]):
+        fails.append(f"journal epoch: rows={rows} kids={kids} ver={ver} epochs={epochs} "
+                     f"switches={switches} missed={n_missed} cf={n_cf} dec={dec} cfe={cfe}")
+
+    # 13) live started between UTC midnight and the day's first bar still builds
+    #     the day's levels on that first bar (it used to wait for 07:00)
+    d = pd.Timestamp("2025-06-16", tz="UTC")
+    win = df[(df.index >= d - pd.Timedelta(days=14)) & (df.index < d + pd.Timedelta(hours=8))]
+    sc, rep = Scanner(build_levels(win)), []
+    for ts, o, h, l, c in win.itertuples(name=None):
+        out = sc.on_bar(ts, o, h, l, c)
+        if ts >= d:
+            rep += out
+    for start in (d, d + pd.Timedelta(seconds=30)):
+        live, got = LiveLevels(win[win.index < d].copy(), start), []
+        for ts, o, h, l, c in win[win.index >= d].itertuples(name=None):
+            got += live.on_bar(ts, o, h, l, c)
+        if not rep or got != rep:
+            fails.append(f"live start at {start.time()}: {len(got)} live vs {len(rep)} replay alerts")
+
     print("SELFTEST:", "ALL PASSED" if not fails else f"FAILED {fails}")
     return not fails
 
@@ -807,15 +1631,18 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", help="UTC day to replay, e.g. 2025-06-16")
     ap.add_argument("--db", default=None, help="write alerts+counterfactuals to this sqlite file")
-    ap.add_argument("--live", action="store_true", help="run live on IBKR + Telegram (needs TWS + env creds)")
-    ap.add_argument("--dry-live", action="store_true", help="run live on IBKR but print alerts to terminal (no Telegram)")
+    ap.add_argument("--live", action="store_true", help="run live + Telegram; bars from SCANNER_BAR_SOURCE (ibkr: needs TWS; stream: needs REDIS_URL + DATAFEED_DB)")
+    ap.add_argument("--dry-live", action="store_true", help="run live but print alerts to terminal (no Telegram)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
     if args.selftest:
         raise SystemExit(0 if selftest() else 1)
     if args.live or args.dry_live:
-        run_live(dry=args.dry_live)
+        if bar_source() == "stream":
+            run_live_stream(dry=args.dry_live)
+        else:
+            run_live(dry=args.dry_live)
         return
     if not args.date:
         ap.error("give --date YYYY-MM-DD, --live, --dry-live, or --selftest")

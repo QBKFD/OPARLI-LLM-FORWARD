@@ -1,0 +1,91 @@
+# CI: tests (with a Redis service container), the scanner selftest, lint
+# (ruff, shellcheck) and a secret scan. No secrets are needed; IBKR tests are
+# manual-only and skipped. Third-party code is pinned: actions by commit SHA,
+# tools by version, and the gitleaks binary by checksum.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:7.4.2-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      # a throwaway database of the service container; the tests flush it
+      REDIS_TEST_URL: redis://localhost:6379/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"            # requirements.lock was compiled for 3.13
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install (hash-locked)
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+      - name: pytest (Redis service; IBKR tests skipped)
+        # Tests that need the untracked parquet or research caches skip
+        # themselves (-rs lists them).
+        run: python -m pytest -m "not ibkr" -q -rs
+      - name: Scanner selftest
+        # The selftest needs the historical parquet, which is not in git
+        # (database/ohlcv_data is untracked). Run it when present, else warn.
+        run: |
+          if [ -f database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet ]; then
+            python backend/deterministic_scanner.py --selftest
+          else
+            echo "::warning title=selftest skipped::database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet is not in the repository; run 'python backend/deterministic_scanner.py --selftest' locally"
+          fi
+
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Install ruff
+        run: python -m pip install ruff==0.12.10
+      - name: ruff, errors only (syntax errors, undefined names), whole repo
+        run: ruff check --select E9,F63,F7,F82 .
+      - name: ruff, default rules, maintained packages
+        # E741 ignored: l is the codebase's name for an OHLC low
+        run: ruff check --extend-ignore E741 agents risk tools datafeed
+      - name: shellcheck (error severity; legacy/ excluded)
+        run: |
+          shellcheck --version
+          git ls-files -z -- '*.sh' ':(exclude)legacy/*' | xargs -0 shellcheck -S error
+
+  secrets:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0                    # scan the whole history, not just the tip
+      - name: gitleaks (pinned release, checksum-verified)
+        run: |
+          v=8.30.1
+          f="gitleaks_${v}_linux_x64.tar.gz"
+          curl -fsSL -o "$f" "https://github.com/gitleaks/gitleaks/releases/download/v${v}/${f}"
+          echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  ${f}" | sha256sum -c -
+          tar -xzf "$f" gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 .
