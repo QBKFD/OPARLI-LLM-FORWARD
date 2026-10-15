@@ -10,10 +10,13 @@ Config (env only, no defaults, so nothing points at a gateway by accident):
     IB_HOST       gateway host
     IB_PORT       gateway API port (the only port variable read)
     IB_CLIENT_ID  API client id; must differ from every other client of the
-                  same gateway (the scanner uses 11 and 21)
+                  same gateway (taken: 11 and 21 by the scanner in ibkr mode,
+                  999 by its entrypoint probe, 996 by the host watchdog probe)
 
-Never point this at the production gateway: use a local paper gateway, or the
-replay source.
+Which gateway (owner decision 2026-10-14): in development and tests only a
+local paper gateway (or the replay source). In production with the scanner in
+stream mode (SCANNER_BAR_SOURCE=stream) this is the ONLY client of the
+production gateway; the scanner in stream mode never connects.
 """
 
 from __future__ import annotations

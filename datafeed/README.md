@@ -4,12 +4,14 @@ XAUUSD 1-min bar feed. It fetches bars from IBKR (or replays them from
 parquet), publishes them to a Redis stream, records them in a point-in-time
 SQLite store, and reads them back "as of t".
 
-**Status: v1, branch `feat/datafeed-v1`. Not deployed, and nothing in
-production uses it.** The deployed scanner still owns its own IBKR connection.
-Bar semantics, decisions and open questions are in `docs/DATAFEED_NOTES.md`.
+**Status: v1. Not deployed, and nothing in production uses it yet.** The
+deployed scanner still owns its own IBKR connection. The scanner's stream mode
+(`SCANNER_BAR_SOURCE=stream`, branch `feat/scanner-stream-source`) consumes this
+feed instead; see `docs/SCANNER_SWITCH_NOTES.md`. Bar semantics, decisions and
+open questions are in `docs/DATAFEED_NOTES.md`.
 
 ```
- IBKR (local paper gateway)  ─┐
+ IBKR gateway (see below)    ─┐
                               ├─► python -m datafeed.ingest ─► Redis stream ─► python -m datafeed.recorder ─► SQLite
  parquet replay (default)    ─┘        bars.xauusd.1m                              (commit, then ack)          │
                                                                                                                ▼
@@ -65,10 +67,20 @@ row stops the run. There's no override.
 **Without anything** (prints JSON lines): `python -m datafeed.ingest --stdout`.
 
 **Live IBKR**: set `DATAFEED_SOURCE=ibkr` plus `IB_HOST`, `IB_PORT` and
-`IB_CLIENT_ID`. All three are required, with no defaults. Point it only at a
-**local paper gateway**, never the production one, and use a client id that no
-other client of that gateway uses (the scanner uses 11 and 21). It's
-crash-only: on any connection problem it backs off 20 s and exits non-zero.
+`IB_CLIENT_ID`. All three are required, with no defaults. It's crash-only: on
+any connection problem it backs off 20 s and exits non-zero.
+
+**Which gateway** (owner decision 2026-10-14):
+- **Development and tests**: a **local paper gateway** only.
+- **Production, scanner in stream mode**: this feed is the **only** client of
+  the production gateway. The scanner in stream mode never connects to IBKR.
+  It has no IBKR fallback; while the store can't warm it, it waits.
+- **Client id**: use one no other client of that gateway uses. Taken:
+  - 11 and 21: the scanner in ibkr mode, which is the rollback;
+  - 999: the scanner entrypoint's handshake probe, which stream mode should
+    replace with a Redis wait;
+  - 996: the host watchdog's handshake probe, once every 5 minutes.
+  For example, use 31.
 
 ## Environment
 
