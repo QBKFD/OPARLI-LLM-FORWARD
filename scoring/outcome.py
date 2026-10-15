@@ -4,8 +4,8 @@
         -> Outcome(reason, exit_time, exit_price, r_multiple, mae, mfe, ...)
 
 The bracket can be the agent's own stop/target, or the neutral k·sigma
-bracket from risk.bracket (score_neutral), so one trade can be scored twice on
-the same bars.
+bracket from risk.bracket with the HAR sigma over the holding period
+(score_neutral), so one trade can be scored twice on the same bars.
 
 BARS
     (bar_ts, open, high, low, close) tuples, bar_ts = the minute's open time
@@ -153,13 +153,28 @@ def _outcome(reason, ts, px, entry, risk, sign, mae, mfe, n, gap) -> Outcome:
                    mae=mae, mfe=mfe, mae_r=mae / risk, mfe_r=mfe / risk, bars_used=n, gap=gap)
 
 
-def score_neutral(*, entry_time: datetime, direction: str, entry_price, sigma, k,
-                  max_hold_minutes: int, bars: Iterable) -> tuple[Bracket, Outcome]:
-    """Score the neutral k·sigma bracket from risk.bracket (stop at k·sigma,
-    target at 2k·sigma). sigma is in price units over the trade's horizon."""
-    b = bracket(entry=entry_price, direction=direction, sigma=sigma, k=k)
-    return b, score(entry_time=entry_time, direction=direction, entry_price=b.entry, stop=b.stop,
-                    target=b.target, max_hold_minutes=max_hold_minutes, bars=bars)
+@dataclass(frozen=True)
+class NeutralScore:
+    bracket: Bracket             # risk.bracket: stop at k·sigma, target at 2k·sigma
+    sigma: object                # datafeed vol_block.Sigma (HAR) over the holding period
+    outcome: Outcome
+
+
+def score_neutral(*, entry_time: datetime, direction: str, entry_price, k, max_hold_minutes: int,
+                  bars: Iterable, model, state) -> NeutralScore:
+    """Score the neutral k·sigma bracket. sigma is the HAR sigma over the holding
+    period, vol_block.sigma_over(model, state, max_hold_minutes).sigma_px, so
+    max_hold_minutes must be a fitted horizon (60 or 240). state must be as of
+    entry_time and computed with model.params (sigma_over checks the hash)."""
+    # vol_block needs numpy and pandas; importing it here keeps score() stdlib-only
+    from datafeed.features import vol_block as vb
+    if state.t != _aware("entry_time", entry_time):
+        raise ValueError(f"state is as of {state.t}, not the entry time {entry_time}")
+    sig = vb.sigma_over(model, state, max_hold_minutes)
+    b = bracket(entry=entry_price, direction=direction, sigma=sig.sigma_px, k=k)
+    return NeutralScore(b, sig, score(entry_time=entry_time, direction=direction, entry_price=b.entry,
+                                      stop=b.stop, target=b.target,
+                                      max_hold_minutes=max_hold_minutes, bars=bars))
 
 
 # ---------------------------------------------------------------- bar sources

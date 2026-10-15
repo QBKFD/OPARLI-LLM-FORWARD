@@ -20,6 +20,21 @@ def T(s):
 
 
 @pytest.fixture(scope="module")
+def real_frame():
+    """Real bars between two UTC times (pre-2024), as a pandas OHLC frame."""
+    pd = pytest.importorskip("pandas")
+    if not PARQUET.exists():
+        pytest.skip("research parquet not available")
+
+    def load(start, end):
+        df = pd.read_parquet(PARQUET, filters=[("timestamp", ">=", pd.Timestamp(start, tz="UTC")),
+                                               ("timestamp", "<", pd.Timestamp(end, tz="UTC"))])
+        df = df.set_index("timestamp").sort_index()
+        return df[~df.index.duplicated(keep="first")][["open", "high", "low", "close"]]
+    return load
+
+
+@pytest.fixture(scope="module")
 def real():
     """Real bars between two UTC times (pre-2024), as tuples."""
     pd = pytest.importorskip("pandas")
@@ -110,20 +125,25 @@ def test_target_hit_on_real_bars(real):
     assert out.mae == pytest.approx(max(0.0, entry - min(b[3] for b in held)))
 
 
-def test_score_twice_neutral_and_agent_on_the_same_bars(real):
+def test_score_twice_neutral_har_and_agent_on_the_same_bars(real, real_frame):
+    from datafeed.features import vol_block as vb
     t = T("2023-06-14 08:00")
+    model = vb.load_sigma_model()
+    st = vb.state_at(model.params, real_frame("2023-05-25", "2023-06-14 08:00"), t)
+    assert st.reason is None
     bars = real("2023-06-14 08:00", "2023-06-14 13:00")
-    entry, sigma, k = bars[0][1], 3.0, 1.0
-    b, neutral = score_neutral(entry_time=t, direction="short", entry_price=entry, sigma=sigma, k=k,
+    entry, k = bars[0][1], 1.0
+    ns = score_neutral(entry_time=t, direction="short", entry_price=entry, k=k,
+                       max_hold_minutes=240, bars=bars, model=model, state=st)
+    sig = vb.sigma_over(model, st, 240)                    # HAR over the holding period
+    assert ns.sigma == sig and sig.sigma_px > 0
+    assert ns.bracket == bracket(entry=entry, direction="short", sigma=sig.sigma_px, k=k)
+    assert ns.outcome == score(entry_time=t, direction="short", entry_price=entry,
+                               stop=ns.bracket.stop, target=ns.bracket.target,
                                max_hold_minutes=240, bars=bars)
-    assert b == bracket(entry=entry, direction="short", sigma=sigma, k=k)
-    assert (b.stop, b.target) == (entry + 3.0, entry - 6.0)
     agent = score(entry_time=t, direction="short", entry_price=entry, stop=entry + 1.0,
                   target=entry - 1.0, max_hold_minutes=240, bars=bars)
-    assert isinstance(neutral, Outcome) and isinstance(agent, Outcome)
-    again = score(entry_time=t, direction="short", entry_price=entry, stop=b.stop, target=b.target,
-                  max_hold_minutes=240, bars=bars)
-    assert again == neutral
+    assert isinstance(agent, Outcome)
 
 
 def test_bars_before_entry_are_never_used(real):
@@ -213,3 +233,40 @@ def test_read_bars_from_the_store(tmp_path):
     got = read_bars("XAUUSD", T("2024-01-02 10:30:30"), 60, db=path, kinds=("replay",))
     assert got[0][0] == T("2024-01-02 10:31") and got[-1][0] == T("2024-01-02 11:29")
     assert len(got) == 59 and got[0][1:] == (131.0, 132.0, 130.0, 131.5)
+
+
+# ---------------------------------------------------------------- neutral bracket: HAR sigma
+
+def har_state(t, model, L=0.0, close=100.0):
+    from datafeed.features import vol_block as vb
+    return vb.VolState(t, None, L, 0.0, 0.0, close, None, None, params_sha256=model.params.sha256)
+
+
+def test_score_neutral_uses_har_sigma_over_the_holding_period():
+    from datafeed.features import vol_block as vb
+    model = vb.load_sigma_model()
+    t = T("2024-01-03 15:00")                                # Wednesday, inside market hours
+    st = har_state(t, model)
+    bars = [bar("2024-01-03 15:00", 100.0, 100.1, 99.9, 100.0)]
+    for H in (60, 240):
+        ns = score_neutral(entry_time=t, direction="long", entry_price=100.0, k=1.5,
+                           max_hold_minutes=H, bars=bars, model=model, state=st)
+        sig = vb.sigma_over(model, st, H)
+        assert ns.sigma == sig
+        assert ns.bracket.stop == pytest.approx(100.0 - 1.5 * sig.sigma_px)
+        assert ns.bracket.target == pytest.approx(100.0 + 3.0 * sig.sigma_px)
+
+
+def test_score_neutral_refusals():
+    from datafeed.features import vol_block as vb
+    model = vb.load_sigma_model()
+    t = T("2024-01-03 15:00")
+    bars = [bar("2024-01-03 15:00", 100.0, 100.1, 99.9, 100.0)]
+    kw = dict(entry_time=t, direction="long", entry_price=100.0, k=1.0, bars=bars, model=model)
+    with pytest.raises(ValueError, match="H must be one of"):          # not a fitted horizon
+        score_neutral(max_hold_minutes=120, state=har_state(t, model), **kw)
+    with pytest.raises(ValueError, match="entry time"):               # state from another time
+        score_neutral(max_hold_minutes=60, state=har_state(t - timedelta(hours=1), model), **kw)
+    other = vb.load_sigma_model("txt2007_2023" if model.name != "txt2007_2023" else "parquet2021_2023")
+    with pytest.raises(ValueError, match="other VolParams"):         # state from other params
+        score_neutral(max_hold_minutes=60, state=har_state(t, other), **kw)

@@ -6,16 +6,28 @@ Outcome of a bracketed XAUUSD trade, walked forward on 1-min bars.
 and nothing calls `score` in production.
 
 ```python
+from datafeed.features import vol_block as vb
 from scoring.outcome import read_bars, score, score_neutral
 
+model = vb.load_sigma_model()                        # HAR, SHA-256 checked
+state = vb.read_state(model.params, "XAUUSD", entry_time)
 bars = read_bars("XAUUSD", entry_time, 240)          # store bars of the holding period
-# neutral k·sigma bracket (risk.bracket: stop k·σ, target 2k·σ)
-b, neutral = score_neutral(entry_time=entry_time, direction="long", entry_price=entry,
-                           sigma=sig.sigma_px, k=1.0, max_hold_minutes=240, bars=bars)
+# neutral bracket: risk.bracket with the HAR sigma over the holding period (stop k·σ, target 2k·σ)
+ns = score_neutral(entry_time=entry_time, direction="long", entry_price=entry, k=1.0,
+                   max_hold_minutes=240, bars=bars, model=model, state=state)
+# ns.bracket, ns.sigma (incl. crosses_close), ns.outcome
 # the agent's own stop/target, on the same bars
 agent = score(entry_time=entry_time, direction="long", entry_price=entry,
               stop=agent_stop, target=agent_target, max_hold_minutes=240, bars=bars)
 ```
+
+- **`score_neutral` uses the HAR sigma:**
+  `vol_block.sigma_over(model, state, max_hold_minutes)`.
+- **Constraints that follow:**
+  - the holding period must be a fitted horizon (60 or 240 min);
+  - the state must be as of the entry time;
+  - the state must come from `model.params`.
+  Anything else raises.
 
 ## What `score` returns
 
@@ -57,7 +69,9 @@ agent = score(entry_time=entry_time, direction="long", entry_price=entry,
 
 ## Imports
 
-- `scoring/` imports only the stdlib, `risk/` and `datafeed.store`.
+- `scoring/` imports only the stdlib, `risk/`, `datafeed.store` and
+  `datafeed.features`. The last is imported inside `score_neutral`, so
+  `score()` stays stdlib-only.
 - Nothing in `datafeed/` or `risk/` imports `scoring/`.
 
 Both rules are checked by `tests/scoring_tests/test_scoring_package.py`. The

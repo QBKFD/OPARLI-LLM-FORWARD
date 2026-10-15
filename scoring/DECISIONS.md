@@ -59,3 +59,23 @@ here.
     The first version of the target test placed its stop where the data
     touched it. The test's own precondition caught that, and the stop was
     widened.
+
+## Owner review (2026-10-15)
+
+13. **Rebased onto `feat/sigma-har`** (fb0e379). The rebase was clean, and
+    `pyproject.toml` merged without conflict. A comment line was re-wrapped.
+    The branch was force-pushed with lease.
+
+14. **`score_neutral` uses the HAR sigma.**
+    - σ = `vol_block.sigma_over(model, state, max_hold_minutes).sigma_px`,
+      i.e. over the holding period. So `max_hold_minutes` must be 60 or 240.
+    - The caller passes the `SigmaModel` and the state, as there are no hidden
+      defaults.
+    - `state.t` must equal `entry_time`, or it raises.
+    - The params-hash check of `sigma_over` applies.
+    - It returns `NeutralScore(bracket, sigma, outcome)`, so `crosses_close`
+      stays visible. Before, it returned a 2-tuple.
+
+15. **`vol_block` is imported inside `score_neutral`,** so `import
+    scoring.outcome` and `score()` stay stdlib-only. The import rule now
+    allows `datafeed.features`, and the AST test sees the local import.

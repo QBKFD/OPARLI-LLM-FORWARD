@@ -24,10 +24,10 @@ def imports(path: Path):
 def allowed_in_scoring(mod: str) -> bool:
     top = mod.split(".")[0]
     return (top in sys.stdlib_module_names or top in ("scoring", "risk")
-            or mod == "datafeed.store" or mod.startswith("datafeed.store."))
+            or any(mod == p or mod.startswith(p + ".") for p in ("datafeed.store", "datafeed.features")))
 
 
-def test_scoring_imports_only_stdlib_risk_and_the_store():
+def test_scoring_imports_only_stdlib_risk_the_store_and_features():
     files = sorted((ROOT / "scoring").rglob("*.py"))
     assert files
     bad = [f"{p.relative_to(ROOT)}: {m}" for p in files for m in imports(p) if not allowed_in_scoring(m)]
@@ -42,6 +42,7 @@ def test_datafeed_and_risk_do_not_import_scoring():
 
 
 def test_scoring_installs_and_loads_no_third_party_module(tmp_path):
+    # score() is stdlib-only; vol_block (numpy, pandas) is imported inside score_neutral
     out = subprocess.run(
         [sys.executable, "-I", "-c",
          "import sys, scoring.outcome as o; print(o.__file__);"
