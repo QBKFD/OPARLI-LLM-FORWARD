@@ -130,6 +130,28 @@ def latest_bar_ts(symbol, db=None, kind: str | None = None) -> str | None:
             con.close()
 
 
+def spreads(symbol, start=None, end=None, db=None) -> list[dict]:
+    """Spread stats of live bars with bar_ts in [start, end), oldest first:
+    [{bar_ts, spread_mean, spread_median, spread_max, n_quotes}, ...]. Bars
+    without stats (history, replay, or recorded before migration 4) are left
+    out. A missing start or end means unbounded."""
+    con, own = _con(db)
+    try:
+        sql = ("SELECT bar_ts, spread_mean, spread_median, spread_max, n_quotes FROM bars"
+               " WHERE symbol = ? AND kind = 'live' AND n_quotes IS NOT NULL")
+        args: list = [symbol]
+        if start is not None:
+            sql += " AND bar_ts >= ?"
+            args.append(canonical(start))
+        if end is not None:
+            sql += " AND bar_ts < ?"
+            args.append(canonical(end))
+        return [dict(r) for r in con.execute(sql + " ORDER BY bar_ts", args).fetchall()]
+    finally:
+        if own:
+            con.close()
+
+
 def compare_live_vs_history(symbol, start, end, db=None) -> dict:
     """Per-minute live minus history deltas for minutes in [start, end) that
     have both kinds, plus summary stats.

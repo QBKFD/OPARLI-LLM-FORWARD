@@ -41,10 +41,10 @@ def write(con, msgs):
 
 def test_schema_version_and_wal(db):
     path, con = db
-    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 3
+    assert schema.schema_version(con) == len(schema.MIGRATIONS) == 4
     assert con.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     con2 = schema.connect(path)                     # re-open: migrations not re-applied
-    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == 3
+    assert con2.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(schema.MIGRATIONS)
     con2.close()
 
 
@@ -241,7 +241,9 @@ def test_migration_2_moves_v1_replay_rows(tmp_path):
     got = {(r["bar_ts"][11:16], r["kind"], r["source"]) for r in con.execute("SELECT * FROM bars")}
     assert got == {("10:00", "replay", "replay"), ("10:00", "history", "ibkr"), ("10:01", "live", "ibkr")}
     with pytest.raises(sqlite3.IntegrityError):
-        con.execute("INSERT INTO bars VALUES ('X','t','bogus',1,1,1,1,NULL,'s',1,'t','t')")
+        con.execute("INSERT INTO bars (symbol, bar_ts, kind, open, high, low, close, n_ticks, source, "
+                    "schema_version, ingest_ts, recorded_ts) "
+                    "VALUES ('X','t','bogus',1,1,1,1,NULL,'s',1,'t','t')")
 
 
 def test_reject_message_idempotent_per_stream_id(db):
