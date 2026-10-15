@@ -13,6 +13,8 @@ transaction, COMMIT, and only then ack. The two crash windows:
 A message that fails validation can never succeed, so it is written to
 rejected_messages (stage 'invalid') in the batch's own transaction, counted,
 logged and acked with the batch (otherwise it would be redelivered forever).
+An entry the bus couldn't decode (Delivery.error set) goes the same way, with
+its raw text and the error prefixed "undecodable:".
 If the batch rolls back, its rejection rows roll back with it. A store error
 rolls the batch back, is counted, and the batch is retried after a pause. An
 ack error propagates: crash-only, the restart redelivers.
@@ -43,6 +45,7 @@ import logging
 import time as _time
 from datetime import datetime, timezone
 
+from datafeed.bus import UNDECODABLE
 from datafeed.ingest.base import parse_utc, validate_message
 from datafeed.store import schema
 
@@ -85,6 +88,12 @@ class Recorder:
     def _record(self, d) -> tuple[str, str | None, str | None]:
         """Validate and write one entry inside the open transaction.
         Returns (result, kind, canonical bar_ts); kind and bar_ts are None if rejected."""
+        if getattr(d, "error", None) is not None:          # the bus couldn't decode it
+            schema.reject_message(self.con, self.stream, d.id, d.msg.get(UNDECODABLE),
+                                  f"undecodable: {d.error}", "invalid",
+                                  self._first_seen.get(d.id) or self.clock())
+            log.error("recorder: rejected undecodable %s: %s", d.id, d.error)
+            return "rejected", None, None
         try:
             validate_message(d.msg)
             for f in ("bar_ts", "open", "high", "low", "close"):
