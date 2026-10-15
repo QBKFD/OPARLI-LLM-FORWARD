@@ -45,11 +45,11 @@ datafeed = ["features/models/*.json"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed,
-# tests/agents_tests, tests/risk_tests and tests/scoring_tests only. legacy/ is
-# never collected: it is listed in norecursedirs (with pytest's own defaults),
-# so it is skipped even when a parent directory is collected.
+# tests/agents_tests, tests/risk_tests, tests/scoring_tests and tests/scanner
+# only. legacy/ is never collected: it is listed in norecursedirs (with pytest's
+# own defaults), so it is skipped even when a parent directory is collected.
 testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests",
-             "tests/scoring_tests"]
+             "tests/scoring_tests", "tests/scanner"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).
@@ -59,3 +59,17 @@ markers = [
     "ibkr: needs a live IBKR gateway; manual only, skipped by default",
     "redis: needs a reachable Redis server; skipped when unavailable",
 ]
+
+[tool.ruff]
+# CI (.github/workflows/ci.yml) runs ruff twice: errors only (E9, F63, F7, F82)
+# on the whole repo, and the default rules on the maintained packages (agents,
+# risk, tools, datafeed). legacy/ is never linted.
+extend-exclude = ["legacy"]
+target-version = "py312"
+
+[tool.ruff.lint.per-file-ignores]
+# `frames` is deleted (del frames) only after the last call of the closure that
+# appends to it, so F821 is a static false positive there, not a runtime bug.
+# The study's code is left as it was run.
+"research/levels/run_levels.py" = ["F821"]
+

@@ -5,6 +5,18 @@ the **current** bar contract: what production does today, including its flaws.
 The new package must reproduce this behaviour exactly unless a deviation is
 listed under "Decisions" and approved.
 
+## Gateway rule (owner decision 2026-10-14)
+
+This replaces "local paper gateway only, never the production one" below for
+production. That rule still holds for development and tests.
+- With the scanner in stream mode (`SCANNER_BAR_SOURCE=stream`), the feed's
+  `IbkrXauusdSource` is the **only** client of the production gateway.
+- The scanner in stream mode never connects to IBKR. It has no warm-up
+  fallback, and waits for the store instead. The ibkr-mode scanner, the
+  rollback, keeps clientIds 11 and 21.
+- Details and client ids: `datafeed/README.md` and
+  `docs/SCANNER_SWITCH_NOTES.md`.
+
 ## 0. Baseline (2026-10-13, branch point `research/levels-diag` @ 29dec96)
 
 Interpreter: `algo_project/backend/venv` (Python 3.13.1, pandas 2.3.3,
