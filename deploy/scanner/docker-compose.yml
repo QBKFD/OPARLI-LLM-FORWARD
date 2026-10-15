@@ -11,6 +11,11 @@
 #
 # Deploy:  cp .env.example .env  &&  edit .env  &&  docker compose up -d --build
 # The gnzsnz/ib-gateway image is multi-arch (works on arm64 too).
+#
+# Memory limits fit a 3.8 GB host: 1536 + 512 + 256 + 192 + 384 = 2880 MB for the
+# containers, ~0.9 GB left for the OS and Docker. Peaks measured 2026-10-15:
+# scanner 194 MB (14-day warm-up + 2 live days with every rebuild), feed import
+# 48 MB, recorder 14 MB. Keep a 2 GB swap file on the host (docs/DEPLOY_RUNBOOK.md).
 
 # One image for scanner, feed and recorder (feed and recorder override the
 # entrypoint). Same build and tag on each, so whichever builds first serves all.
@@ -25,6 +30,7 @@ services:
   ibgateway:
     image: ghcr.io/gnzsnz/ib-gateway:stable
     restart: unless-stopped
+    mem_limit: 1536m                  # Java: by far the heaviest; check `docker stats` after deploy
     environment:
       TWS_USERID: ${TWS_USERID}
       TWS_PASSWORD: ${TWS_PASSWORD}
@@ -51,6 +57,7 @@ services:
   scanner:
     <<: *app
     restart: unless-stopped
+    mem_limit: 512m                   # measured peak ~194 MB; backup/export run in here too
     # No dependency on the stream services, on purpose: a datafeed problem must
     # never keep the ibkr-mode scanner (the rollback) from starting. In stream
     # mode the entrypoint waits for Redis and the scanner waits for the store.
@@ -88,6 +95,7 @@ services:
     image: redis:7.4.2-alpine
     profiles: [stream]
     restart: unless-stopped
+    mem_limit: 384m                   # maxmemory 256mb + headroom for the AOF-rewrite fork
     # AOF fsync every second on a volume: pending entries and group positions
     # survive a restart. noeviction: when full, writes fail (the feed exits and
     # the scanner's staleness alert fires) rather than silently dropping
@@ -107,6 +115,7 @@ services:
     <<: *app
     profiles: [stream]
     restart: unless-stopped           # crash-only: exits on any gateway problem
+    mem_limit: 256m                   # import ~48 MB + the 10 D history burst
     entrypoint: ["python", "-m", "datafeed.ingest"]
     depends_on:
       redis:
@@ -131,6 +140,7 @@ services:
     <<: *app
     profiles: [stream]
     restart: unless-stopped
+    mem_limit: 192m                   # import ~14 MB + SQLite
     entrypoint: ["python", "-m", "datafeed.recorder"]
     depends_on:
       feed:

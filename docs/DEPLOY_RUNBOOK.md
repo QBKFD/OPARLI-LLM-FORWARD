@@ -18,6 +18,20 @@ what has to be checked by hand the first time.
 - **What the host runs now.** Check with `git -C ~/oparli status -sb`. In
   September it tracked `pipeline-fixes-and-cleanup`, not `main`. Note the
   branch and commit, so you can go back to them.
+- **Memory** (3.8 GB host). The compose limits total 2.88 GB: ibgateway 1536m,
+  scanner 512m, feed 256m, recorder 192m, redis 384m. Keep a **2 GB swap file**,
+  so a Java spike in the gateway doesn't trigger the kernel OOM killer. Check
+  with `swapon --show`; if it's empty:
+
+  ```bash
+  sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile \
+    && sudo swapon /swapfile && echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+  sudo sysctl vm.swappiness=10 && echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swappiness.conf
+  ```
+
+  After deploying, watch `docker stats --no-stream` for a day. A container near
+  its limit gets OOM-killed and restarted (the watchdog reports crash loops);
+  raise its `mem_limit` if so.
 - **S3 bucket** for backups:
   - private, with "Block all public access" on;
   - a lifecycle rule for retention, e.g. expire `journal/` and `store/`

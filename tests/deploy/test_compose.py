@@ -191,3 +191,18 @@ def test_env_example_has_no_real_values():
     for k in ("SCANNER_BAR_SOURCE=ibkr", "FEED_IB_CLIENT_ID=31", "BACKUP_S3_BUCKET=", "#COMPOSE_PROFILES=stream"):
         assert k in env
     assert "AWS_ACCESS_KEY" not in env and "AWS_SECRET" not in env
+
+
+def _mb(v):
+    v = str(v).lower()
+    return int(v[:-1]) if v.endswith("m") else int(float(v[:-1]) * 1024) if v.endswith("g") else int(v) // 2**20
+
+
+def test_memory_limits_fit_a_3_8_gb_host():
+    limits = {n: _mb(s["mem_limit"]) for n, s in S.items()}
+    assert set(limits) == set(S)                                  # every service has one
+    assert max(limits, key=limits.get) == "ibgateway"             # the heavy one
+    assert sum(limits.values()) == 2880
+    assert 3.8 * 1024 - sum(limits.values()) >= 800              # room for the OS and Docker
+    redis_max = int(S["redis"]["command"][S["redis"]["command"].index("--maxmemory") + 1].rstrip("mb"))
+    assert limits["redis"] >= redis_max * 1.4                    # AOF-rewrite fork headroom
