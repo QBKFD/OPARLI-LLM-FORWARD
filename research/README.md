@@ -32,6 +32,7 @@ report is right.
 | 7 | [`levels/`](levels/REPORT.md) | Does gold behave differently at PDH/PDL/WH/WL than at placebo levels? | `f0e3fd4` | `XAUUSD.txt` 1-min; CONF 2007–2020, REPL 2021–2023 | **0 of 6 hypotheses supported.** PDH/PDL breaks continue *less* than placebo breaks (−7.3 pp): the opposite of the pre-registered direction. |
 | 8 | [`levels_confirm/`](levels_confirm/REPORT.md) | Confirm: near-open PDH/PDL breaks fail more than distance-matched placebos | `305d1d0` | **2024-01-01 .. 2026-01-30** (previously sealed, now spent) | **REJECTED.** The effect is +11.3 pp [+4.0, +18.5]: near-open breaks continued *more*, not less. |
 | 9 | [`levels_diag/`](levels_diag/REPORT.md) | Diagnostic of the levels results; exploratory only | plan `4e36123` (+ addenda `a851caf`, `a3a955c`) | 2007–2023 (seen) | **Stopped at machinery validation**, twice. NEAR A/A coverage is 0.875–0.905 under every bootstrap, outside 93–97 %. Q1–Q5 not run. |
+| 10 | [`sigma_compare/`](sigma_compare/REPORT.md) | Which sigma forecast should risk/ and scoring use: the plug-in, HAR on (L, S_hd, T) or EWMA? | `c75b24f` (+ post-hoc amendment `f14102d`) | CONF `XAUUSD.txt` 2007–2020; DEV parquet 2021–2023 | **HAR replaces the plug-in.** QLIKE 0.249 vs 0.304 (60 min) and 0.184 vs 0.219 (240 min); 24/24 folds. Post hoc: still wins frozen on the parquet 2021–23 and when fitted on non-crossing rows only. |
 
 ## Also here
 
