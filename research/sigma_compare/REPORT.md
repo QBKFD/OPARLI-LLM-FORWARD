@@ -137,3 +137,52 @@ Defined in POSTHOC.md before they were run; results in
   parquet 2021–23.
 - **P2 passes and favours the txt 2007–2023 fit** on calibration. The parquet
   fit was fitted afterwards (`model/sigma_har_parquet_v1.json`).
+
+### Which rows the original fit used
+
+- **Rows.** HAR's β and smearing factor, and the EWMA's λ, were fitted on
+  every valid training row of the fold, crossing and non-crossing together
+  (PREREG choice 6). A valid training row is a label t with train_start ≤ t ≤
+  s_k − 24h, a window ending by s_k, a valid target and finite L, S_hd and T.
+- **Size, last CONF fold:** 78,721 rows at H = 60 and 78,436 at H = 240. Of
+  these, 3,039 and 12,528 are crossing windows.
+- **EWMA burn-in:** for λ, rows in the first 60 days of data were also
+  excluded.
+
+### What DEV is
+
+- **Source:** the clean parquet `database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet`.
+- **Periods:**
+  - analysed 2021-01-01 to 2023-12-31, with 2020 as feature warm-up;
+  - training from 2021-01-01 (expanding);
+  - 8 quarterly tests, 2022Q1 to 2023Q4.
+- **It is not a second source.** The parquet was built from `XAUUSD.txt` and
+  matches it close for close for 2020–2023 (`DATA_AUDIT_LONG.md`). DEV is that
+  file's later years, cleaned.
+- **Role:** it is reported only, and the plug-in's calibration on its test
+  years had been seen before the study.
+
+### Amendment (a): HAR and EWMA fitted on non-crossing training rows only
+
+PREREG AMENDMENT (f14102d), post hoc. Script: `sensitivity_noncross.py`;
+numbers in `results/sensitivity_noncross.json`. The test rows are the same as
+in the original run.
+
+| CONF, non-crossing | QLIKE plug-in | HAR (original fit → non-crossing fit) | EWMA (original → non-crossing) | DM HAR vs plug-in |
+|---|---:|---|---|---:|
+| H = 60 | 0.3044 | 0.2493 → **0.2492** | 0.2765 → 0.2766 | −22.1 (BH p 5e-108) |
+| H = 240 | 0.2190 | 0.1838 → **0.1826** | 0.2045 → 0.2045 | −12.6 (BH p 2e-36) |
+
+- **The verdict is unchanged: HAR still wins at both H.** Both challengers
+  remain significant, and HAR has the lower QLIKE.
+- **The non-crossing fit is marginally better at 240 min** (0.1826 vs 0.1838).
+- **Coefficients barely move:** CONF bL 0.93–1.00, bS_hd +0.25..+0.47,
+  bT −0.33..−0.19.
+- **EWMA half-lives:** in DEV at 240 min they lengthen from 240–480 to
+  960–1920. DEV is reported only: HAR 0.1963 / 0.1449 against the plug-in's
+  0.2446 / 0.1741.
+
+### Amendment (b): confirmation on the parquet 2021–2023
+
+This is check P1 above: HAR frozen on 2007–2020 beats the plug-in on the
+parquet at both H. PASS.

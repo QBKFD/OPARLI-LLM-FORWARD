@@ -219,7 +219,9 @@ class FoldFit:
     model: dict                   # H -> beta, c, half_life, n_train, train mask, train QLIKE per half-life
 
 
-def fit_fold(ctx: Ctx, cfg: dict, s_k: pd.Timestamp) -> FoldFit:
+def fit_fold(ctx: Ctx, cfg: dict, s_k: pd.Timestamp, noncross_only: bool = False) -> FoldFit:
+    """noncross_only: fit HAR and choose lambda on non-crossing training rows only
+    (PREREG AMENDMENT (a), post hoc). The default is the pre-registered fit."""
     m, labels = ctx.m, ctx.labels
     tr_end = s_k - EMBARGO
     params = vb.fit(m[(m.index >= cfg["train_start"]) & (m.index < tr_end)])
@@ -245,6 +247,8 @@ def fit_fold(ctx: Ctx, cfg: dict, s_k: pd.Timestamp) -> FoldFit:
         w = ctx.win[H]
         train = ((labels >= cfg["train_start"]) & (labels <= tr_end) & (w.E_ns <= s_k.value)
                  & w.valid & ok_x)
+        if noncross_only:
+            train &= ~w.crossing
         y = np.log(w.rv[train] / P[H][train])
         beta, *_ = np.linalg.lstsq(X[train], y, rcond=None)
         c = float(np.mean(np.exp(y - X[train] @ beta)))
@@ -308,7 +312,8 @@ def era_of(ts, eras):
     return "other"
 
 
-def run_period(name: str, cfg: dict, m: pd.DataFrame, crosscheck: int = 0) -> dict:
+def run_period(name: str, cfg: dict, m: pd.DataFrame, crosscheck: int = 0,
+               noncross_only: bool = False) -> dict:
     ctx = build_context(m, cfg["end"])
     edges = cfg["edges"]
     rows = {H: [] for H in HORIZONS}
@@ -316,7 +321,7 @@ def run_period(name: str, cfg: dict, m: pd.DataFrame, crosscheck: int = 0) -> di
     rng = np.random.default_rng(20261014)
     for k in range(len(edges) - 1):
         s_k, e_k = edges[k], edges[k + 1]
-        fit = fit_fold(ctx, cfg, s_k)
+        fit = fit_fold(ctx, cfg, s_k, noncross_only)
         pat = fit.ok_x[ctx.labels >= cfg["train_start"]]
         if pattern is None:
             pattern = pat

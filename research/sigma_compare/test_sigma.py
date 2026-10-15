@@ -322,3 +322,14 @@ def test_posthoc_rows_match_the_study_forecasts(syn):
         assert rows[H].index.equals(ref.index)
         np.testing.assert_array_equal(rows[H].h_a, ref.h_a)
         np.testing.assert_array_equal(rows[H].h_b, ref.h_b)
+
+
+def test_noncross_only_fit_drops_exactly_the_crossing_training_rows(syn):
+    _, ctx = syn
+    s_k = CFG["edges"][0]
+    full, nc = rs.fit_fold(ctx, CFG, s_k), rs.fit_fold(ctx, CFG, s_k, noncross_only=True)
+    for H in rs.HORIZONS:
+        crossing = ctx.win[H].crossing
+        assert (full.model[H]["train"] & crossing).any()
+        np.testing.assert_array_equal(nc.model[H]["train"], full.model[H]["train"] & ~crossing)
+    assert nc.params.to_json() == full.params.to_json()          # VolParams unchanged
