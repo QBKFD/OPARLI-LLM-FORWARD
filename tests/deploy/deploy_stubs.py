@@ -28,6 +28,7 @@ with open(os.path.join(root, "calls.jsonl"), "a") as f:
     f.write(json.dumps(["docker"] + args) + "\n")
 state = json.load(open(os.path.join(root, "state.json"))) if os.path.exists(os.path.join(root, "state.json")) else {}
 maps = {"/data": os.path.join(root, "data"), "/datafeed": os.path.join(root, "datafeed")}
+SERVICE = None
 
 def host(p):
     for c, h in sorted(maps.items(), key=lambda kv: -len(kv[0])):
@@ -53,6 +54,9 @@ def run_in(cmd):
         return 0 if os.path.isfile(host(cmd[2])) else 1
     if cmd[:2] == ["redis-cli", "ping"]:
         return state.get("redis_rc", 0)
+    if cmd[:1] == ["python"] and "-c" in cmd and SERVICE == "recorder":   # watchdog store stats
+        print(state.get("store_stats", "0 0"))
+        return 0
     if cmd[:1] == ["python"] and "-c" in cmd:          # watchdog gateway probe
         return state.get("probe_rc", 0)
     print("docker stub: unhandled", cmd, file=sys.stderr)
@@ -71,6 +75,7 @@ if a[0] == "exec":
     a = a[1:]
     while a and a[0].startswith("-"): a = a[1:]
     svc, cmd = a[0], a[1:]
+    SERVICE = svc
     sys.exit(run_in(cmd))
 if a[0] == "cp":
     src, dst = host(a[1].split(":", 1)[1]), a[2]
@@ -112,6 +117,17 @@ else:
     shutil.copyfile(s3(src), dst)
 '''
 
+DF = r'''#!PYTHON
+import json, os, sys
+root = os.environ["STUB_ROOT"]
+p = os.path.join(root, "state.json")
+state = json.load(open(p)) if os.path.exists(p) else {}
+path = sys.argv[-1]
+pct = state.get("disk", {}).get(path, 40)
+print("Filesystem 1024-blocks Used Available Capacity Mounted on")
+print(f"/dev/root 1000 {pct * 10} {1000 - pct * 10} {pct}% {path}")
+'''
+
 CURL = r'''#!PYTHON
 import json, os, sys
 root = os.environ["STUB_ROOT"]
@@ -139,6 +155,8 @@ class Stubs:
         _write(self.bin / "docker", DOCKER)
         _write(self.bin / "aws", AWS)
         _write(self.bin / "curl", CURL)
+        _write(self.bin / "df", DF)
+        self.meminfo(available_pct=50)
         (self.bin / "hostname").write_text("#!/bin/sh\necho testhost\n")
         (self.bin / "timeout").write_text('#!/bin/sh\nshift\nexec "$@"\n')
         for n in ("hostname", "timeout"):
@@ -150,9 +168,16 @@ class Stubs:
                                        "BACKUP_S3_URI=s3://test-bucket/oparli/scanner/\n")
         self.state = {}
 
+    def meminfo(self, available_pct, swap_used_mb=0):
+        total = 3_800_000
+        (self.root / "meminfo").write_text(
+            f"MemTotal: {total} kB\nMemFree: 100000 kB\nMemAvailable: {total * available_pct // 100} kB\n"
+            f"SwapTotal: 2097152 kB\nSwapFree: {2097152 - swap_used_mb * 1024} kB\n")
+
     def env(self, **extra):
         e = {"PATH": f"{self.bin}:{os.environ['PATH']}", "STUB_ROOT": str(self.root),
-             "HOME": str(self.root), "LANG": "C.UTF-8"}
+             "HOME": str(self.root), "LANG": "C.UTF-8",
+             "WATCHDOG_MEMINFO": str(self.root / "meminfo"), "WATCHDOG_DISK_PATHS": str(self.root)}
         e.update({k: str(v) for k, v in extra.items()})
         return e
 
