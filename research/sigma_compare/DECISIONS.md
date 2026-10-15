@@ -81,3 +81,15 @@ run.
     0.0182 vs 0.0218). SHORT has the lower QLIKE on the DEV quarters. The
     instruction says to default to the calibration's choice, so LONG is the
     default and SHORT ships as a config option.
+
+## Sync with feat/sigma-har (2026-10-15)
+
+15. **`sigma_over` was renamed in the study's code.** On `feat/sigma-har`,
+    `vol_block.sigma_over` became the HAR sigma and the plug-in became
+    `vol_block.sigma_plugin` (same maths).
+    - The study's plug-in cross-check (`run_sigma.check_plugin`) now calls
+      `sigma_plugin`, which is what it always computed. That is the only code
+      change.
+    - The Markdown files keep the name as it was when they were written.
+    - A rerun after the sync reproduces `results_sigma.json` and `coefs.csv`
+      byte for byte.

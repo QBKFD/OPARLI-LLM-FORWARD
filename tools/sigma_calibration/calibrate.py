@@ -3,9 +3,10 @@
 
 Not a research study and not a decision rule: sigma is an engineering decision
 (datafeed/features/vol_block.py). It checks the plug-in, called sigma_over when
-this was run and renamed sigma_plugin when HAR took over sigma_over. This only shows how predicted sigma compares
-with what price did, before sigma is trusted for bracket distances. The method
-below was fixed before the first run; it is run once.
+this was run and renamed sigma_plugin when HAR took over sigma_over. This only
+shows how predicted sigma compares with what price did, before sigma is trusted
+for bracket distances. The method below was fixed before the first run; it is
+run once.
 
 Data    research parquet XAUUSD_1min_UTC_clean.parquet, rows < 2024-01-01 only
         (asserted). Cleaning as research load_minutes: duplicate timestamps
