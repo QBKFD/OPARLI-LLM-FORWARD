@@ -17,6 +17,13 @@ Semantics (identical for both implementations):
 - An unacked entry that was trimmed away before redelivery cannot be
   recovered. It is acked, counted in `lost`, and logged, never silently
   dropped.
+- An entry that can't be decoded never crashes consume(). That covers: no
+  `json` field, invalid JSON, JSON that isn't an object, or invalid UTF-8 (the
+  default client replaces bad bytes, and the JSON then usually fails). It is
+  returned as Delivery(id, {UNDECODABLE: raw text}, error=...) and counted in
+  `undecodable`. Every consumer's validation rejects that msg (it has no common
+  fields). The recorder writes it to rejected_messages and acks it. Redis only:
+  InMemoryBus stores dicts, so its entries always decode.
 
 Messages are JSON-serialised whole into one field, so types round-trip
 (int stays int, float stays float).
@@ -32,17 +39,20 @@ from dataclasses import dataclass
 log = logging.getLogger(__name__)
 
 DEFAULT_MAXLEN = 100_000   # ~70 days of 1-min bars
+UNDECODABLE = "_undecodable"   # msg key holding the raw text of an undecodable entry
 
 
 @dataclass(frozen=True)
 class Delivery:
     id: str
     msg: dict
+    error: str | None = None   # set when the entry couldn't be decoded (msg is {UNDECODABLE: raw})
 
 
 class Bus(ABC):
     def __init__(self) -> None:
-        self.lost = 0   # unacked entries trimmed before redelivery
+        self.lost = 0          # unacked entries trimmed before redelivery
+        self.undecodable = 0   # entries that couldn't be decoded (delivered with error set)
 
     @abstractmethod
     def publish(self, stream: str, msg: dict) -> str: ...
@@ -142,7 +152,8 @@ class RedisStreamBus(Bus):
             url = url or os.environ.get("REDIS_URL")
             if not url:
                 raise RuntimeError("set REDIS_URL")
-            client = redis.Redis.from_url(url, decode_responses=True)
+            # replace: invalid UTF-8 in an entry must not crash XREADGROUP itself
+            client = redis.Redis.from_url(url, decode_responses=True, encoding_errors="replace")
         self.r = client
         self.maxlen = maxlen
         self._known_groups: set[tuple[str, str]] = set()
@@ -172,8 +183,23 @@ class RedisStreamBus(Bus):
                     self._lost(stream, group, id)
                     self.r.xack(stream, group, id)
                     continue
-                out.append(Delivery(id, json.loads(fields[self.FIELD])))
+                out.append(self._decode(stream, id, fields))
         return out, bool(resp and resp[0][1])
+
+    def _decode(self, stream, id, fields) -> Delivery:
+        raw = fields.get(self.FIELD)
+        try:
+            if raw is None:
+                raise ValueError(f"no {self.FIELD!r} field (fields: {sorted(map(str, fields))})")
+            msg = json.loads(raw)
+            if not isinstance(msg, dict):
+                raise ValueError(f"not a JSON object but {type(msg).__name__}")
+            return Delivery(id, msg)
+        except (ValueError, TypeError) as e:          # JSONDecodeError is a ValueError
+            self.undecodable += 1
+            log.error("bus: undecodable entry %s on %s: %r", id, stream, e)
+            text = raw if isinstance(raw, str) else json.dumps({str(k): str(v) for k, v in fields.items()})
+            return Delivery(id, {UNDECODABLE: text}, error=repr(e))
 
     def consume(self, stream, group, consumer, count=100, block_ms=None):
         self._ensure_group(stream, group)
