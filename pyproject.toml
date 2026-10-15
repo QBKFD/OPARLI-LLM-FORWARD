@@ -63,7 +63,7 @@ markers = [
 [tool.ruff]
 # CI (.github/workflows/ci.yml) runs ruff twice: errors only (E9, F63, F7, F82)
 # on the whole repo, and the default rules on the maintained packages (agents,
-# risk, tools, datafeed). legacy/ is never linted.
+# risk, tools, datafeed, scoring). legacy/ is never linted.
 extend-exclude = ["legacy"]
 target-version = "py312"
 
