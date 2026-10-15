@@ -250,3 +250,29 @@ There is no randomness in the study. Tests use numpy seed 12345.
 7. **Tests:** Newey–West lag 8 for both horizons; BH q = 0.05, one-sided.
 8. **Both challengers qualify:** the lower mean QLIKE over the two horizons
    wins.
+
+## AMENDMENT (post hoc, written after results)
+
+Written on 2026-10-15, after the study's results (de7a808) and the post-hoc
+checks (fb8ba0d, de17ffc). Everything above is the original pre-registration,
+unchanged (c75b24f). Neither item changes the original verdict; both are
+reported as post-hoc.
+
+**(a) Non-crossing training rows only (sensitivity).**
+- **Refit:** HAR (β and smearing c) and EWMA (λ selection) on each fold's
+  non-crossing training rows only, instead of crossing and non-crossing
+  together (choice 6 above).
+- **Unchanged:** everything else, i.e. the folds, VolParams, targets, test rows,
+  metrics, DM, BH and the decision rule.
+- **Verdict:** rerun on CONF non-crossing windows, and reported next to the
+  original.
+
+**(b) Confirmation on the parquet 2021–2023** (identical to post-hoc check P1
+in POSTHOC.md).
+- **Fit once:** HAR and its VolParams on `XAUUSD.txt` 2007–2020.
+- **Score frozen**, with no refit, on the clean parquet's labels from
+  2021-01-01 to 2023-12-31 (non-crossing windows, H = 60 and 240) against the
+  plug-in with the same VolParams.
+- **Pass:** QLIKE significantly better at both H (one-sided DM, Newey–West lag
+  8, BH over the 2 tests, q = 0.05).
+- **Status:** already run (POSTHOC_RESULT.md), PASS.
