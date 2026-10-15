@@ -1,4 +1,4 @@
-# Packaging for the root-level `datafeed`, `agents` and `risk` packages only.
+# Packaging for the root-level `datafeed`, `agents`, `risk` and `scoring` packages only.
 # Flat layout: the repo root also holds backend/, research/, tools/, legacy/,
 # deploy/ and tests/, which are not part of this distribution, so package
 # discovery is explicit.
@@ -36,7 +36,7 @@ research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1",
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["datafeed*", "agents*", "risk*"]
+include = ["datafeed*", "agents*", "risk*", "scoring*"]
 
 [tool.setuptools.package-data]
 agents = ["prompts/*.md", "config.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
@@ -45,11 +45,12 @@ datafeed = ["features/models/*.json"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed,
-# tests/agents_tests, tests/risk_tests, tests/scanner and tests/deploy only.
-# legacy/ is never collected: it is listed in norecursedirs (with pytest's own
-# defaults), so it is skipped even when a parent directory is collected.
-testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests", "tests/scanner",
-             "tests/deploy"]
+# tests/agents_tests, tests/risk_tests, tests/scoring_tests, tests/scanner and
+# tests/deploy only. legacy/ is never collected: it is listed in norecursedirs
+# (with pytest's own defaults), so it is skipped even when a parent directory is
+# collected.
+testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests",
+             "tests/scoring_tests", "tests/scanner", "tests/deploy"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).
@@ -63,7 +64,7 @@ markers = [
 [tool.ruff]
 # CI (.github/workflows/ci.yml) runs ruff twice: errors only (E9, F63, F7, F82)
 # on the whole repo, and the default rules on the maintained packages (agents,
-# risk, tools, datafeed). legacy/ is never linted.
+# risk, tools, datafeed, scoring). legacy/ is never linted.
 extend-exclude = ["legacy"]
 target-version = "py312"
 
