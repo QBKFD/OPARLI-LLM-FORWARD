@@ -1,9 +1,14 @@
 # Agents architecture (v2 target)
 
-**Status: design, no code.** This is the flow agreed with the owner on
-2026-10-17. It is the contract for jobs 2–5 (§11). Choices made while writing
-it are logged in the root `DECISIONS.md`, section `feat/agents-architecture`
-(AA1–AA14). Open questions are in §12.
+**Status: design, approved by the owner on 2026-10-17.** This is the flow
+agreed with the owner that day, and the contract for jobs 2–5 (§11).
+- Choices made while writing it are logged in the root `DECISIONS.md`,
+  section `feat/agents-architecture` (AA1–AA16).
+- The owner confirmed AA2, AA5/AA6 (with every refused vote change logged
+  with its reason, §5.3) and AA11.
+- The config gives each agent its own model, effort and `max_tokens` for
+  round 1 and for the discussion (§6.1).
+- Open questions are in §12.
 
 This document replaces nothing that exists. It builds on:
 - the skeleton (`agents/DESIGN.md`, `agents/README.md`): snapshot, graph,
@@ -235,6 +240,12 @@ class Evidence(_Frozen):
     valid: bool | None = None            # set by code (check_ref), never by the model
     invalid_reason: str | None = None
 
+class RejectedChange(_Frozen):           # a discussion vote that the change rule refused (§5.3)
+    direction: Literal["long", "short", "none"]
+    confidence: float = Field(ge=0, le=1)
+    reason: str = Field(max_length=600)
+    evidence: tuple[Evidence, ...] = ()
+
 class Vote(_ModelMeta):                   # model_id, prompt_hash, tokens_in/out, latency_ms
     agent: str
     round: int = Field(ge=1)              # 1 = blind; 2.. = discussion round 1..
@@ -246,6 +257,7 @@ class Vote(_ModelMeta):                   # model_id, prompt_hash, tokens_in/out
     abstain_reason: str | None = None
     changed: bool = False                 # discussion only: differs from this agent's previous vote
     change_rejected: str | None = None    # discussion only: why a proposed change was refused (§5.3)
+    rejected_proposal: RejectedChange | None = None   # discussion only: the refused vote, as data
     call_id: str | None = None            # -> llm_calls; None for code agents
 ```
 
@@ -299,6 +311,14 @@ from the agent's previous vote.
   vote is carried forward unchanged as this round's vote, with
   `change_rejected` set to the reason. The rejected proposal itself is kept
   in `llm_calls` (the raw response).
+- **Every refused change is logged with its reason** (owner, 2026-10-17):
+  - the carried-forward vote row has `change_rejected` set to the reason
+    (`no new snapshot ref`, `only vote: refs`, `call failed: <reason>`,
+    `invalid: <reason>`);
+  - `rejected_proposal` holds the refused direction, confidence, reason and
+    evidence, with validity flags, as structured data and not only in the raw
+    response;
+  - every run report counts the refused changes by reason, per agent.
 - No change, and a restated vote, need no new evidence.
 - An invalid response or a failed call in a discussion round carries the
   previous vote forward with `change_rejected = "call failed: <reason>"`.
@@ -368,7 +388,7 @@ first. Agent store **migration 3** adds:
 | Table / column | Content |
 |---|---|
 | `runs.epoch_id` | §8 |
-| `votes`: `evidence_json`, `changed`, `change_rejected`, `call_id`, `epoch_id` | every vote of every round (the PK `(run_id, round, agent)` already allows rounds) |
+| `votes`: `evidence_json`, `changed`, `change_rejected`, `rejected_proposal_json`, `call_id`, `epoch_id`, plus the `model`, `effort` and `max_tokens` that produced it | every vote of every round (the PK `(run_id, round, agent)` already allows rounds) |
 | `discussions` | one row per run: `max_rounds`, `rounds_run`, `stopped_early` |
 | `decisions.arm` | adds `discussion` and `technical_v1`. `blind` keeps its name: it is the decision after round 1. `debate` stays allowed for old rows only. Also adds `meta_rule`, `meta_version` and `epoch_id` |
 | `llm_calls` | one row per attempt: `call_id`, `run_id`, `agent`, `round`, `model` (requested and returned), `effort`, `max_tokens`, `prompt_hash`, `prompt_file_sha256`, `config_sha256`, `request_id`, `stop_reason`, `refusal_category`, usage (input, output, cache read, cache write), `latency_ms`, `attempt`, `error`, `cached` (served from `llm_responses`), cost in USD at the list price, `created_ts` |
@@ -379,8 +399,9 @@ All tables stay append-only (the existing triggers).
 ## 6. The LLM call (job 3)
 
 - **SDK:** the official `anthropic` Python SDK, pinned in the lock.
-- **Model:** an exact id from `agents.toml` per agent (e.g. `claude-opus-5-5`,
-  `claude-sonnet-5-5`), with no alias and no date suffix. A response whose
+- **Model:** an exact id from `agents.toml`, **per agent and per round
+  type** (round 1 vs discussion, §6.1), e.g. `claude-opus-5-5` or
+  `claude-sonnet-5-5`, with no alias and no date suffix. A response whose
   `model` differs from the requested id → abstain `model_mismatch`.
 - **Request:** `system`, one `user` message (text and image blocks),
   `max_tokens` and `output_config` = `{effort, format: the vote JSON schema}`
@@ -421,6 +442,36 @@ All tables stay append-only (the existing triggers).
 - **Tests** use a `FakeLLMClient` with scripted responses. No unit test calls
   the API.
 
+### 6.1 Per-agent, per-round call settings (`agents.toml`)
+
+Every LLM agent has two call blocks, one for round 1 and one for the
+discussion. The owner sets every value; there is no default model, effort or
+`max_tokens` anywhere in code.
+
+```toml
+[agents.visual.round1]          # one block per LLM agent: visual, technical, sentiment
+model      = "<model id>"       # exact id, no alias
+effort     = "<low|medium|high|xhigh|max>"
+max_tokens = <int>
+
+[agents.visual.discussion]      # may differ from round1
+model      = "<model id>"
+effort     = "<...>"
+max_tokens = <int>
+```
+
+- **Missing or invalid `round1` block:** that agent abstains in round 1
+  (`config_invalid: agents.visual.round1.<key>: <problem>`).
+- **Missing or invalid `discussion` block:** the agent doesn't speak. Its
+  round-1 vote is carried forward each round with `change_rejected =
+  "config_invalid: agents.visual.discussion…"` (AA6).
+- **A different model in the discussion** is allowed. The discussion request
+  then can't read round 1's prompt cache, because caches are per model, so
+  its input is billed in full (§9).
+- **Recorded:** the settings actually used are stored on every vote and
+  `llm_calls` row, and all of them enter the epoch (§8).
+- The exact schema, its validation and `agents.example.toml` are job 2.
+
 ## 7. What is logged per round
 
 | When | Rows |
@@ -446,7 +497,8 @@ answer. `epoch_id` = SHA-256 of the canonical JSON of:
   every agent and `discussion.md`;
 - the `agents.toml` SHA-256 after validation (canonical JSON of the parsed
   config, so formatting and comments don't count, values do);
-- per agent: the model id, effort and `max_tokens`;
+- per agent **and per round type** (round 1, discussion): the model id,
+  effort and `max_tokens`;
 - the SHA-256 of the output JSON schema;
 - the snapshot schema version, and the source hash of the code that builds
   inputs (snapshot builder, metric table, chart renderer and its settings,
@@ -479,7 +531,10 @@ real prompts before any freeze, and the actual cost is logged per call
 (`llm_calls`).
 - The owner's system prompts are ≈ 2,000 tokens each.
 - The three charts are 1000 × 600 px, ≈ w·h/750 ≈ 800 tokens each.
-- All LLM agents use the same model, with `effort = medium` set explicitly.
+- All LLM agents use the same model in both rounds, with `effort = medium`
+  set explicitly. The owner can set a different model or effort per agent and
+  per round (§6.1). A discussion model different from the round-1 model
+  loses the within-run cache, so its input costs ≈ 5× the cached figure.
 - Discussion: 2 rounds; the early stop ends ~half of the runs after one.
 
 Tokens per call:
@@ -575,11 +630,16 @@ and a prompt that needs them is the owner's call.
 
 ## 12. Open questions for the owner
 
-1. **Models and effort per agent.** All Opus 5.5, all Sonnet 5.5, or mixed;
-   `medium` or `low` effort. Cost is in §9.
-2. **The vote-change rule (§5.3).** Is "at least one new snapshot ref" the
-   right bar? Should a rejected change carry the previous vote forward (this
-   design), or make the agent abstain?
+**Answered on 2026-10-17:**
+- **Q1, models and effort:** the owner sets them, per agent and per round
+  (§6.1).
+- **Q2, the vote-change rule:** AA5/AA6 as designed (one new snapshot ref;
+  a refused change carries the previous vote forward), with every refused
+  change logged with its reason (§5.3).
+- **Arms:** AA2 as designed.
+- **Fallbacks:** AA11 as designed.
+
+**Still open:**
 3. **Confidence-only changes.** They count as changes here, so they need
    evidence. That matters only if the chosen Meta rule uses confidence
    (`fixed_meta_v1` does, `quorum_v0` doesn't).

@@ -22,7 +22,7 @@ Names marked *(job 5)* are fixed by this guide and implemented later.
 | `agents/prompts/sentiment.md` | Sentiment agent (LLM, calendar/news) | you |
 | `agents/prompts/gex.md` | reserved: GEX is code and doesn't read it while there is no options data | you (optional) |
 | `agents/prompts/discussion.md` | the discussion turn, shared by all LLM agents | you |
-| `agents.toml` (path from `$AGENTS_CONFIG`) | models, effort, `max_tokens`, discussion rounds, Meta rule, budget, risk | you |
+| `agents.toml` (path from `$AGENTS_CONFIG`) | models, effort and `max_tokens` **per agent and per round** (round 1 vs discussion; `AGENTS_ARCHITECTURE.md` §6.1), discussion rounds, Meta rule, budget, risk | you |
 | `agents.example.toml` | every key, with comments and placeholder values; never read at run time | code (job 2) |
 
 Job 2 ships each prompt file as a **skeleton**: front-matter keys, section
@@ -243,7 +243,7 @@ The **epoch id** is a hash of, among others (full list:
 `AGENTS_ARCHITECTURE.md` §8):
 - every prompt file's bytes;
 - the validated `agents.toml` values;
-- the model ids, effort and `max_tokens`;
+- the model ids, effort and `max_tokens`, per agent and per round;
 - the output schema;
 - the input-building code;
 - the Meta rule;
