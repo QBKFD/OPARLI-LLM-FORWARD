@@ -112,7 +112,7 @@ def test_bad_answers_are_reasons(snap, text, why):
 
 
 def test_metric_and_chart_refs(snap):
-    from agents.debate.evidence import check_ref
+    from agents.evidence import check_ref
     s = Snapshot(**{**snap.model_dump(exclude={"hash", "unavailable", "metrics"}),
                     "unavailable": {k: v for k, v in snap.unavailable.items() if k != "metrics"},
                     "metrics": (MetricRow(name="rsi14_1h", value=55.0, unit="0-100", available=True),

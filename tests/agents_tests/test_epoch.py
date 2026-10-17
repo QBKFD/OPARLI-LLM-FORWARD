@@ -86,7 +86,8 @@ def test_comments_and_formatting_in_the_config_are_not_a_new_epoch(prompts):
 def test_the_run_context_and_the_code_are_in_the_epoch(prompts, tmp_path):
     base = epoch_of(prompts)
     assert epoch_of(prompts, journal_epoch=7).id != base.id
-    assert epoch_of(prompts, meta_rule_version="1").id != base.id
+    assert epoch_of(prompts, meta_rule_version="2").id != base.id           # quorum_v0 is version "1"
+    assert base.inputs["meta"] == {"rule": "quorum_v0", "version": "1"}
     assert epoch_of(prompts, sigma_model_sha256="ab" * 32).id != base.id
     code = tmp_path / "code"
     shutil.copytree(ep.PKG, code, ignore=shutil.ignore_patterns("__pycache__", "prompts", "experiments"))
@@ -145,7 +146,8 @@ def test_the_store_keeps_the_epoch(tmp_path, replay_db, prompts):
     owner = OwnerConfig.from_text(OK)
     out = run_once(build_graph(CFG, store, replay_db, owner_config=owner, prompts_dir=prompts), ev(), run_id="r1")
     rec = store.load_run("r1")
-    assert rec["decisions"] == (out["final_decisions"]["blind"],)
+    assert rec["decisions"] == (out["final_decisions"]["blind"], out["final_decisions"]["discussion"])
+    assert {d.epoch_id for d in rec["decisions"]} == {out["epoch_id"]}
     assert rec["run"].epoch_id == out["epoch_id"]
     assert json.loads(rec["run"].epoch_inputs_json) == epoch_of(prompts).inputs
     assert ep.last_stored_inputs(store.path) == epoch_of(prompts).inputs

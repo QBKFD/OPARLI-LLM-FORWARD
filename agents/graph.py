@@ -1,14 +1,16 @@
-"""The run graph (LangGraph).
+"""The run graph (LangGraph; docs/AGENTS_ARCHITECTURE.md §2).
 
     trigger -> snapshot -(stale)--------------------------------------------> store -> END
                   |
                  gate -(no-go)---------------------------------------------> store
-                  |  fan-out, one superstep
-        visual | technical | sentiment     each gets only a copy of the Snapshot
+                  |  fan-out, one superstep, blind
+     visual | technical | sentiment | gex     each gets only a copy of the Snapshot
                   |  fan-in (waits for all)
-              aggregator -> blind Decision
+            meta_blind -> Decision "blind" (the owner's Meta rule on the round-1 votes)
                   |
-           [debate, if config.debate.enabled] -> debate Decision
+            discussion (N rounds, early stop; skipped with the reason when nobody can speak)
+                  |
+            meta_discussion -> Decision "discussion" (the same rule on the final votes)
                   |
                  risk (stub, pass-through)
                   |
@@ -19,7 +21,9 @@
 - Config, voters, store, datafeed db and clock are bound when the graph is
   built, not kept in the state.
 - Only voter failures are absorbed (as abstains). A failure in the snapshot,
-  gate, aggregator or store raises out of run_once (crash-only).
+  gate, Meta or store raises out of run_once (crash-only). Meta never raises
+  for configuration: no or an unknown rule gives a `none` decision with the
+  reason. A discussion problem is recorded as its skip reason.
 - The epoch (agents/epoch.py) is computed once, at build time, from the
   owner's prompt files and agents.toml. Its id, the config's SHA-256 and every
   prompt file's SHA-256 are stamped on every decision; the run row carries the
@@ -39,15 +43,15 @@ from langgraph.graph import END, START, StateGraph
 
 from agents import __version__
 from agents.config import AgentsConfig
-from agents.debate import make_debate_node, make_judge
+from agents.discussion import discussants_of, make_discussion
 from agents.epoch import Epoch, compute_epoch, last_stored_inputs, version_warnings
 from agents.hashing import canonical_json
 from agents.nodes import gate
-from agents.nodes.aggregator import aggregate_v0
+from agents.meta import meta_decision
 from agents.nodes.risk import apply_risk
 from agents.owner_config import ConfigProblem, OwnerConfig
 from agents.prompting.files import load_all
-from agents.schemas import DebateResult, Decision, Snapshot, TriggerEvent, Vote
+from agents.schemas import Decision, DiscussionResult, Snapshot, TriggerEvent, Vote
 from agents.prereg import ExperimentError, require_prereg
 from agents.snapshot import Stale, _utcnow, floor_minute, prepare_snapshot
 from agents.store.base import AgentStore, RunRecord
@@ -55,7 +59,7 @@ from agents.voters import default_voters, safe_vote
 
 log = logging.getLogger(__name__)
 
-ARM_ORDER = {"blind": 0, "debate": 1}
+ARM_ORDER = {"blind": 0, "discussion": 1, "technical_v1": 2}
 
 
 def merge_disjoint(a: dict | None, b: dict | None) -> dict:
@@ -78,14 +82,12 @@ class RunState(TypedDict, total=False):
     snap: Snapshot
     votes: Annotated[dict[str, Vote], merge_disjoint]       # round 1, by agent
     decisions: Annotated[dict[str, Decision], merge_disjoint]   # by arm, before risk
-    debate_result: DebateResult
+    discussion: DiscussionResult
     final_decisions: dict[str, Decision]                   # by arm, after risk
 
 
 def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 voters: Mapping[str, object] | None = None,
-                debaters: Mapping[str, object] | None = None,
-                judge=None,
                 clock: Callable[[], float] = time.monotonic,
                 wall_clock: Callable[[], object] = _utcnow,
                 owner_config: OwnerConfig | None = None,
@@ -95,11 +97,8 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 llm_ledger=None,
                 image_bytes=None):
     """db: the datafeed store (path or sqlite3.Connection; default $DATAFEED_DB).
-    voters: name -> VoteAgent (default: the three stubs).
-    debaters: {"bull": Debater, "bear": Debater}. Needed only when
-        config.debate.enabled; no real debaters ship yet.
-    judge: default make_judge(config.debate.judge). The name is checked even
-        when the debate is disabled, so a bad config fails at build time.
+    voters: name -> VoteAgent (default: the stubs and GEX). A voter with a
+        `discuss` method (an LLM agent) speaks in the discussion.
     clock: monotonic clock for latencies. wall_clock: UTC now, for the live-mode
         "t within 120 s" rule.
     owner_config: the owner's agents.toml (default: OwnerConfig.load(), i.e.
@@ -128,12 +127,7 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
     voters = dict(voters)
     if not voters:
         raise ValueError("at least one voter")
-    judge = judge if judge is not None else make_judge(config.debate.judge)
-    debate_node = None
-    if config.debate.enabled:
-        if debaters is None:
-            raise ValueError("debate.enabled needs debaters (bull, bear); none ship in agents/ yet")
-        debate_node = make_debate_node(debaters, judge, config.debate, clock)
+    discuss = make_discussion(discussants_of(voters), owner, prompts["discussion"], config.node_timeout_s, clock)
     names = sorted(voters)
     config_json, config_hash = config.to_json(), config.config_hash()
     epoch_json = canonical_json(epoch.inputs)
@@ -167,10 +161,18 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
             return {"votes": {name: safe_vote(name, agent, state["snap"], config.node_timeout_s, clock)}}
         return voter_node
 
-    def aggregator_node(state: RunState):
+    def meta_blind_node(state: RunState):
         snap = state["snap"]
-        d = aggregate_v0(state["votes"], state["run_id"], snap.hash, snap.experiment_id)
+        d = meta_decision(state["votes"], owner, state["run_id"], snap, "blind")
         return {"decisions": {"blind": d.model_copy(update=stamp)}}
+
+    def discussion_node(state: RunState):
+        return {"discussion": discuss(state["snap"], state["votes"])}
+
+    def meta_discussion_node(state: RunState):
+        snap = state["snap"]
+        d = meta_decision(state["discussion"].final, owner, state["run_id"], snap, "discussion")
+        return {"decisions": {"discussion": d.model_copy(update=stamp)}}
 
     def risk_node(state: RunState):
         return {"final_decisions": {arm: apply_risk(d) for arm, d in state["decisions"].items()}}
@@ -183,9 +185,14 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                         snapshot_hash=snap.hash if snap is not None else None,
                         config_json=config_json, config_hash=config_hash, code_version=__version__,
                         epoch_id=epoch.id, epoch_inputs_json=epoch_json)
-        votes = [] if skipped else [state["votes"][n] for n in sorted(state["votes"])]
-        decisions = [] if skipped else sorted(state["final_decisions"].values(), key=lambda d: ARM_ORDER[d.arm])
-        store.save_run(run, votes, decisions, debate=None if skipped else state.get("debate_result"))
+        disc: DiscussionResult | None = None
+        votes: list[Vote] = []
+        decisions: list[Decision] = []
+        if not skipped:
+            disc = state["discussion"]
+            votes = [state["votes"][n] for n in sorted(state["votes"])] + list(disc.votes)
+            decisions = sorted(state["final_decisions"].values(), key=lambda d: ARM_ORDER[d.arm])
+        store.save_run(run, votes, decisions, discussion=disc)
         return {"status": run.status}
 
     g = StateGraph(RunState)
@@ -194,7 +201,9 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
     g.add_node("gate", gate_node)
     for n in names:
         g.add_node(n, make_voter(n, voters[n]))
-    g.add_node("aggregator", aggregator_node)
+    g.add_node("meta_blind", meta_blind_node)
+    g.add_node("discussion", discussion_node)
+    g.add_node("meta_discussion", meta_discussion_node)
     g.add_node("risk", risk_node)
     g.add_node("store", store_node)
 
@@ -204,19 +213,10 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                             ["gate", "store"])
     g.add_conditional_edges("gate", lambda s: "store" if s["status"] == "skipped" else list(names),
                             [*names, "store"])
-    g.add_edge(names, "aggregator")
-    if debate_node is not None:
-        inner = debate_node
-
-        def stamped_debate_node(state: RunState):
-            out = inner(state)
-            return {**out, "decisions": {arm: d.model_copy(update=stamp) for arm, d in out["decisions"].items()}}
-
-        g.add_node("debate", stamped_debate_node)
-        g.add_edge("aggregator", "debate")
-        g.add_edge("debate", "risk")
-    else:
-        g.add_edge("aggregator", "risk")
+    g.add_edge(names, "meta_blind")
+    g.add_edge("meta_blind", "discussion")
+    g.add_edge("discussion", "meta_discussion")
+    g.add_edge("meta_discussion", "risk")
     g.add_edge("risk", "store")
     g.add_edge("store", END)
     return g.compile()

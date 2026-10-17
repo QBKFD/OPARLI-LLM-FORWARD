@@ -8,14 +8,13 @@ Snapshot   what was knowable at as_of: bars strictly before as_of, plus the
            events, charts). A slot whose builder doesn't exist yet stays empty
            and is named in `unavailable` with the reason. Its hash covers all
            content.
-Vote       one round-1 ("blind") vote. An invalid or missing vote becomes an
-           abstain with a reason (Vote.abstained), never a guess.
-Claim      one debate claim + the evidence_ref it rests on. `valid` is set by
-           the evidence check in code, never by the debater.
-Turn       one debater's turn in one round.
-DebateResult  all turns + the judge's outcome.
-Decision   one arm's decision (blind or debate). entry/sl/tp/size/sigma stay
-           null until a risk/ package fills them.
+Vote       one vote: round 1 = blind, round 2.. = discussion rounds. An
+           invalid or missing vote becomes an abstain with a reason
+           (Vote.abstained), never a guess.
+DiscussionView / DiscussionResult  what a discussant sees, and every
+           discussion vote with the round count (docs/AGENTS_ARCHITECTURE.md §5.2).
+Decision   one arm's decision (blind, discussion; technical_v1 when that agent
+           exists). entry/sl/tp/size/sigma stay null until risk/ fills them.
 """
 
 from __future__ import annotations
@@ -50,12 +49,9 @@ NY = ZoneInfo("America/New_York")
 NY_4H_ANCHOR_HOUR = 17          # 4h buckets open at local hours = 17 (mod 4), i.e. 1, 5, 9, 13, 17, 21
 
 Direction = Literal["long", "short", "none"]
-Role = Literal["bull", "bear"]
-Arm = Literal["blind", "debate"]
-Outcome = Literal["long", "short", "hold"]
-
-ROLE_SIDE: dict[str, str] = {"bull": "long", "bear": "short"}
-ROLE_ORDER: dict[str, int] = {"bull": 0, "bear": 1}
+# blind: Meta on the round-1 votes; discussion: Meta on the final votes;
+# technical_v1: the deterministic benchmark's own vote (agents v1).
+Arm = Literal["blind", "discussion", "technical_v1"]
 
 
 def tf_delta(tf: str) -> timedelta:
@@ -88,11 +84,6 @@ def bucket_end(start: datetime, tf: str) -> datetime:
 
 def is_aligned(ts: datetime, tf: str) -> bool:
     return bucket_start(ts, tf) == ts
-
-
-def outcome_to_direction(outcome: str) -> str:
-    """Debate outcome -> Decision direction: hold means no position ("none")."""
-    return "none" if outcome == "hold" else outcome
 
 
 class _Frozen(BaseModel):
@@ -283,6 +274,14 @@ class Evidence(_Frozen):
         return self
 
 
+class RejectedChange(_Frozen):
+    """A discussion vote the change rule refused (§5.3): kept as data."""
+    direction: Direction
+    confidence: float = Field(ge=0, le=1)
+    reason: str = ""
+    evidence: tuple[Evidence, ...] = ()
+
+
 class Vote(_ModelMeta):
     agent: str = Field(min_length=1)
     round: int = Field(1, ge=1)          # 1 = blind
@@ -293,6 +292,9 @@ class Vote(_ModelMeta):
     abstain_reason: str | None = None
     evidence: tuple[Evidence, ...] = ()  # LLM votes; empty for code agents and abstains
     call_id: str | None = None           # the llm_calls row that produced it (LLM agents)
+    changed: bool = False                # discussion: an accepted change from this agent's previous vote
+    change_rejected: str | None = None   # discussion: why a change was refused, or the call failed
+    rejected_proposal: RejectedChange | None = None   # discussion: the refused vote itself
 
     @model_validator(mode="after")
     def _check(self):
@@ -301,6 +303,12 @@ class Vote(_ModelMeta):
                 raise ValueError("an abstain vote has direction 'none', confidence 0 and an abstain_reason")
         elif self.abstain_reason is not None:
             raise ValueError("abstain_reason is set but abstain is false")
+        if self.round == 1 and (self.changed or self.change_rejected or self.rejected_proposal):
+            raise ValueError("changed / change_rejected / rejected_proposal are discussion fields")
+        if self.changed and self.change_rejected is not None:
+            raise ValueError("a vote is either a changed vote or a refused change, not both")
+        if self.rejected_proposal is not None and self.change_rejected is None:
+            raise ValueError("a rejected_proposal needs its change_rejected reason")
         return self
 
     @classmethod
@@ -309,56 +317,40 @@ class Vote(_ModelMeta):
                    abstain_reason=reason, **meta)
 
 
-# ---------------------------------------------------------------- debate
+# ---------------------------------------------------------------- discussion
 
-class Claim(_Frozen):
-    text: str
-    evidence_ref: str                    # raw, as the debater produced it
-    valid: bool | None = None            # None until the evidence check runs
-    invalid_reason: str | None = None
-
-    @model_validator(mode="after")
-    def _check(self):
-        if (self.valid is False) != (self.invalid_reason is not None):
-            raise ValueError("invalid_reason is set exactly when valid is False")
-        return self
-
-
-class Turn(_ModelMeta):
-    role: Role
-    round: int = Field(ge=1)
-    claims: tuple[Claim, ...] = ()
-    conceded: bool = False
-    error: str | None = None             # set -> an empty turn
-
-    @model_validator(mode="after")
-    def _check(self):
-        if self.error is not None and (self.claims or self.conceded):
-            raise ValueError("a turn with an error has no claims and no concession")
-        return self
-
-    def n_valid(self) -> int:
-        return sum(c.valid is True for c in self.claims)
-
-
-class DebateResult(_Frozen):
-    snapshot_hash: str
+class DiscussionView(_Frozen):
+    """What a discussant sees in one discussion round, and nothing else.
+    Votes are content only (no model ids, prompt hashes, tokens or latency)."""
+    agent: str
+    round: int = Field(ge=1)              # 1..max_rounds within the discussion
     max_rounds: int = Field(ge=1)
-    turns: tuple[Turn, ...]              # ordered by (round, bull before bear)
-    n_valid_bull: int = Field(ge=0)
-    n_valid_bear: int = Field(ge=0)
-    judge_name: str
-    outcome: Outcome
-    reason: str
+    snapshot: Snapshot
+    own_previous: Vote
+    others: tuple[Vote, ...]              # every other agent's latest vote
+
+
+class DiscussionResult(_Frozen):
+    snapshot_hash: str
+    max_rounds: int = Field(ge=0)         # 0 when the discussion config is invalid
+    rounds_run: int = Field(ge=0)         # 0: nobody spoke (skip_reason says why)
+    stopped_early: bool
+    skip_reason: str | None = None
+    speakers: tuple[str, ...]
+    votes: tuple[Vote, ...]               # every discussion vote, ordered by (round, agent)
+    final: dict[str, Vote]                # each agent's last vote (its round-1 vote if it never spoke)
 
     @model_validator(mode="after")
     def _check(self):
-        keys = [(t.round, ROLE_ORDER[t.role]) for t in self.turns]
+        keys = [(v.round, v.agent) for v in self.votes]
         if keys != sorted(set(keys)):
-            raise ValueError("turns must be unique and ordered by (round, bull before bear)")
-        for role, n in (("bull", self.n_valid_bull), ("bear", self.n_valid_bear)):
-            if n != sum(t.n_valid() for t in self.turns if t.role == role):
-                raise ValueError(f"n_valid_{role} does not match the turns")
+            raise ValueError("discussion votes must be unique and ordered by (round, agent)")
+        if any(v.round < 2 or v.round > self.rounds_run + 1 for v in self.votes):
+            raise ValueError("discussion votes have rounds 2 .. rounds_run + 1")
+        if any(v.agent not in self.speakers for v in self.votes):
+            raise ValueError("only speakers have discussion votes")
+        if (self.rounds_run == 0) != (self.skip_reason is not None):
+            raise ValueError("a discussion that didn't run has a skip_reason, and only then")
         return self
 
 
@@ -373,7 +365,9 @@ class Decision(_ModelMeta):
     arm: Arm
     direction: Direction
     reason: str
-    decided_by: str                      # "aggregator_v0" or the judge's name
+    decided_by: str                      # the Meta rule (or the agent, for technical_v1)
+    meta_rule: str | None = None
+    meta_version: str | None = None
     experiment_id: str | None = None     # = the snapshot's
     entry: float | None = None           # entry .. sigma: filled by risk/ later
     sl: float | None = None

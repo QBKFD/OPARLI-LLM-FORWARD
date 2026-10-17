@@ -13,7 +13,10 @@ for every agent. The owner decides which placeholders a prompt uses.
   it the agent abstains (RenderProblem); there is no default row count.
 - experiment_id is never rendered (it is dropped from {{snapshot_json}}).
 
-Discussion rendering (discussion.md) comes with the discussion subgraph.
+render_discussion fills discussion.md for one agent and round from a
+DiscussionView: the agent's own latest vote and every other agent's latest
+vote, content only, each with its round so it can be cited as
+`vote:<agent>:<round>`.
 """
 
 from __future__ import annotations
@@ -24,7 +27,14 @@ from agents.hashing import canonical_json
 from agents.owner_config import ConfigProblem, OwnerConfig
 from agents.prompting.files import PromptFile
 from agents.prompting.placeholders import TOKEN, bars_tf, slot_of
-from agents.schemas import ChartRef, Snapshot
+from agents.schemas import ChartRef, DiscussionView, Snapshot, Vote
+
+# {{change_rule}}: the vote-change rule in the words code enforces it
+# (agents/discussion/rule.py). Code, not prompt content; the owner decides
+# whether to use it.
+CHANGE_RULE = ("A changed vote (a different direction or confidence) is accepted only if its evidence includes at "
+               "least one ref into the snapshot that your previous vote did not cite; vote: refs do not count on "
+               "their own. Otherwise your previous vote stands. Keeping your vote needs no new evidence.")
 
 
 @dataclass(frozen=True)
@@ -140,5 +150,29 @@ def render_round1(prompt: PromptFile, snap: Snapshot, cfg: OwnerConfig) -> Rende
                           unavailable_used=tuple(dict.fromkeys(unavailable)))
 
 
-__all__ = ["ImagesPart", "RenderProblem", "RenderedPrompt", "TextPart", "bars_table", "metrics_table",
-           "render_round1", "unavailable_text"]
+def vote_json(v: Vote) -> dict:
+    """A vote as an agent sees it in the discussion: content only."""
+    return {"agent": v.agent, "round": v.round, "direction": v.direction, "confidence": v.confidence,
+            "reason": v.reason, "abstain": v.abstain, "abstain_reason": v.abstain_reason,
+            "evidence": [e.model_dump() for e in v.evidence]}
+
+
+def render_discussion(prompt: PromptFile, view: DiscussionView) -> RenderedPrompt | RenderProblem:
+    """Fill discussion.md for one agent and discussion round. The system text
+    is the agent's own and is supplied by the caller (the request reuses it)."""
+    if prompt.kind != "discussion":
+        return RenderProblem(f"prompt_invalid: {prompt.name}.md is not the discussion prompt")
+    values = {
+        "agent": view.agent,
+        "round": str(view.round),
+        "max_rounds": str(view.max_rounds),
+        "own_previous_vote_json": canonical_json(vote_json(view.own_previous)),
+        "other_votes_json": canonical_json([vote_json(v) for v in sorted(view.others, key=lambda v: v.agent)]),
+        "change_rule": CHANGE_RULE,
+    }
+    text = TOKEN.sub(lambda m: values[m.group(1)], prompt.user)
+    return RenderedPrompt(agent=view.agent, system="", user=(TextPart(text),), unavailable_used=())
+
+
+__all__ = ["CHANGE_RULE", "ImagesPart", "RenderProblem", "RenderedPrompt", "TextPart", "bars_table",
+           "metrics_table", "render_discussion", "render_round1", "unavailable_text", "vote_json"]

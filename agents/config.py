@@ -63,19 +63,13 @@ class GateConfig(_Cfg):
         return self
 
 
-class DebateConfig(_Cfg):
-    enabled: bool = False                # round 2 is off unless asked for
-    max_rounds: int = Field(2, ge=1, le=10)   # 2 = opening + one rebuttal
-    judge: str = "code_v0"               # a name in agents.debate.judges.JUDGES
-    turn_timeout_s: float = Field(60.0, gt=0)  # per debater turn; a timeout is an empty turn
-
-
 class AgentsConfig(_Cfg):
     snapshot: SnapshotConfig             # no default: snapshot.mode must be chosen
     gate: GateConfig = Field(default_factory=GateConfig)
-    # per round-1 agent call; a timeout is an abstain
+    # per agent call, in round 1 and in every discussion round; a timeout is an
+    # abstain (round 1) or the previous vote carried forward (discussion).
+    # The discussion itself (rounds, early stop) is the owner's: agents.toml.
     node_timeout_s: float = Field(120.0, gt=0)
-    debate: DebateConfig = Field(default_factory=DebateConfig)
 
     def to_json(self) -> str:
         return canonical_json(self.model_dump(mode="json"))

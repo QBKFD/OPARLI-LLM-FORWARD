@@ -12,13 +12,13 @@ from agents.schemas import Decision, TriggerEvent, Vote
 from agents.store import SqliteAgentStore
 from agents.store.base import RunRecord, StoreConflict
 from agents.store.sqlite import META, MIGRATIONS, TABLES
-from agents_fakes import FakeBear, FakeBull, FixedVoter
+from agents_fakes import FakeDiscussant, FixedVoter, bar_ref
+from agents_testkit import write_test_prompts
 
 UTC = timezone.utc
 T = datetime(2025, 6, 11, 14, 30, 30, tzinfo=UTC)
 FIXED = lambda: 0.0                                           # noqa: E731
 CFG = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}})
-CFG_DEBATE = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}, "debate": {"enabled": True}})
 
 
 def ev(t=T, i="1"):
@@ -59,7 +59,7 @@ def test_reopen_does_not_remigrate(tmp_path):
     p = str(tmp_path / "a.sqlite")
     SqliteAgentStore(p).close()
     s = SqliteAgentStore(p)
-    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(MIGRATIONS) == 4
+    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(MIGRATIONS) == 5
     s.close()
 
 
@@ -89,25 +89,42 @@ def test_path_from_env(tmp_path, monkeypatch):
 
 # ---- writing through the graph
 
-def test_graph_run_round_trips(store, replay_db):
-    out = run_once(build_graph(CFG_DEBATE, store, replay_db, voters=voters(),
-                               debaters={"bull": FakeBull(n_valid=2, n_invalid=1), "bear": FakeBear()}, clock=FIXED),
-                   ev(), run_id="r1")
+def discussing_voters():
+    """visual long; technical short, which flips to long citing a new bar in
+    round 1 (accepted), then tries short again with only a vote: ref (refused)."""
+    def tech(view):
+        if view.round == 1:
+            return {"direction": "long", "confidence": 0.7, "refs": [bar_ref(view.snapshot, 3)]}
+        return {"direction": "short", "confidence": 0.9, "refs": ["vote:visual:2"]}
+    v = voters()
+    v.update(visual=FakeDiscussant("visual", "long"), technical=FakeDiscussant("technical", "short", script=tech))
+    return v
+
+
+def test_graph_run_round_trips(store, replay_db, tmp_path):
+    g = build_graph(CFG, store, replay_db, voters=discussing_voters(), clock=FIXED,
+                    prompts_dir=write_test_prompts(tmp_path / "prompts"))
+    out = run_once(g, ev(), run_id="r1")
     rec = store.load_run("r1")
     assert rec["run"].status == "done" and rec["run"].trigger == ev()
-    assert rec["votes"] == tuple(out["votes"][n] for n in sorted(out["votes"]))
-    assert rec["decisions"] == (out["final_decisions"]["blind"], out["final_decisions"]["debate"])
-    assert rec["debate"] == out["debate_result"]
+    disc = out["discussion"]
+    assert rec["votes"] == tuple(out["votes"][n] for n in sorted(out["votes"])) + disc.votes
+    assert rec["decisions"] == (out["final_decisions"]["blind"], out["final_decisions"]["discussion"])
+    assert rec["discussion"] == disc
+    assert (disc.rounds_run, disc.stopped_early) == (2, False)
+    assert out["final_decisions"]["blind"].direction == "none"           # long 1, short 1 (quorum v0)
+    assert out["final_decisions"]["discussion"].direction == "long"      # technical changed to long
+    refused = store.con.execute("SELECT change_rejected, rejected_proposal_json FROM votes"
+                                " WHERE agent = 'technical' AND round = 3").fetchone()
+    assert refused[0] == "only vote: refs" and '"direction":"short"' in refused[1]   # logged with the proposal
     assert store.load_snapshot(out["snap"].hash) == out["snap"]
-    flags = [r[0] for r in store.con.execute("SELECT claims_json FROM debate_turns WHERE role = 'bull'")]
-    assert all('"valid":false' in f and '"invalid_reason":"level' in f for f in flags)   # invalid claims are logged
 
 
 def test_stale_run_has_a_row_and_nothing_else(store, replay_db):
     out = run_once(build_graph(CFG, store, replay_db), ev(datetime(2025, 6, 12, 10, 0, tzinfo=UTC)), run_id="s")
     row = store.con.execute("SELECT status, skip_reason, snapshot_hash FROM runs WHERE run_id = 's'").fetchone()
     assert tuple(row) == ("skipped", out["skip_reason"], None)
-    for t in ("snapshots", "votes", "decisions", "debate_turns"):
+    for t in ("snapshots", "votes", "decisions", "discussions", "llm_calls"):
         assert store.con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] == 0, t
 
 
@@ -121,10 +138,12 @@ def test_snapshot_written_once_per_hash(store, replay_db):
 
 # ---- append-only and atomic
 
-def test_every_table_is_append_only(store, replay_db):
-    run_once(build_graph(CFG_DEBATE, store, replay_db, voters=voters(),
-                         debaters={"bull": FakeBull(), "bear": FakeBear()}, clock=FIXED), ev(), run_id="r")
-    for t in TABLES:
+def test_every_table_is_append_only(store, replay_db, tmp_path):
+    run_once(build_graph(CFG, store, replay_db, voters=discussing_voters(), clock=FIXED,
+                         prompts_dir=write_test_prompts(tmp_path / "prompts")), ev(), run_id="r")
+    for t in (*TABLES, "discussions"):
+        if t == "debate_turns":                                   # history only: nothing writes it now
+            continue
         assert store.con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] > 0, t
         with pytest.raises(sqlite3.DatabaseError, match="append-only"):
             store.con.execute(f"UPDATE {t} SET created_ts = 'x'")
@@ -137,7 +156,7 @@ def test_a_run_is_written_once(store, replay_db):
     run_once(g, ev(), run_id="dup")
     with pytest.raises(sqlite3.IntegrityError):
         run_once(g, ev(), run_id="dup")
-    assert store.con.execute("SELECT COUNT(*) FROM votes WHERE run_id = 'dup'").fetchone()[0] == 3
+    assert store.con.execute("SELECT COUNT(*) FROM votes WHERE run_id = 'dup'").fetchone()[0] == 4      # visual, technical, sentiment, gex
 
 
 def test_a_failed_run_write_leaves_no_partial_rows(store, replay_db):
@@ -188,14 +207,14 @@ def test_example_config_is_the_defaults():
     p = Path(__file__).resolve().parents[2] / "agents" / "config.example.toml"
     c = AgentsConfig.from_toml(p)
     assert c == CFG
-    assert (c.debate.enabled, c.debate.max_rounds, c.debate.judge) == (False, 2, "code_v0")
+    assert "debate" not in c.model_dump()                      # the discussion is the owner's (agents.toml)
 
 
 @pytest.mark.parametrize("bad", [
     {},                                                             # snapshot.mode is required
     {"snapshot": {"mode": "paper"}},
-    {"snapshot": {"mode": "replay"}, "debate": {"max_rounds": 0}},
-    {"snapshot": {"mode": "replay"}, "debate": {"enabeld": True}},  # typo -> refused, not ignored
+    {"snapshot": {"mode": "replay"}, "debate": {"enabled": True}},  # the old debate section is refused
+    {"snapshot": {"mode": "replay"}, "node_timeout": 5},            # typo -> refused, not ignored
     {"snapshot": {"mode": "replay", "keep": {"1d": 5, "1m": 1}}},
 ])
 def test_bad_config_is_refused(bad):

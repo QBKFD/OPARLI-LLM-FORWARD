@@ -109,4 +109,16 @@ def round1_request(rendered: RenderedPrompt, settings: CallSettings) -> LLMReque
                       messages=(blocks_from(rendered),), output_schema=VOTE_OUTPUT_SCHEMA)
 
 
-__all__ = ["Block", "ImageBlock", "LLMRequest", "MissingImage", "TextBlock", "blocks_from", "round1_request"]
+def discussion_request(round1: RenderedPrompt, discussion: RenderedPrompt, settings: CallSettings,
+                       vote_round: int) -> LLMRequest:
+    """A discussion turn (§5.4): the agent's own system text, its round-1 user
+    content rendered exactly as in round 1, then the discussion message. The
+    prefix is the same as round 1, so it is cacheable within a run; the call
+    settings are the agent's discussion block."""
+    return LLMRequest(agent=round1.agent, round=vote_round, model=settings.model, effort=settings.effort,
+                      max_tokens=settings.max_tokens, system=round1.system,
+                      messages=(blocks_from(round1), blocks_from(discussion)), output_schema=VOTE_OUTPUT_SCHEMA)
+
+
+__all__ = ["Block", "ImageBlock", "LLMRequest", "MissingImage", "TextBlock", "blocks_from", "discussion_request",
+           "round1_request"]

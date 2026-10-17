@@ -1,17 +1,22 @@
 """SQLite agent store. Its own file ($AGENTS_DB), separate from the datafeed store.
 
-Tables (migration 1; migration 2 adds experiment_id to snapshots and decisions;
-migration 3 adds the epoch: runs.epoch_id and runs.epoch_inputs_json, and on
-every decision epoch_id, owner_config_sha256 and prompts_sha256_json):
-  snapshots     one row per snapshot hash; canonical content JSON
-  runs          one row per trigger: done, or skipped + reason
-  votes         round-1 votes (round 1 = blind)
-  debate_turns  one row per (round, role); claims JSON with validity flags
-  decisions     one row per arm (blind, debate); the debate row also carries
-                the judge outcome (long/short/hold) and max_rounds
-snapshots, votes, debate_turns and decisions all have model_id, prompt_hash,
-tokens_in, tokens_out and latency_ms columns. They're null for code-produced
-rows, and always null in snapshots for now (code builds them).
+Tables, by migration:
+  1  snapshots     one row per snapshot hash; canonical content JSON
+     runs          one row per trigger: done, or skipped + reason
+     votes         every vote; round 1 = blind, round 2.. = discussion rounds
+     debate_turns  the old bull/bear debate; history only, no longer written
+     decisions     one row per arm
+  2  experiment_id on snapshots and decisions
+  3  the epoch: runs.epoch_id, runs.epoch_inputs_json; on every decision
+     epoch_id, owner_config_sha256, prompts_sha256_json
+  4  llm_calls (one row per attempt) and llm_responses (the cache); votes gain
+     evidence_json and call_id
+  5  votes gain changed, change_rejected, rejected_proposal_json; discussions
+     (one row per run); decisions rebuilt for the arms blind, discussion and
+     technical_v1 (old debate rows stay, and load_run leaves them out), with
+     meta_rule and meta_version
+snapshots, votes and decisions have model_id, prompt_hash, tokens_in,
+tokens_out and latency_ms columns. They're null for code-produced rows.
 
 Append-only: triggers abort every UPDATE and DELETE. A run is written once, in
 one transaction (save_run). A failure rolls back the whole run, so there are no
@@ -30,7 +35,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from agents.hashing import canonical_json
-from agents.schemas import Claim, DebateResult, Decision, Evidence, Snapshot, Turn, Vote
+from agents.schemas import Decision, DiscussionResult, Evidence, RejectedChange, Snapshot, Vote
 from agents.store.base import RunRecord, StoreConflict, _check_types
 
 META_COLS = "model_id TEXT, prompt_hash TEXT, tokens_in INTEGER, tokens_out INTEGER, latency_ms REAL"
@@ -189,7 +194,67 @@ ALTER TABLE votes ADD COLUMN call_id TEXT;
     f"CREATE TRIGGER {t}_no_delete BEFORE DELETE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;\n"
     for t in LLM_TABLES)
 
-MIGRATIONS = [(1, _V1), (2, _V2), (3, _V3), (4, _V4)]
+# Agents v2, job 4: the discussion replaces the debate.
+# - votes: changed / change_rejected / rejected_proposal_json for every round.
+# - discussions: one row per run.
+# - decisions is rebuilt (SQLite can't change a CHECK in place). The arms are
+#   now blind, discussion and technical_v1; old debate rows stay valid. It
+#   gains meta_rule and meta_version. Every row is copied unchanged, and the
+#   append-only triggers and indexes are recreated.
+# debate_turns stays, as history; nothing writes it any more.
+_DEC_COLS_V4 = "run_id, arm, snapshot_hash, direction, reason, decided_by, debate_outcome, debate_max_rounds, entry, sl, tp, size, sigma, model_id, prompt_hash, tokens_in, tokens_out, latency_ms, created_ts, experiment_id, epoch_id, owner_config_sha256, prompts_sha256_json"
+_V5 = f"""
+ALTER TABLE votes ADD COLUMN changed INTEGER NOT NULL DEFAULT 0 CHECK (changed IN (0, 1));
+ALTER TABLE votes ADD COLUMN change_rejected TEXT;
+ALTER TABLE votes ADD COLUMN rejected_proposal_json TEXT;
+CREATE TABLE discussions (
+    run_id        TEXT PRIMARY KEY REFERENCES runs (run_id),
+    snapshot_hash TEXT NOT NULL REFERENCES snapshots (snapshot_hash),
+    max_rounds    INTEGER NOT NULL CHECK (max_rounds >= 0),
+    rounds_run    INTEGER NOT NULL CHECK (rounds_run >= 0),
+    stopped_early INTEGER NOT NULL CHECK (stopped_early IN (0, 1)),
+    skip_reason   TEXT,
+    speakers_json TEXT NOT NULL,
+    created_ts    TEXT NOT NULL,
+    CHECK ((rounds_run = 0) = (skip_reason IS NOT NULL))
+);
+CREATE TRIGGER discussions_no_update BEFORE UPDATE ON discussions BEGIN SELECT RAISE(ABORT, 'discussions is append-only'); END;
+CREATE TRIGGER discussions_no_delete BEFORE DELETE ON discussions BEGIN SELECT RAISE(ABORT, 'discussions is append-only'); END;
+DROP TRIGGER decisions_no_update;
+DROP TRIGGER decisions_no_delete;
+DROP INDEX decisions_experiment;
+DROP INDEX decisions_epoch;
+ALTER TABLE decisions RENAME TO decisions_v4;
+CREATE TABLE decisions (
+    run_id              TEXT NOT NULL REFERENCES runs (run_id),
+    arm                 TEXT NOT NULL CHECK (arm IN ('blind', 'discussion', 'technical_v1', 'debate')),
+    snapshot_hash       TEXT NOT NULL REFERENCES snapshots (snapshot_hash),
+    direction           TEXT NOT NULL CHECK (direction IN ('long', 'short', 'none')),
+    reason              TEXT NOT NULL,
+    decided_by          TEXT NOT NULL,
+    debate_outcome      TEXT CHECK (debate_outcome IN ('long', 'short', 'hold')),
+    debate_max_rounds   INTEGER,
+    entry REAL, sl REAL, tp REAL, size REAL, sigma REAL,
+    {META_COLS},
+    created_ts          TEXT NOT NULL,
+    experiment_id       TEXT,
+    epoch_id            TEXT,
+    owner_config_sha256 TEXT,
+    prompts_sha256_json TEXT,
+    meta_rule           TEXT,
+    meta_version        TEXT,
+    PRIMARY KEY (run_id, arm),
+    CHECK ((arm = 'debate') = (debate_outcome IS NOT NULL))
+);
+INSERT INTO decisions ({_DEC_COLS_V4}) SELECT {_DEC_COLS_V4} FROM decisions_v4;
+DROP TABLE decisions_v4;
+CREATE INDEX decisions_experiment ON decisions (experiment_id);
+CREATE INDEX decisions_epoch ON decisions (epoch_id);
+CREATE TRIGGER decisions_no_update BEFORE UPDATE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions is append-only'); END;
+CREATE TRIGGER decisions_no_delete BEFORE DELETE ON decisions BEGIN SELECT RAISE(ABORT, 'decisions is append-only'); END;
+"""
+
+MIGRATIONS = [(1, _V1), (2, _V2), (3, _V3), (4, _V4), (5, _V5)]
 
 
 def _utcnow() -> str:
@@ -286,15 +351,15 @@ class SqliteAgentStore:
             self.con.execute("ROLLBACK")
             raise
 
-    def save_run(self, run: RunRecord, votes, decisions, debate: DebateResult | None = None) -> None:
+    def save_run(self, run: RunRecord, votes, decisions, discussion: DiscussionResult | None = None) -> None:
         with self.lock:
-            self._save_run(run, votes, decisions, debate)
+            self._save_run(run, votes, decisions, discussion)
 
-    def _save_run(self, run, votes, decisions, debate) -> None:
-        _check_types(run, votes, decisions, debate)
+    def _save_run(self, run, votes, decisions, discussion) -> None:
+        _check_types(run, votes, decisions, discussion)
         arms = [d.arm for d in decisions]
-        if (debate is not None) != ("debate" in arms):
-            raise ValueError("a debate decision and a DebateResult come together")
+        if (discussion is not None) != ("discussion" in arms):
+            raise ValueError("a discussion decision and a DiscussionResult come together")
         now = self.now()
         c = self.con
         c.execute("BEGIN IMMEDIATE")
@@ -309,31 +374,33 @@ class SqliteAgentStore:
                        run.epoch_id, run.epoch_inputs_json))
             for v in votes:
                 c.execute(f"INSERT INTO votes (run_id, round, agent, direction, confidence, reason, abstain,"
-                          f" abstain_reason, {', '.join(META)}, created_ts, evidence_json, call_id)"
-                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          f" abstain_reason, {', '.join(META)}, created_ts, evidence_json, call_id, changed,"
+                          " change_rejected, rejected_proposal_json)"
+                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (run.run_id, v.round, v.agent, v.direction, v.confidence, v.reason, int(v.abstain),
-                           v.abstain_reason, *_meta(v), now, canonical_json(list(v.evidence)), v.call_id))
-            for t in (debate.turns if debate is not None else ()):
-                c.execute(f"INSERT INTO debate_turns (run_id, round, role, claims_json, n_claims, n_valid,"
-                          f" conceded, error, {', '.join(META)}, created_ts)"
-                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                          (run.run_id, t.round, t.role, canonical_json(list(t.claims)), len(t.claims),
-                           t.n_valid(), int(t.conceded), t.error, *_meta(t), now))
+                           v.abstain_reason, *_meta(v), now, canonical_json(list(v.evidence)), v.call_id,
+                           int(v.changed), v.change_rejected,
+                           None if v.rejected_proposal is None else canonical_json(v.rejected_proposal)))
+            if discussion is not None:
+                c.execute("INSERT INTO discussions (run_id, snapshot_hash, max_rounds, rounds_run, stopped_early,"
+                          " skip_reason, speakers_json, created_ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                          (run.run_id, discussion.snapshot_hash, discussion.max_rounds, discussion.rounds_run,
+                           int(discussion.stopped_early), discussion.skip_reason,
+                           canonical_json(list(discussion.speakers)), now))
             for d in decisions:
-                deb = debate if d.arm == "debate" else None
                 snap_exp = c.execute("SELECT experiment_id FROM snapshots WHERE snapshot_hash = ?",
                                      (d.snapshot_hash,)).fetchone()
                 if snap_exp is not None and snap_exp[0] != d.experiment_id:
                     raise ValueError(f"decision {d.arm} has experiment_id {d.experiment_id!r}, "
                                      f"its snapshot has {snap_exp[0]!r}")
                 c.execute(f"INSERT INTO decisions (run_id, arm, snapshot_hash, direction, reason, decided_by,"
-                          f" debate_outcome, debate_max_rounds, entry, sl, tp, size, sigma, experiment_id,"
-                          f" {', '.join(META)}, created_ts, epoch_id, owner_config_sha256, prompts_sha256_json)"
+                          f" entry, sl, tp, size, sigma, experiment_id, {', '.join(META)}, created_ts, epoch_id,"
+                          " owner_config_sha256, prompts_sha256_json, meta_rule, meta_version)"
                           " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (d.run_id, d.arm, d.snapshot_hash, d.direction, d.reason, d.decided_by,
-                           deb.outcome if deb else None, deb.max_rounds if deb else None,
                            d.entry, d.sl, d.tp, d.size, d.sigma, d.experiment_id, *_meta(d), now,
-                           d.epoch_id, d.owner_config_sha256, canonical_json(d.prompts_sha256)))
+                           d.epoch_id, d.owner_config_sha256, canonical_json(d.prompts_sha256),
+                           d.meta_rule, d.meta_version))
             c.execute("COMMIT")
         except BaseException:
             c.execute("ROLLBACK")
@@ -367,26 +434,29 @@ class SqliteAgentStore:
         votes = tuple(Vote(agent=v["agent"], round=v["round"], direction=v["direction"], confidence=v["confidence"],
                            reason=v["reason"], abstain=bool(v["abstain"]), abstain_reason=v["abstain_reason"],
                            evidence=tuple(Evidence(**e) for e in json.loads(v["evidence_json"] or "[]")),
-                           call_id=v["call_id"], **meta(v))
+                           call_id=v["call_id"], changed=bool(v["changed"]), change_rejected=v["change_rejected"],
+                           rejected_proposal=(None if v["rejected_proposal_json"] is None else
+                                              RejectedChange.model_validate_json(v["rejected_proposal_json"])),
+                           **meta(v))
                       for v in c.execute("SELECT * FROM votes WHERE run_id = ? ORDER BY round, agent", (run_id,)))
-        rows = c.execute("SELECT * FROM decisions WHERE run_id = ? ORDER BY arm = 'debate', arm", (run_id,)).fetchall()
+        rows = c.execute("SELECT * FROM decisions WHERE run_id = ? ORDER BY CASE arm WHEN 'blind' THEN 0"
+                         " WHEN 'discussion' THEN 1 ELSE 2 END", (run_id,)).fetchall()
         decisions = tuple(Decision(run_id=d["run_id"], snapshot_hash=d["snapshot_hash"], arm=d["arm"],
                                    direction=d["direction"], reason=d["reason"], decided_by=d["decided_by"],
                                    entry=d["entry"], sl=d["sl"], tp=d["tp"], size=d["size"], sigma=d["sigma"],
                                    experiment_id=d["experiment_id"], epoch_id=d["epoch_id"],
                                    owner_config_sha256=d["owner_config_sha256"],
                                    prompts_sha256=json.loads(d["prompts_sha256_json"] or "{}"),
-                                   **meta(d)) for d in rows)
-        debate = None
-        deb_row = next((d for d in rows if d["arm"] == "debate"), None)
-        if deb_row is not None:
-            turns = tuple(Turn(role=t["role"], round=t["round"], conceded=bool(t["conceded"]), error=t["error"],
-                               claims=tuple(Claim(**x) for x in json.loads(t["claims_json"])), **meta(t))
-                          for t in c.execute("SELECT * FROM debate_turns WHERE run_id = ?"
-                                             " ORDER BY round, role = 'bear'", (run_id,)))
-            debate = DebateResult(snapshot_hash=deb_row["snapshot_hash"], max_rounds=deb_row["debate_max_rounds"],
-                                  turns=turns, n_valid_bull=sum(t.n_valid() for t in turns if t.role == "bull"),
-                                  n_valid_bear=sum(t.n_valid() for t in turns if t.role == "bear"),
-                                  judge_name=deb_row["decided_by"], outcome=deb_row["debate_outcome"],
-                                  reason=deb_row["reason"])
-        return {"run": run, "votes": votes, "decisions": decisions, "debate": debate}
+                                   meta_rule=d["meta_rule"], meta_version=d["meta_version"],
+                                   **meta(d)) for d in rows if d["arm"] != "debate")
+        discussion = None
+        drow = c.execute("SELECT * FROM discussions WHERE run_id = ?", (run_id,)).fetchone()
+        if drow is not None:
+            disc_votes = tuple(v for v in votes if v.round >= 2)
+            final = {v.agent: v for v in votes if v.round == 1}
+            final.update({v.agent: v for v in disc_votes})               # votes are in round order
+            discussion = DiscussionResult(snapshot_hash=drow["snapshot_hash"], max_rounds=drow["max_rounds"],
+                                          rounds_run=drow["rounds_run"], stopped_early=bool(drow["stopped_early"]),
+                                          skip_reason=drow["skip_reason"], speakers=tuple(json.loads(drow["speakers_json"])),
+                                          votes=disc_votes, final=final)
+        return {"run": run, "votes": votes, "decisions": decisions, "discussion": discussion}

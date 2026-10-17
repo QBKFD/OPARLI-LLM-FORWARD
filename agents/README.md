@@ -2,22 +2,29 @@
 
 Shadow-decision agents for XAUUSD: a LangGraph graph over the datafeed store.
 
-**Status: skeleton, branch `feat/agents-skeleton`. Nothing calls an LLM,
-nothing trades, and nothing is deployed.** All three round-1 agents are stubs
-that abstain. The debate (round 2) is off by default, and no real debaters
-ship. Design and per-step decisions: `agents/DESIGN.md`. Final report:
-`agents/REPORT.md`.
+**Status: agents v2 (docs/AGENTS_ARCHITECTURE.md), built through job 4.
+Nothing trades, and nothing is deployed.**
+- **Without an LLM client** the round-1 agents are stubs, and GEX abstains
+  until options data exists.
+- **With one** (`build_graph(llm_client=...)`), visual, technical and
+  sentiment are LLM agents driven by the owner's prompts and `agents.toml`.
+- **After round 1**, a discussion runs between the LLM agents.
+
+The skeleton's design and report (`agents/DESIGN.md`, `agents/REPORT.md`) are
+history: they describe the bull/bear debate that the discussion replaced.
 
 ```
 trigger → snapshot ─(stale)──────────────────────────────► store
              │
            gate ─(market closed / too few bars)──────────► store
              │
-  visual | technical | sentiment     in parallel, each sees only the Snapshot
+  visual | technical | sentiment | gex     in parallel, blind: each sees only the Snapshot
              │
-         aggregator  → blind Decision
+        meta_blind  → Decision "blind"      (the owner's Meta rule)
              │
-       [debate: bull vs bear → judge] → debate Decision    (debate.enabled)
+        discussion  (N rounds, early stop; LLM agents only)
+             │
+     meta_discussion → Decision "discussion" (the same rule, final votes)
              │
             risk (stub: pass-through)
              │
@@ -87,10 +94,12 @@ out["status"], out["final_decisions"]["blind"].direction       # ('done', 'none'
 `agents.trigger.Trigger` plus `drive(trigger, graph)`. A clock and an external
 event are both possible; neither is built here.
 
-**Debate.** Set `debate.enabled = true` and pass
-`debaters={"bull": ..., "bear": ...}` to `build_graph`. A debater implements
-`argue(view: DebaterView) -> Turn | dict`. The judge is chosen by `debate.judge`
-from `agents.debate.judges.JUDGES`; only `code_v0`, a placeholder, exists.
+**Discussion.** After round 1, the LLM agents (voters with a `discuss` method)
+see each other's votes and may change theirs only by citing new snapshot
+evidence (agents/discussion/README.md). The rounds and the early stop come
+from the owner's `agents.toml`, and the Meta rule too (agents/meta/README.md).
+Without LLM agents, the discussion is skipped with the reason, and both
+decisions are still stored.
 
 ## Prompts, config and epochs (agents v2, job 2)
 
@@ -128,13 +137,15 @@ python -m agents.epoch --config agents.toml --db agents.sqlite
 - **Blind round 1.** Each voter gets its own copy of the Snapshot and nothing
   else. An exception, a timeout or an invalid output becomes an abstain with a
   reason, never a guess.
-- **Debate.** A debater sees only the snapshot, the round-1 votes and the
-  opponent's previous turn, all without timings or model ids. Every claim
-  needs an `evidence_ref` that resolves inside the snapshot. Invalid claims are
-  logged and hidden from the judge. A failing debater gives an empty turn; a
-  failing judge gives `hold`.
-- **Two arms, never merged.** The blind and debate decisions are separate rows
-  on the same snapshot, so they can be scored against each other.
+- **Discussion.** A discussant sees only the snapshot, its own previous vote
+  and the others' latest votes, all without timings or model ids.
+  - A change needs a new snapshot ref; a `vote:` ref never counts alone.
+  - A refused change keeps the previous vote and is stored with its reason
+    and the refused vote.
+  - A failing discussant keeps its vote.
+- **Two arms, never merged.** The `blind` and `discussion` decisions are
+  separate rows on the same snapshot, decided by the same Meta rule, so they
+  can be scored against each other.
 - **Append-only store.** Triggers abort every UPDATE and DELETE, and each run is
   written in one transaction.
 
@@ -144,11 +155,13 @@ python -m agents.epoch --config agents.toml --db agents.sqlite
 |---|---|
 | `snapshots` | snapshot_hash |
 | `runs` | run_id |
-| `votes` | (run_id, round, agent), round 1 = blind |
-| `debate_turns` | (run_id, round, role) |
-| `decisions` | (run_id, arm), arm blind / debate |
+| `votes` | (run_id, round, agent): round 1 = blind, 2.. = discussion rounds |
+| `discussions` | run_id: rounds run, early stop, skip reason, speakers |
+| `decisions` | (run_id, arm): arm blind / discussion (technical_v1 reserved) |
+| `llm_calls`, `llm_responses` | call_id; prompt_hash (the cache) |
+| `debate_turns` | history of the old debate; no longer written |
 
-`snapshots`, `votes`, `debate_turns` and `decisions` carry `model_id`,
+`snapshots`, `votes` and `decisions` carry `model_id`,
 `prompt_hash`, `tokens_in`, `tokens_out` and `latency_ms`. Details:
 `agents/store/sqlite.py`.
 
@@ -163,9 +176,12 @@ python -m agents.epoch --config agents.toml --db agents.sqlite
 | `llm/` | the LLM client layer: official SDK (lazy), cache, budget, kill switch, a ledger row per attempt, `LLMVoteAgent`: [llm/README.md](llm/README.md) |
 | `snapshot.py`, `resample.py` | v0 |
 | `graph.py`, `trigger.py` | v0 |
-| `voters/visual.py`, `technical.py`, `sentiment.py` | **stubs** (abstain) |
-| `nodes/gate.py`, `nodes/aggregator.py` | v0, **placeholder** rules |
+| `voters/visual.py`, `technical.py`, `sentiment.py` | **stubs** (abstain) without an LLM client |
+| `voters/gex.py` | code; abstains `no options data source` |
+| `meta/` | the pluggable Meta rules `quorum_v0`, `fixed_meta_v1`: [meta/README.md](meta/README.md) |
+| `discussion/` | the discussion subgraph and the vote-change rule: [discussion/README.md](discussion/README.md) |
+| `evidence.py` | evidence refs, checked in code |
+| `nodes/gate.py` | v0, **placeholder** rules |
 | `nodes/risk.py` | **stub** (pass-through until a risk/ package) |
-| `debate/` | v0; `CodeJudgeV0` is a **placeholder**; LLM judge slot not implemented |
-| `prompts/bull.md`, `bear.md` | templates for future LLM debaters, **not called** |
+| `prompts/bull.md`, `bear.md` | the owner's old debate prompts, **unused**; left for the owner to delete |
 | `store/sqlite.py`, `store/memory.py` | v0 |

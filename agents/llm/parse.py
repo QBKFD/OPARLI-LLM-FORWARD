@@ -20,7 +20,7 @@ import json
 import math
 from dataclasses import dataclass
 
-from agents.debate.evidence import check_ref
+from agents.evidence import check_ref, check_vote_ref
 from agents.prompting.output_schema import MAX_CLAIM, MAX_EVIDENCE, MAX_REASON
 from agents.schemas import Evidence, Snapshot
 
@@ -36,8 +36,10 @@ class Answer:
     evidence: tuple[Evidence, ...]
 
 
-def parse_answer(text: str | None, snap: Snapshot) -> Answer | str:
-    """The checked answer, or the reason it can't be used."""
+def parse_answer(text: str | None, snap: Snapshot, shown_votes: set[tuple[str, int]] | None = None) -> Answer | str:
+    """The checked answer, or the reason it can't be used. shown_votes: in a
+    discussion, the (agent, round) of the votes the agent was shown, so that
+    `vote:<agent>:<round>` refs resolve. In round 1 (None) they never do."""
     if text is None:
         return "invalid: no text in the response"
     try:
@@ -67,9 +69,10 @@ def parse_answer(text: str | None, snap: Snapshot) -> Answer | str:
             return f"invalid: evidence[{i}].ref is empty"
         if not isinstance(claim, str) or len(claim) > MAX_CLAIM:
             return f"invalid: evidence[{i}].claim is not a string of at most {MAX_CLAIM} characters"
-        why = check_ref(ref, snap)
+        why = (check_vote_ref(ref, shown_votes) if shown_votes is not None and ref.strip().startswith("vote:")
+               else check_ref(ref, snap))
         items.append(Evidence(ref=ref, claim=claim, valid=why is None, invalid_reason=why))
-    if direction != "none" and not any(x.valid for x in items):
+    if direction != "none" and not any(x.valid and not x.ref.startswith("vote:") for x in items):
         return "invalid: direction without evidence (no ref resolves in the snapshot)"
     return Answer(direction=direction, confidence=float(conf), reason=reason, evidence=tuple(items))
 

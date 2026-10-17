@@ -631,6 +631,18 @@ Every abstain reason is stored and counted. None of them crashes the run.
    `llm_responses`.
 4. **The discussion subgraph** replacing bull/bear (§5.2–5.4), plus the Meta
    rules as pluggable code (§5.5).
+   - *Built (job 4):* `agents/discussion/` and `agents/meta/`
+     (`quorum_v0`, `fixed_meta_v1`); GEX as a code agent that abstains; the
+     debate code removed; store migration 5 (`discussions`, the vote change
+     columns, the `decisions` rebuild for the new arms).
+   - *Specifics:*
+     - A discussion vote of round r is stored with `round = r + 1`.
+     - When nobody can speak, the discussion is recorded with a
+       `skip_reason`, and both decisions are still stored.
+     - A directional vote needs a resolving non-`vote:` ref, in round 1 and
+       in the discussion.
+     - The `technical_v1` arm is allowed in the store, but nothing produces
+       it until the agents v1 Technical agent is built.
    - The existing `bull.md` / `bear.md` are owner prompts. They are left in
      place, unused, for the owner to delete.
 5. **The Technical metric table** (§4.3), shared by Technical v1 and the
