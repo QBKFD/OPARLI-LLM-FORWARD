@@ -1,0 +1,66 @@
+# Status board thresholds: the ONE place they are set.
+#
+# Read by:
+#   - tools/status (python -m tools.status.write, run by watchdog.sh every 5 min)
+#     to turn the watchdog's measurements into green / yellow / red in health.json;
+#   - watchdog.sh itself, for its Telegram alert thresholds (the `red` values
+#     marked "= watchdog alert" below; watchdog.sh keeps the same numbers as a
+#     fallback if this file can't be read, and a test pins the two together);
+#   - the TUI and --once, for stale_after_s.
+#
+# Rules everywhere:
+#   - "higher is worse" values: green below yellow, yellow from `yellow` up to
+#     below `red`, red from `red` up. A threshold is inclusive (>=).
+#   - memory is "lower is worse": red when available % < red_avail_pct, yellow
+#     when < yellow_avail_pct (strict, like the watchdog's alert).
+#   - A value the watchdog could not measure or sent malformed is RED, never
+#     green ("no data"). A component that isn't deployed is shown as OFF.
+#   - Ages of bars are MARKET-OPEN minutes (datafeed's _market_open, New York
+#     time): weekends and the daily 17:00-18:00 NY break don't count, so a
+#     closed market never turns the board yellow.
+# Changing a value takes effect on the next watchdog run; nothing restarts.
+
+[health]
+stale_after_s = 900            # health.json older than this (3 missed 5-min watchdog runs): every component red
+
+[gateway]                      # the watchdog's API handshake (clientId 996), consecutive failures
+yellow_fails = 1
+red_fails = 2                  # = the watchdog's restart/alert point (2 checks, ~10 min)
+
+[feed]                         # age of the newest live bar the feed produced
+yellow_age_min = 3
+red_age_min = 10               # = the scanner's stream staleness message (STREAM_STALE_MIN)
+
+[redis]                        # PING failures in a row (stream profile only)
+yellow_fails = 1
+red_fails = 2                  # = watchdog alert
+
+[recorder]                     # stream profile only
+yellow_lag_min = 5             # store's newest live bar, market-open minutes
+red_lag_min = 15               # = watchdog alert (RECORDER_LAG_MAX_MIN)
+rejected_window_h = 24         # yellow while rejected_messages grew within this many hours
+
+[scanner]
+yellow_restarts_5min = 1       # container restarts since the previous run
+red_restarts_5min = 3          # = watchdog crash-loop alert
+red_unhealthy_checks = 2       # heartbeat healthcheck unhealthy this many runs in a row: red (one: yellow)
+yellow_bar_age_min = 5         # newest bar the scanner processed (journal's last_live_bar_ts)
+red_bar_age_min = 30           # = the scanner's own "no bars for 30 min" Telegram warning
+
+[journal]
+yellow_undecided_min = 60      # a sent alert of today has waited this long for a reply (MISSED comes at 4 h)
+
+[backups]                      # hours since the last successful backup.sh (only with BACKUP_S3_URI set)
+yellow_age_h = 25
+red_age_h = 26                 # = watchdog alert (BACKUP_MAX_AGE_H)
+
+[disk]                         # highest use % of / and Docker's data dir
+yellow_pct = 75
+red_pct = 85                   # = watchdog alert (DISK_ALERT_PCT)
+
+[memory]                       # MemAvailable as % of MemTotal
+yellow_avail_pct = 20
+red_avail_pct = 10             # = watchdog alert (MEM_AVAIL_MIN_PCT)
+
+[agents]                       # once an agents runner is deployed: hours since its last run
+yellow_last_run_h = 24
