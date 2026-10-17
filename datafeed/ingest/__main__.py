@@ -2,6 +2,8 @@
 
     DATAFEED_SOURCE=replay (default) | ibkr
     REDIS_URL              Redis for the bus (required unless --stdout)
+    INSTRUMENT, INSTRUMENT_*  the instrument (datafeed.instrument; default
+                           XAUUSD). The replay source is XAUUSD only (its parquet).
 
     --stdout   print messages as JSON lines instead of publishing (no Redis)
 
@@ -24,14 +26,22 @@ from datafeed.ingest.base import validate_message
 
 
 def build_source(env=os.environ):
+    from datafeed.instrument import InstrumentError, from_env
     kind = env.get("DATAFEED_SOURCE", "replay")
+    try:
+        instrument = from_env(env)
+    except InstrumentError as e:
+        raise SystemExit(f"instrument: {e}") from None
     if kind == "replay":
+        if instrument.name != "XAUUSD":
+            raise SystemExit(f"the replay source has XAUUSD bars only, not {instrument.name}")
         from datafeed.ingest.xauusd_bars import ReplaySource
         return ReplaySource.from_env(env)
     if kind == "ibkr":
         from datafeed.ingest.ibkr import IbkrConfig, IbkrConnection
         from datafeed.ingest.xauusd_bars import IbkrXauusdSource
-        return IbkrXauusdSource(IbkrConnection(IbkrConfig.from_env(env)))
+        logging.getLogger("datafeed.ingest").info("instrument %s", instrument)
+        return IbkrXauusdSource(IbkrConnection(IbkrConfig.from_env(env), instrument))
     raise SystemExit(f"unknown DATAFEED_SOURCE={kind!r} (replay | ibkr)")
 
 

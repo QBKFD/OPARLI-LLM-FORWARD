@@ -86,6 +86,15 @@ def _valid_bar(ts, o, h, l, c) -> bool:
     return _market_open(ts) and all(x == x and x > 0 for x in (o, h, l, c)) and l <= h
 
 
+def valid_bar(ts, o, h, l, c, calendar: str = "xauusd") -> bool:
+    """_valid_bar for any instrument calendar (datafeed.instrument.CALENDARS).
+    For "xauusd" it is exactly _valid_bar; "24/7" drops no bar for its time."""
+    if calendar == "xauusd":
+        return _valid_bar(ts, o, h, l, c)
+    from datafeed.instrument import market_open
+    return market_open(ts, calendar) and all(x == x and x > 0 for x in (o, h, l, c)) and l <= h
+
+
 def _px(x) -> bool:
     """A usable quote: not None, not NaN, > 0 (IBKR sends -1 or 0 for "no quote")."""
     return x is not None and x == x and x > 0
@@ -217,7 +226,9 @@ class IbkrXauusdSource:
        with history=True (warm-up, never live)
     3. stream quotes -> BarBuilder; the loop runs advance() every LOOP_S (#3)
     4. connection lost -> crash-only exit
-    Only bars passing _valid_bar are published; the rest are counted."""
+    Only bars passing valid_bar for the instrument's calendar are published;
+    the rest are counted. The stream and calendar come from conn.instrument
+    (default XAUUSD: STREAM and _valid_bar, as before)."""
 
     name = "ibkr"
     stream = STREAM
@@ -225,6 +236,9 @@ class IbkrXauusdSource:
 
     def __init__(self, conn, clock=_utcnow, sleep=_time.sleep, max_loops: int | None = None) -> None:
         self.conn, self.clock, self._sleep, self.max_loops = conn, clock, sleep, max_loops
+        inst = getattr(conn, "instrument", None)
+        self.stream = inst.stream if inst is not None else STREAM
+        self.calendar = inst.calendar if inst is not None else "xauusd"
         self.builder = BarBuilder(conn.symbol)
         self.stats = dict(history_bars=0, live_bars=0, invalid_bars=0)
         self.last_bar_ts: str | None = None
@@ -232,7 +246,7 @@ class IbkrXauusdSource:
 
     def _emit(self, bars, history: bool) -> None:
         for bar in bars:
-            if not _valid_bar(*bar.ohlc()):
+            if not valid_bar(*bar.ohlc(), self.calendar):
                 self.stats["invalid_bars"] += 1
                 continue
             self._publish(bar_message(bar, source=self.name, history=history, ingest_ts=self.clock()))

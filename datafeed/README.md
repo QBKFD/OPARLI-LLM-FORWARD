@@ -97,6 +97,24 @@ any connection problem it backs off 20 s and exits non-zero.
 | `REDIS_TEST_URL` | tests | a **throwaway** Redis; tests flush it |
 | `DATAFEED_SIGMA_MODEL` | `vol_block.load_sigma_model` | `parquet2021_2023` (default) or `txt2007_2023`, see `features/DECISIONS.md` |
 | `DATAFEED_IBKR_LIVE=1` | tests | enables the manual paper-gateway test |
+| `INSTRUMENT` | ingest, recorder, scanner | preset: `XAUUSD` (default) or `BTCUSD`, see below |
+| `INSTRUMENT_IB_SYMBOL`, `_SEC_TYPE`, `_EXCHANGE`, `_CURRENCY`, `_WHAT_TO_SHOW`, `_STREAM`, `_CALENDAR` | ingest, recorder, scanner | override one field of the preset; anything invalid is a startup error |
+
+### Instrument (`datafeed/instrument.py`)
+
+One definition of the traded instrument, read by the feed, the recorder and the
+scanner. **Unset, everything is XAUUSD exactly as before**: the contract
+`XAUUSD CMDTY SMART USD`, `MIDPOINT` history, stream `bars.xauusd.1m` and the
+gold calendar (Sun 18:00 to Fri 17:00 New York, without the daily break). A
+20-day replay and the datafeed's replay messages are byte-identical to the code
+before the change. `BTCUSD` is `BTC CRYPTO PAXOS USD`, stream `bars.btcusd.1m`
+and calendar `24/7`; its `whatToShow` is to be confirmed with
+`tools/ibkr_instrument_check.py` (`deploy/dryrun/README.md`, step 1).
+
+- **Replay is XAUUSD only:** the replay source and the scanner's `--date` and
+  `--selftest` run on the gold parquet.
+- **The scanner's ibkr bar source is XAUUSD only:** another instrument runs in
+  stream mode, where the feed holds the contract.
 
 ## Message schema: stream `bars.xauusd.1m`, schema_version 1
 
@@ -181,7 +199,8 @@ Later tables follow the same append-only, `ingest_ts`-versioned pattern
 | `bus.py` | v1: `RedisStreamBus`, `InMemoryBus` (commit-then-ack, redelivery of unacked entries) |
 | `ingest/base.py` | v1: `Source` protocol, message envelope |
 | `ingest/ibkr.py` | v1: the one IBKR connection (readonly, crash-only) |
-| `ingest/xauusd_bars.py` | v1: `BarBuilder`, `_valid_bar` / `_market_open` (from the scanner), `IbkrXauusdSource`, `ReplaySource` |
+| `ingest/xauusd_bars.py` | v1: `BarBuilder`, `_valid_bar` / `_market_open` (from the scanner), `valid_bar` (any calendar), `IbkrXauusdSource` (any instrument, XAUUSD by default), `ReplaySource` (XAUUSD) |
+| `instrument.py` | v1: `Instrument`, presets `XAUUSD` and `BTCUSD`, `from_env`, `market_open(ts, calendar)` |
 | `ingest/__main__.py` | v1: `python -m datafeed.ingest` |
 | `recorder/` | v1: `python -m datafeed.recorder` |
 | `store/schema.py`, `store/query.py` | v1 |

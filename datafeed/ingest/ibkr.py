@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import timezone
 
 from datafeed.ingest.xauusd_bars import Bar
+from datafeed.instrument import XAUUSD, Instrument
 
 log = logging.getLogger(__name__)
 
@@ -57,12 +58,13 @@ def crash(msg: str, sleep=_time.sleep):
 
 
 class IbkrConnection:
-    """Thin wrapper: one readonly ib_insync connection, the XAUUSD CMDTY
-    contract, MIDPOINT history, and a streaming quote subscription.
+    """Thin wrapper: one readonly ib_insync connection, the instrument's
+    contract (default XAUUSD CMDTY SMART USD), its whatToShow history (default
+    MIDPOINT), and a streaming quote subscription.
     `ib` can be injected (tests use a fake; nothing here needs a gateway)."""
 
-    def __init__(self, cfg: IbkrConfig, symbol: str = "XAUUSD", ib=None) -> None:
-        self.cfg, self.symbol = cfg, symbol
+    def __init__(self, cfg: IbkrConfig, instrument: Instrument = XAUUSD, ib=None) -> None:
+        self.cfg, self.instrument, self.symbol = cfg, instrument, instrument.name
         if ib is None:
             from ib_insync import IB
             ib = IB()
@@ -73,15 +75,16 @@ class IbkrConnection:
         self.ib.connect(self.cfg.host, self.cfg.port, clientId=self.cfg.client_id,
                         timeout=CONNECT_TIMEOUT_S, readonly=True)
         from ib_insync import Contract
-        c = Contract(symbol=self.symbol, secType="CMDTY", exchange="SMART", currency="USD")
+        c = Contract(**self.instrument.contract_fields())
         self.contract = self.ib.qualifyContracts(c)[0]
 
     def history(self, days: int = HISTORY_DAYS) -> list[Bar]:
-        """1-min MIDPOINT bars, same request as the scanner's _load_recent_history.
+        """1-min bars of the instrument's whatToShow (MIDPOINT for XAUUSD, the
+        scanner's _load_recent_history request).
         bar_ts = IBKR's bar date (start of the minute, UTC with formatDate=2).
         n_ticks is None: IBKR history has no tick count."""
         bars = self.ib.reqHistoricalData(self.contract, endDateTime="", durationStr=f"{days} D",
-                                         barSizeSetting="1 min", whatToShow="MIDPOINT",
+                                         barSizeSetting="1 min", whatToShow=self.instrument.what_to_show,
                                          useRTH=False, formatDate=2)
         out = []
         for b in bars:

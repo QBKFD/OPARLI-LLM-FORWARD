@@ -1,6 +1,8 @@
-"""python -m datafeed.recorder  — consume bars.xauusd.1m into the SQLite store.
+"""python -m datafeed.recorder  — consume the instrument's bar stream
+(bars.xauusd.1m by default) into the SQLite store.
 
     REDIS_URL                   bus
+    INSTRUMENT, INSTRUMENT_*    which stream (datafeed.instrument; default XAUUSD)
     DATAFEED_DB                 store path (created and migrated if missing)
     DATAFEED_RECORDER_CONSUMER  consumer name (default recorder-1); keep it
                                 stable across restarts so unacked entries are
@@ -17,7 +19,7 @@ import sys
 import time
 
 from datafeed.bus import RedisStreamBus
-from datafeed.ingest.xauusd_bars import STREAM
+from datafeed.instrument import InstrumentError, from_env
 from datafeed.recorder.recorder import Recorder
 from datafeed.store import schema
 
@@ -29,7 +31,11 @@ def main() -> int:
     path = os.environ.get("DATAFEED_DB")
     if not path:
         raise SystemExit("set DATAFEED_DB")
-    rec = Recorder(RedisStreamBus(), schema.connect(path), STREAM,
+    try:
+        stream = from_env(os.environ).stream
+    except InstrumentError as e:
+        raise SystemExit(f"instrument: {e}") from None
+    rec = Recorder(RedisStreamBus(), schema.connect(path), stream,
                    os.environ.get("DATAFEED_RECORDER_CONSUMER", "recorder-1"))
     log = logging.getLogger("datafeed.recorder")
     last = 0.0
