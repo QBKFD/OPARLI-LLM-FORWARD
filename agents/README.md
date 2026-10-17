@@ -83,6 +83,13 @@ out = run_once(graph, TriggerEvent(source="manual", t=datetime(2025, 6, 11, 14, 
 out["status"], out["final_decisions"]["blind"].direction       # ('done', 'none')
 ```
 
+**LangGraph Studio.** `langgraph dev` serves this graph on a replay store for
+step-by-step debugging, with no LLM and no keys. The entry point is
+`tools/langgraph_studio/studio.py` (outside the package: it records bars
+through datafeed's bus), set up in
+[docs/LANGGRAPH_STUDIO.md](../docs/LANGGRAPH_STUDIO.md). It also runs the graph
+once from the shell: `python tools/langgraph_studio/studio.py run --t 2025-06-11T14:30:00Z`.
+
 **Trigger.** Anything that yields `TriggerEvent`s can drive the graph:
 `agents.trigger.Trigger` plus `drive(trigger, graph)`. A clock and an external
 event are both possible; neither is built here.
