@@ -211,7 +211,7 @@ def test_decision_experiment_must_match_its_snapshot(experiments, replay_db, tmp
 def test_experiment_id_is_part_of_the_snapshot_hash(experiments, replay_db):
     a = build_snapshot(T_REPLAY, SnapshotConfig(mode="replay"), replay_db)
     b = build_snapshot(T_REPLAY, SnapshotConfig(mode="replay", experiment_id=EXP), replay_db)
-    assert a.bars == b.bars and a.hash != b.hash and a.schema_version == b.schema_version == 2
+    assert a.bars == b.bars and a.hash != b.hash and a.schema_version == b.schema_version == 3
 
 
 def test_migration_keeps_append_only(experiments, replay_db, tmp_path):

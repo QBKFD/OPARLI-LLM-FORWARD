@@ -33,6 +33,13 @@ the last minute before the close) is fresh. "Open" is datafeed's _market_open
 (the scanner's rule; holidays aren't modelled). No bars at all is also stale.
 A stale result is Stale(reason): nothing is saved, and the caller skips the run
 and logs why.
+
+Slots (schema 3). The alert's Telegram facts come from the trigger payload's
+"alert" entry, allowlisted field by field (ALERT_FIELDS); the rest of the
+payload never enters the snapshot. Levels, features, metrics, events and
+charts have no builder here yet: each stays empty and is named in
+`unavailable` with the reason, so a prompt that renders it says so instead of
+showing an empty list as if it were data.
 """
 
 from __future__ import annotations
@@ -40,7 +47,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Protocol
+from typing import Any, Mapping, Protocol
+
+from pydantic import ValidationError
 
 from datafeed.ingest.xauusd_bars import SEAL_START, _market_open
 from datafeed.store.query import bars_before
@@ -48,12 +57,20 @@ from datafeed.store.query import bars_before
 from agents.config import SnapshotConfig
 from agents.prereg import ExperimentError, require_prereg
 from agents.resample import bar_from_row, bucket_start, resample
-from agents.schemas import TIMEFRAMES, Snapshot
+from agents.schemas import ALERT_FIELDS, TIMEFRAMES, AlertFacts, Snapshot
 
 log = logging.getLogger(__name__)
 
 ONE_MIN = timedelta(minutes=1)
 LIVE_MAX_SKEW = timedelta(seconds=120)
+# Slots without a builder in this package yet, and why they are empty.
+NOT_BUILT = {
+    "levels": "no level source yet",
+    "features": "no feature builder yet",
+    "metrics": "no metric table yet",
+    "events": "no calendar store yet",
+    "charts": "no chart renderer yet",
+}
 CLOSED_SEARCH_LIMIT = timedelta(days=9)     # the longest closure is a weekend (+ holidays, unmodelled)
 
 
@@ -108,6 +125,31 @@ def last_open_minute(as_of: datetime) -> datetime:
     return m
 
 
+def alert_from_payload(payload: Mapping[str, Any] | None) -> AlertFacts | str:
+    """The alert facts from a trigger payload's "alert" entry, or the reason
+    there are none. Only ALERT_FIELDS are read. A journal row's naive
+    `alert_ts_utc` ("YYYY-MM-DD HH:MM:SS", UTC) and comma-separated
+    `level_types` are accepted as the scanner writes them."""
+    raw = (payload or {}).get("alert")
+    if raw is None:
+        return "the trigger has no alert"
+    if not isinstance(raw, Mapping):
+        return f"trigger alert is a {type(raw).__name__}, not a mapping"
+    data = {k: raw[k] for k in ALERT_FIELDS if k in raw}
+    if "alert_ts" not in data and isinstance(raw.get("alert_ts_utc"), str):
+        try:
+            data["alert_ts"] = datetime.fromisoformat(raw["alert_ts_utc"]).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return f"trigger alert: bad alert_ts_utc {raw['alert_ts_utc']!r}"
+    if isinstance(data.get("level_types"), str):
+        data["level_types"] = tuple(x for x in data["level_types"].split(",") if x)
+    try:
+        return AlertFacts.model_validate(data)
+    except ValidationError as e:
+        err = e.errors()[0]
+        return f"trigger alert: {'.'.join(map(str, err['loc']))}: {err['msg']}"
+
+
 def check_access(t: datetime, cfg: SnapshotConfig, now=_utcnow) -> None:
     """Seal and live-mode rules. Raises; never skips."""
     as_of = floor_minute(t)
@@ -126,8 +168,10 @@ def check_access(t: datetime, cfg: SnapshotConfig, now=_utcnow) -> None:
                              f"{wall.isoformat()} (max {LIVE_MAX_SKEW})")
 
 
-def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow) -> Snapshot | Stale:
-    """now: the wall clock (injectable for tests); used by live mode only."""
+def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow,
+                   payload: Mapping[str, Any] | None = None) -> Snapshot | Stale:
+    """now: the wall clock (injectable for tests); used by live mode only.
+    payload: the trigger payload; only its allowlisted alert facts are used."""
     as_of = floor_minute(t)
     check_access(t, cfg, now)
     kinds, known_by = source_for(cfg.mode, t)
@@ -145,13 +189,19 @@ def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow) -> Snapsho
         return Stale(as_of, newest, f"stale: newest 1m bar {newest.isoformat()} is {age} behind the last "
                                     f"market-open minute {last_open.isoformat()} (max {cfg.max_staleness})")
     series = {tf: resample(bars, tf, as_of)[-cfg.keep[tf]:] for tf in TIMEFRAMES if tf in cfg.keep}
+    alert = alert_from_payload(payload)
+    unavailable = dict(NOT_BUILT)
+    if isinstance(alert, str):
+        unavailable["alert"] = alert
     return Snapshot(symbol=cfg.symbol, as_of=as_of, kinds=kinds, known_by=known_by, bars=series,
-                    newest_bar_ts=newest, experiment_id=cfg.experiment_id)
+                    newest_bar_ts=newest, alert=alert if isinstance(alert, AlertFacts) else None,
+                    unavailable=unavailable, experiment_id=cfg.experiment_id)
 
 
-def prepare_snapshot(t: datetime, cfg: SnapshotConfig, db, sink: SnapshotSink, now=_utcnow) -> Snapshot | Stale:
+def prepare_snapshot(t: datetime, cfg: SnapshotConfig, db, sink: SnapshotSink, now=_utcnow,
+                     payload: Mapping[str, Any] | None = None) -> Snapshot | Stale:
     """Build, then save before anything else sees it. Stale: log, save nothing."""
-    out = build_snapshot(t, cfg, db, now)
+    out = build_snapshot(t, cfg, db, now, payload)
     if isinstance(out, Stale):
         log.warning("run skipped at as_of %s: %s", out.as_of.isoformat(), out.reason)
         return out

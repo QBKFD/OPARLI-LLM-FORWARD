@@ -1,0 +1,56 @@
+# A valid agents.toml for tests only. The values are test values, not the
+# owner's: the owner's file lives outside the repo ($AGENTS_CONFIG).
+
+[discussion]
+rounds = 3
+
+[meta]
+rule = "quorum_v0"
+
+[llm]
+mode = "rerun"
+timeout_s = 30
+max_retries = 2
+
+[budget]
+max_calls_per_day = 40
+kill_switch_path = "/tmp/agents.kill"
+
+[render.bars_rows]
+"15m" = 8
+"1h" = 4
+
+[agents.visual]
+enabled = true
+
+[agents.visual.round1]
+model = "claude-opus-5-5"
+effort = "medium"
+max_tokens = 16000
+
+[agents.visual.discussion]
+model = "claude-sonnet-5-5"
+effort = "low"
+max_tokens = 8000
+
+[agents.technical]
+enabled = true
+
+[agents.technical.round1]
+model = "claude-sonnet-5-5"
+effort = "high"
+max_tokens = 12000
+
+[agents.technical.discussion]
+model = "claude-sonnet-5-5"
+effort = "high"
+max_tokens = 12000
+
+[agents.sentiment]
+enabled = false
+
+[agents.gex]
+enabled = true
+
+[agents.technical_v1]
+enabled = true

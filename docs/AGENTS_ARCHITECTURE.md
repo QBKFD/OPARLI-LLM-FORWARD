@@ -383,7 +383,9 @@ all three arms:
 ### 5.7 Store
 
 One transaction per run (the existing `save_run`); the snapshot is written
-first. Agent store **migration 3** adds:
+first. Agent store **migrations 3–5**, one per job, add the following.
+Migration 3 is the epoch stamps (job 2), 4 the LLM tables (job 3), and 5
+the discussion columns and arms (job 4):
 
 | Table / column | Content |
 |---|---|
@@ -521,8 +523,10 @@ answer. `epoch_id` = SHA-256 of the canonical JSON of:
 - The front-matter `version` is for humans. If a prompt's bytes change but
   its `version` doesn't, a warning is logged and stored. The epoch changes
   either way (AA10).
-- A planned command, `python -m agents.epoch` (job 2), prints the current
-  epoch id and what differs from the previous one.
+- `python -m agents.epoch` (job 2) prints the current epoch id and what
+  differs from the last stored run.
+- **The epoch is the same in any checkout.** No input holds a file path; a
+  missing file enters as "not found", not as where it was looked for.
 
 ## 9. Cost per alert (estimate)
 
@@ -607,6 +611,9 @@ Every abstain reason is stored and counted. None of them crashes the run.
    - config validation (`agents.toml` schema, `agents.example.toml`);
    - the SHA-256 of both recorded on every decision;
    - `epoch_id` and `python -m agents.epoch`;
+   - *built:* `agents/prompting/`, `agents/owner_config.py`,
+     `agents/epoch.py`, snapshot schema 3 (alert facts from the trigger;
+     the other slots empty and marked unavailable), migration 3;
    - template skeletons (front-matter, section markers, placeholders, no
      instructions) for visual, technical, sentiment, gex and discussion.
 3. **LLM client layer** (§6), with `FakeLLMClient`, `llm_calls` and

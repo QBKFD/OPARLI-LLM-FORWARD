@@ -10,8 +10,12 @@ the contract between your prompt files and the code around them:
 
 The full design is `docs/AGENTS_ARCHITECTURE.md`.
 
-**Status:** this is the contract for jobs 2–5. Nothing here is built yet.
-Names marked *(job 5)* are fixed by this guide and implemented later.
+**Status:** the contract for jobs 2–5.
+- **Built (job 2):** prompt loading and checking, the placeholders, the
+  config file, the epoch, and `python -m agents.prompting check` /
+  `python -m agents.epoch`.
+- Names marked *(job 5)* are fixed by this guide and implemented later.
+- No agent calls a model until job 3.
 
 ## 1. Where things live
 
@@ -22,12 +26,27 @@ Names marked *(job 5)* are fixed by this guide and implemented later.
 | `agents/prompts/sentiment.md` | Sentiment agent (LLM, calendar/news) | you |
 | `agents/prompts/gex.md` | reserved: GEX is code and doesn't read it while there is no options data | you (optional) |
 | `agents/prompts/discussion.md` | the discussion turn, shared by all LLM agents | you |
-| `agents.toml` (path from `$AGENTS_CONFIG`) | models, effort and `max_tokens` **per agent and per round** (round 1 vs discussion; `AGENTS_ARCHITECTURE.md` §6.1), discussion rounds, Meta rule, budget, risk | you |
-| `agents.example.toml` | every key, with comments and placeholder values; never read at run time | code (job 2) |
+| `agents.toml` (path from `$AGENTS_CONFIG`; keep it outside the repo or untracked) | models, effort and `max_tokens` **per agent and per round** (round 1 vs discussion; `AGENTS_ARCHITECTURE.md` §6.1), discussion rounds, Meta rule, LLM call settings, budget, the `{{bars_table}}` row counts | you |
+| `agents/agents.example.toml` | every key of `agents.toml`, with comments and `"<...>"` placeholder values; never read at run time | code (job 2) |
 
-Job 2 ships each prompt file as a **skeleton**: front-matter keys, section
-markers and a list of the available placeholders, with no instructions. From
-then on, the content is yours. Code never edits these files.
+**`agents.toml` is only yours.** The infrastructure settings (snapshot mode,
+gate, timeouts) stay in their own file, `agents/config.example.toml`. So your
+file holds your values and nothing else.
+- **Every value is required,** except `discussion.rounds` (default 2) and
+  `discussion.early_stop` (default true).
+- **A value still reading `"<...>"`**, copied from the example and not filled
+  in, is refused like any invalid value.
+- **A problem in one section affects only what needs it.** A bad
+  `agents.visual.round1` makes Visual abstain in round 1. A missing `[meta]`
+  makes Meta abstain. Nothing crashes.
+
+**The templates.** Job 2 ships each prompt file as a **template**. It holds the
+front-matter, the section markers, and a comment listing the placeholders,
+with no instructions.
+- Its front-matter says `version: TEMPLATE`. While it does, the file is
+  refused ("unfilled template"), so no template can ever reach a model.
+- Write the sections, then set your own `version`. From then on, the content
+  is yours; code never edits these files.
 
 **If a file is missing or invalid, that agent abstains,** with a reason
 naming the file and the problem. There is no default prompt, ever.
@@ -74,8 +93,15 @@ Alert: {{alert_json}}
   which keeps the hash meaningful and the prefix cacheable.
 
 Everything in a section, from the line after its marker to the next marker
-or the end of the file, is sent as written, apart from placeholder
-substitution. Leading and trailing blank lines are trimmed.
+or the end of the file, is sent as written, apart from two things:
+- **placeholder substitution**;
+- **`<!-- ... -->` comments, which are removed.** Use them for notes to
+  yourself; a placeholder inside a comment doesn't count.
+
+Leading and trailing blank lines are trimmed. Between the front-matter and
+the first section, only comments and blank lines are allowed. The file's hash
+covers its raw bytes, comments included, so editing a comment is a new epoch
+too.
 
 ## 3. Placeholders
 
@@ -104,6 +130,13 @@ substitution. Leading and trailing blank lines are trimmed.
 Never available: `experiment_id`, the epoch id, the trigger payload, model
 names, other agents' votes in round 1, and anything after `as_of`.
 
+**Inputs that don't exist yet say so.** A slot whose builder doesn't exist
+yet (levels, features, metrics, events, charts) renders as `[unavailable:
+<slot>: <reason>]`, e.g. `[unavailable: events: no calendar store yet]`. It
+never renders as an empty list that would look like data. The same applies to
+the alert when a trigger carries none. `{{bars_table:<tf>}}` needs
+`render.bars_rows.<tf>` in `agents.toml`; without it the agent abstains.
+
 ### 3.2 Discussion placeholders (`discussion.md` only)
 
 | Placeholder | Renders |
@@ -113,6 +146,9 @@ names, other agents' votes in round 1, and anything after `as_of`.
 | `{{own_previous_vote_json}}` | this agent's latest vote: `direction`, `confidence`, `reason`, `evidence` (with validity flags) |
 | `{{other_votes_json}}` | every other agent's latest vote, the same fields, with GEX and abstained agents included as they are. No model ids, timings or tokens |
 | `{{change_rule}}` | one fixed sentence, written by code, stating the vote-change rule (§6). Use it if you want the model told the rule in exactly the words code enforces |
+
+Round-1 placeholders are not allowed in `discussion.md`: the agent's round-1
+content is already sent again before it (§3.3).
 
 ### 3.3 How a discussion request is built
 
@@ -262,8 +298,10 @@ The **epoch id** is a hash of, among others (full list:
   other epoch are stored as development and don't count. To change a prompt
   during an experiment, end the epoch: write a PREREG addendum and start a
   new `experiment_id`.
-- `python -m agents.epoch` *(job 2)* prints the current epoch id and which
-  files or values differ from the last stored run.
+- `python -m agents.epoch [--config agents.toml] [--db agents.sqlite]` prints
+  the current epoch id and its inputs. With `--db`, it also prints which
+  files or values differ from the last stored run, and warns about a prompt
+  whose bytes changed while its `version` didn't.
 
 ## 8. Before you freeze a prompt
 
@@ -275,9 +313,10 @@ The **epoch id** is a hash of, among others (full list:
       cutoff, so evidence is forward-only.
 - [ ] A worked example, if any, doesn't show a direction. The legacy Visual
       agent's bullish example biased it (`legacy/PORT_CANDIDATES.md`).
-- [ ] Run the planned checks *(job 2–3)*:
-      - `python -m agents.prompts check` (validates every file, and lists
-        the placeholders used);
+- [ ] Run the checks:
+      - `python -m agents.prompting check [--prompts DIR] [--config agents.toml]`:
+        every prompt file (OK with its version, hash and placeholders, or
+        the reason it's invalid), every config problem, and the epoch id;
       - `python -m agents.llm count-tokens` (real token counts for the cost
         estimate);
       - a cache-only rerun on development data.
