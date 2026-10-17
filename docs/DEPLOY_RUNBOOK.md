@@ -110,6 +110,14 @@ Watch one market session: alerts and replies should look as before.
 The watchdog line is today's. Its state file gains new keys; the old file still
 loads.
 
+Each watchdog run also writes `~/scanner-health.json` for the status board
+(`tools/status/README.md`). It needs the host's `python3` (>= 3.11, stdlib
+only). Check it after the first run:
+
+```bash
+cd ~/oparli && python3 -m tools.status --once
+```
+
 The backup also archives the datafeed store's bars as daily parquet, under
 `$BACKUP_S3_URI/archive/bars/date=YYYY-MM-DD/XAUUSD.parquet` (stream profile
 only):
@@ -259,7 +267,12 @@ local IB Gateway paper on 4002. Run it on a Thursday or Friday:
   - recorder lag ≥ 15 market-open min;
   - new `rejected_messages` (as a delta).
 
-  Thresholds are constants at the top of `watchdog.sh`.
+  Thresholds are in `tools/status/thresholds.toml` (the `red` values are the
+  alert thresholds); `watchdog.sh` keeps the same numbers as a fallback.
+- **Status board:** `python3 -m tools.status --once` (one line per component,
+  exit 0/1/2), or the Textual board from a small venv, see
+  `tools/status/README.md`. It reads `~/scanner-health.json`, which the
+  watchdog writes every 5 min. Older than 15 min means everything shows red.
 - **Daily heartbeat** from the watchdog, at or after 07:00 UTC, every day: a
   one-line summary of all of the above. **No heartbeat by about 08:00 UTC
   means the watchdog or its cron is broken.**
@@ -289,6 +302,10 @@ Nothing below could be run where this was written (no Docker, no host access):
 - [ ] The watchdog cron's first runs log nothing unexpected
       (`~/scanner-watchdog.log`). The first daily heartbeat arrives after
       07:00 UTC, and its disk, memory and backup numbers look right.
+- [ ] After the first watchdog run, `~/scanner-health.json` exists, and
+      `python3 -m tools.status --once` shows the components you expect
+      green (redis/recorder OFF without the stream profile). The log has no
+      `health.json not written` or `thresholds.toml not read` lines.
 - [ ] `docker stats --no-stream` after a day: every container well under its
       `mem_limit`; the swap file is active (`swapon --show`).
 - [ ] The `archive/bars/date=.../XAUUSD.parquet` objects appear in S3 the
