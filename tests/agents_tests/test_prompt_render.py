@@ -55,7 +55,8 @@ def test_the_alert_facts_come_from_the_payload_allowlist(snap):
                                     session="NY", level_types=("PDH", "ASIA_H"), level_price=3312.5,
                                     price_at_alert=3312.1, confluence_count=2)
     assert "epoch" not in json.dumps(snap.alert.model_dump(mode="json"))
-    assert snap.unavailable == NOT_BUILT                         # everything but the alert is still to be built
+    assert snap.unavailable == {**NOT_BUILT, "features": "no sigma model configured (snapshot.sigma_model)"}
+    assert snap.metrics and snap.metrics[0].name == "atr14_15m"   # the metric table is always built
 
 
 @pytest.mark.parametrize("payload, why", [
@@ -81,7 +82,7 @@ def test_snapshot_slot_rules(snap):
     with pytest.raises(ValidationError, match="trigger_levels"):
         Snapshot(**{**base, "trigger_levels": ("nope",)})
     with pytest.raises(ValidationError, match="marked unavailable but has content"):
-        Snapshot(**{**base, "metrics": (MetricRow(name="x", value=1.0, unit="", available=True),)})
+        Snapshot(**{**base, "features": {"L": 1.0}})
     with pytest.raises(ValidationError, match="unknown slot"):
         Snapshot(**{**base, "unavailable": {"bars": "x"}})
     with pytest.raises(ValidationError, match="active only from after"):
@@ -89,7 +90,7 @@ def test_snapshot_slot_rules(snap):
                                                                   active_from=T + timedelta(minutes=1)),)})
     with pytest.raises(ValidationError, match="duplicate metric"):
         m = MetricRow(name="x", value=1.0, unit="", available=True)
-        Snapshot(**{**base, "unavailable": {}, "metrics": (m, m)})
+        Snapshot(**{**base, "metrics": (m, m)})
 
 
 @pytest.mark.parametrize("kw", [
@@ -136,13 +137,13 @@ def test_bars_table_without_a_row_count_is_a_problem(snap):
 
 
 def test_unavailable_slots_say_so(snap):
-    r = render_round1(prompt("L {{levels_json}} M {{metrics_table}} C {{charts}} A {{alert_json}}"), snap, CFG)
+    r = render_round1(prompt("L {{levels_json}} F {{features_json}} C {{charts}} A {{alert_json}}"), snap, CFG)
     text = r.user_text()
     assert unavailable_text("levels", NOT_BUILT["levels"]) in text
-    assert unavailable_text("metrics", NOT_BUILT["metrics"]) in text
+    assert unavailable_text("features", snap.unavailable["features"]) in text
     assert unavailable_text("charts", NOT_BUILT["charts"]) in text
     assert '"alert_id":"A20250611-004"' in text
-    assert r.unavailable_used == ("levels", "metrics", "charts")
+    assert r.unavailable_used == ("levels", "features", "charts")
 
 
 def test_charts_split_the_user_content(snap):

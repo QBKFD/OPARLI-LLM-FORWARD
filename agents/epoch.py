@@ -46,7 +46,8 @@ log = logging.getLogger(__name__)
 EPOCH_SCHEMA = 1
 PKG = Path(__file__).resolve().parent
 # the code that builds and renders what an agent sees
-INPUT_CODE = ("snapshot.py", "resample.py", "schemas.py", "hashing.py", "evidence.py", "prompting/files.py",
+INPUT_CODE = ("snapshot.py", "resample.py", "schemas.py", "hashing.py", "evidence.py", "features.py",
+              "technical/metrics.py", "prompting/files.py",
               "prompting/placeholders.py", "prompting/render.py", "prompting/output_schema.py",
               "discussion/rule.py", "meta/rules.py")
 

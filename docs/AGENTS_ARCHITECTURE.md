@@ -138,8 +138,8 @@ fields relative to version 2:
 | `alert` | the Telegram facts only: `alert_id`, `alert_ts`, `session`, `level_types`, `level_price`, `price_at_alert`, `confluence_count` | the trigger (scanner journal row) |
 | `trigger_levels` | ids of the levels the alert touched | the shared level library (`LevelSource`, agents v1 design §2) |
 | `levels` | every level active at `as_of`: `id`, `type`, `value`, `active_from`, `touched` | same |
-| `features` | σ and the vol state: `sigma_px_60`, `sigma_px_240`, `sigma_ret_60`, `sigma_ret_240`, `crosses_close_60`, `crosses_close_240`, `L`, `S_hd`, `T`, `L_tercile`, `sigma_model`, `sigma_model_sha256` | `vol_block` with the pinned HAR model |
-| `metrics` | the Technical metric table (§4.3) | `agents/technical/metrics.py` (job 5) |
+| `features` | σ and the vol state: `sigma_px_60`, `sigma_px_240`, `sigma_ret_60`, `sigma_ret_240`, `crosses_close_60`, `crosses_close_240` (0/1), `L`, `S_hd`, `T`. `L_tercile` is not built yet (its cut-offs aren't fixed). The model name and SHA-256 are the snapshot fields `sigma_model` / `sigma_model_sha256` | `agents/features.py`: `vol_block` with the HAR model named in `snapshot.sigma_model` (job 5) |
+| `metrics` | the Technical metric table (§4.3) | `agents/technical/metrics.py` (job 5; always built) |
 | `events` | calendar events in [as_of − 6 h, as_of + 24 h]; actual values only if released before `as_of` | a point-in-time calendar store (not built; empty until it exists) |
 | `charts` | `(tf, sha256, width, height)` for the 15m, 1h and 4h PNGs | the chart renderer, from the snapshot's bars only |
 
@@ -647,6 +647,16 @@ Every abstain reason is stored and counted. None of them crashes the run.
      place, unused, for the owner to delete.
 5. **The Technical metric table** (§4.3), shared by Technical v1 and the
    Technical-LLM.
+   - *Built (job 5):*
+     - `agents/technical/metrics.py`: Wilder ATR/RSI, EMA spread, σ, L/S_hd/T,
+       distances to levels, and volume/VWAP unavailable;
+     - `agents/features.py`: HAR σ and the vol state, from the snapshot's own
+       fetch.
+   - The snapshot builder fills both, every time; unavailable rows carry
+     their reasons.
+   - The σ model's SHA-256 enters the epoch.
+   - Technical v1 reads `snapshot.metrics` (with `metric(rows, name)`) once
+     it is built (agents v1).
 
 Not in these jobs:
 - the chart renderer and the calendar store (`AGENT_LLM_SCANNER_DESIGN.md`

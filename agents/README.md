@@ -181,6 +181,8 @@ python -m agents.epoch --config agents.toml --db agents.sqlite
 | `meta/` | the pluggable Meta rules `quorum_v0`, `fixed_meta_v1`: [meta/README.md](meta/README.md) |
 | `discussion/` | the discussion subgraph and the vote-change rule: [discussion/README.md](discussion/README.md) |
 | `evidence.py` | evidence refs, checked in code |
+| `features.py` | the snapshot features: HAR σ at 60/240 and L, S_hd, T from datafeed's vol_block (`snapshot.sigma_model`) |
+| `technical/` | the Technical metric table shared by the Technical-LLM and Technical v1: [technical/README.md](technical/README.md) |
 | `nodes/gate.py` | v0, **placeholder** rules |
 | `nodes/risk.py` | **stub** (pass-through until a risk/ package) |
 | `prompts/bull.md`, `bear.md` | the owner's old debate prompts, **unused**; left for the owner to delete |

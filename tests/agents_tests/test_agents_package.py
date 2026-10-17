@@ -50,7 +50,8 @@ def test_the_sdk_module_imports_it_lazily_only():
 
 
 def test_datafeed_only_through_query_and_constants():
-    allowed = {"datafeed.store.query", "datafeed.ingest.xauusd_bars"}
+    # vol_block: the snapshot features (agents/features.py, agents v2 job 5)
+    allowed = {"datafeed.store.query", "datafeed.ingest.xauusd_bars", "datafeed.features.vol_block"}
     for f in PKG.rglob("*.py"):
         for mod in _imports(f):
             if mod.startswith("datafeed"):

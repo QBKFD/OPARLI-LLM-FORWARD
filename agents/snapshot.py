@@ -47,7 +47,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping, Protocol
+from typing import Any, Callable, Mapping, Protocol
 
 from pydantic import ValidationError
 
@@ -57,17 +57,19 @@ from datafeed.store.query import bars_before
 from agents.config import SnapshotConfig
 from agents.prereg import ExperimentError, require_prereg
 from agents.resample import bar_from_row, bucket_start, resample
+from agents.features import features_from_rows
 from agents.schemas import ALERT_FIELDS, TIMEFRAMES, AlertFacts, Snapshot
+from agents.technical.metrics import metric_table
 
 log = logging.getLogger(__name__)
 
 ONE_MIN = timedelta(minutes=1)
 LIVE_MAX_SKEW = timedelta(seconds=120)
-# Slots without a builder in this package yet, and why they are empty.
+# Slots without a builder in this package yet, and why they are empty. The
+# features and the metric table are built here (agents/features.py,
+# agents/technical/metrics.py).
 NOT_BUILT = {
     "levels": "no level source yet",
-    "features": "no feature builder yet",
-    "metrics": "no metric table yet",
     "events": "no calendar store yet",
     "charts": "no chart renderer yet",
 }
@@ -150,7 +152,7 @@ def alert_from_payload(payload: Mapping[str, Any] | None) -> AlertFacts | str:
         return f"trigger alert: {'.'.join(map(str, err['loc']))}: {err['msg']}"
 
 
-def check_access(t: datetime, cfg: SnapshotConfig, now=_utcnow) -> None:
+def check_access(t: datetime, cfg: SnapshotConfig, now: Callable[[], datetime] = _utcnow) -> None:
     """Seal and live-mode rules. Raises; never skips."""
     as_of = floor_minute(t)
     if cfg.experiment_id is not None:
@@ -168,7 +170,7 @@ def check_access(t: datetime, cfg: SnapshotConfig, now=_utcnow) -> None:
                              f"{wall.isoformat()} (max {LIVE_MAX_SKEW})")
 
 
-def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow,
+def build_snapshot(t: datetime, cfg: SnapshotConfig, db: Any, now: Callable[[], datetime] = _utcnow,
                    payload: Mapping[str, Any] | None = None) -> Snapshot | Stale:
     """now: the wall clock (injectable for tests); used by live mode only.
     payload: the trigger payload; only its allowlisted alert facts are used."""
@@ -193,12 +195,19 @@ def build_snapshot(t: datetime, cfg: SnapshotConfig, db, now=_utcnow,
     unavailable = dict(NOT_BUILT)
     if isinstance(alert, str):
         unavailable["alert"] = alert
+    feats = features_from_rows(rows, as_of, cfg.sigma_model)
+    if feats.reason is not None:
+        unavailable["features"] = feats.reason
+    metrics = metric_table(series, feats.values, feats.reason, ())
     return Snapshot(symbol=cfg.symbol, as_of=as_of, kinds=kinds, known_by=known_by, bars=series,
                     newest_bar_ts=newest, alert=alert if isinstance(alert, AlertFacts) else None,
-                    unavailable=unavailable, experiment_id=cfg.experiment_id)
+                    features=feats.values, metrics=metrics, sigma_model=feats.sigma_model,
+                    sigma_model_sha256=feats.sigma_model_sha256, unavailable=unavailable,
+                    experiment_id=cfg.experiment_id)
 
 
-def prepare_snapshot(t: datetime, cfg: SnapshotConfig, db, sink: SnapshotSink, now=_utcnow,
+def prepare_snapshot(t: datetime, cfg: SnapshotConfig, db: Any, sink: SnapshotSink,
+                     now: Callable[[], datetime] = _utcnow,
                      payload: Mapping[str, Any] | None = None) -> Snapshot | Stale:
     """Build, then save before anything else sees it. Stale: log, save nothing."""
     out = build_snapshot(t, cfg, db, now, payload)

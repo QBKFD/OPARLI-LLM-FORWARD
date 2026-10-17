@@ -14,7 +14,7 @@ The full design is `docs/AGENTS_ARCHITECTURE.md`.
 - **Built (job 2):** prompt loading and checking, the placeholders, the
   config file, the epoch, and `python -m agents.prompting check` /
   `python -m agents.epoch`.
-- Names marked *(job 5)* are fixed by this guide and implemented later.
+- **Built (job 5):** the metric table and the snapshot features.
 - No agent calls a model until job 3.
 
 ## 1. Where things live
@@ -121,7 +121,7 @@ too.
 | `{{levels_json}}` | levels active at `as_of`: `id`, `type`, `value`, `active_from`, `touched` | PDH PDL PWH PWL DOPEN WOPEN ASIA/LONDON/NY_H/L |
 | `{{trigger_levels_json}}` | ids of the levels this alert touched | |
 | `{{features_json}}` | σ and the vol state (§4.2) | |
-| `{{metrics_table}}` | the Technical metric table, one row per metric: `name`, `value`, `unit`, `available`, `reason` | *(job 5)* |
+| `{{metrics_table}}` | the Technical metric table, one row per metric: `name | value | unit | available | reason` | always built; a row that can't be computed says why |
 | `{{bars_table:<tf>}}` | the last complete bars of `<tf>` (`1m`, `15m`, `1h`, `4h`), one line each: open time, O, H, L, C | the row count per tf is set in `agents.toml` (`render.bars_rows`) |
 | `{{events_json}}` | calendar events in [as_of − 6 h, as_of + 24 h]; actuals only if released before `as_of` | `[]` until the calendar store exists |
 | `{{charts}}` | the 15m, 1h and 4h chart images, in that order, attached as image blocks at this position | no images until the renderer exists; reference them as `chart:<tf>` |
@@ -186,7 +186,7 @@ defines how they talk.
 | `levels[]` | `id`, `type`, `value`, `active_from`, `touched` |
 | `trigger_levels[]` | level ids touched by this alert |
 | `features` | §4.2 |
-| `metrics` | §4.3 *(job 5)* |
+| `metrics` | §4.3 |
 | `events[]` | `id`, `ts`, `currency`, `tier`, `name`, `actual`, `forecast`, `previous` |
 | `charts[]` | `tf`, `sha256`, `width`, `height` |
 | `alert` | the Telegram facts (§3.1) |
@@ -201,10 +201,19 @@ There is no volume. The bars are a CFD bid/ask midpoint.
 | `sigma_ret_60`, `sigma_ret_240` | the same, as a log return |
 | `crosses_close_60`, `crosses_close_240` | 1 if that window crosses the daily close (17:00 NY), else 0 |
 | `L`, `S_hd`, `T` | VolBlock state: volatility level, half-day shape, trend |
-| `L_tercile` | 1, 2 or 3: the volatility regime (cut-offs fixed from the σ model's training window) |
+| `L_tercile` | *not provided yet*: its cut-offs (from the σ model's training window) aren't fixed. Don't reference it |
 | `sigma_model`, `sigma_model_sha256` | which σ model (provenance) |
 
-### 4.3 Metric names *(job 5)*
+- **Where they come from:** the HAR σ model named in the infrastructure
+  config (`snapshot.sigma_model`, e.g. `parquet2021_2023`, SHA-256 checked).
+  The model's name and hash are on the snapshot (`sigma_model`,
+  `sigma_model_sha256`), not in `features`.
+- **When they're missing:** without a model, or with less than about 5
+  trading days of bars (the vol state needs 120 hours), `features` is empty
+  and marked unavailable with the reason. The σ-relative metrics then say so
+  too.
+
+### 4.3 Metric names
 
 | Name | Timeframes | Meaning | Unit |
 |---|---|---|---|

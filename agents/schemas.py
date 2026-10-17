@@ -198,6 +198,8 @@ class Snapshot(_Frozen):
     metrics: tuple[MetricRow, ...] = ()
     events: tuple[Event, ...] = ()
     charts: tuple[ChartRef, ...] = ()
+    sigma_model: str | None = None          # the σ model behind features (name, SHA-256): provenance
+    sigma_model_sha256: str | None = None
     unavailable: dict[str, str] = Field(default_factory=dict)   # slot -> why it is empty
     experiment_id: str | None = None     # provenance; never render it into a prompt
     hash: str = ""                       # computed; a wrong value raises

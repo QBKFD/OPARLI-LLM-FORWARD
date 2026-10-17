@@ -215,7 +215,8 @@ def test_make_discussion_skip_reasons(snap):
     ("bars:1m:2025-06-11T14:29:00..2025-06-11T14:29:00", False),  # naive
     ("bars:1d:{last}..{last}", False),                            # timeframe not in the snapshot
     ("bars:1m:{last}", False),
-    ("level:pdh", False), ("feature:atr", False), ("event:nfp", False), ("metric:rsi14_1h", False),
+    ("level:pdh", False), ("feature:atr", False), ("event:nfp", False), ("metric:rsi14_1h", True),
+    ("metric:volume", False), ("metric:atr14_4h_sigma", False),   # unavailable rows never resolve
     ("vibes", False), ("", False), ("chart:1m", False), ("vote:visual:1", False),     # vote: only in a discussion
 ])
 def test_check_ref(snap, ref, ok):

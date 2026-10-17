@@ -206,7 +206,8 @@ def test_datafeed_store_is_untouched(store, replay_db):
 def test_example_config_is_the_defaults():
     p = Path(__file__).resolve().parents[2] / "agents" / "config.example.toml"
     c = AgentsConfig.from_toml(p)
-    assert c == CFG
+    assert c == CFG.model_copy(update={"snapshot": CFG.snapshot.model_copy(update={"sigma_model": "parquet2021_2023"})})
+    assert CFG.snapshot.sigma_model is None                    # no default model in code
     assert "debate" not in c.model_dump()                      # the discussion is the owner's (agents.toml)
 
 
