@@ -40,12 +40,13 @@ from langgraph.graph import END, START, StateGraph
 from agents import __version__
 from agents.config import AgentsConfig
 from agents.debate import make_debate_node, make_judge
-from agents.epoch import Epoch, current_epoch, last_stored_inputs, version_warnings
+from agents.epoch import Epoch, compute_epoch, last_stored_inputs, version_warnings
 from agents.hashing import canonical_json
 from agents.nodes import gate
 from agents.nodes.aggregator import aggregate_v0
 from agents.nodes.risk import apply_risk
-from agents.owner_config import OwnerConfig
+from agents.owner_config import ConfigProblem, OwnerConfig
+from agents.prompting.files import load_all
 from agents.schemas import DebateResult, Decision, Snapshot, TriggerEvent, Vote
 from agents.prereg import ExperimentError, require_prereg
 from agents.snapshot import Stale, _utcnow, floor_minute, prepare_snapshot
@@ -89,7 +90,10 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
                 wall_clock: Callable[[], object] = _utcnow,
                 owner_config: OwnerConfig | None = None,
                 prompts_dir=None,
-                journal_epoch: int | None = None):
+                journal_epoch: int | None = None,
+                llm_client=None,
+                llm_ledger=None,
+                image_bytes=None):
     """db: the datafeed store (path or sqlite3.Connection; default $DATAFEED_DB).
     voters: name -> VoteAgent (default: the three stubs).
     debaters: {"bull": Debater, "bear": Debater}. Needed only when
@@ -102,13 +106,26 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
         $AGENTS_CONFIG). prompts_dir: default agents/prompts. journal_epoch:
         the scanner journal epoch the triggers come from, when known. All three
         go into the epoch.
+    llm_client: an LLMClient (agents/llm). With one, and voters=None, the round-1
+        voters visual, technical and sentiment are LLMVoteAgents built from the
+        same prompts and config as the epoch. Without one they stay stubs.
+        llm_ledger: default SqliteLedger(store) for a SQLite store, else in
+        memory. image_bytes: chart PNG bytes by SHA-256 (no chart store yet).
     Live mode without an experiment, or an experiment without its PREREG,
     fails here at build time, and again in every snapshot."""
     if config.snapshot.experiment_id is not None:
         require_prereg(config.snapshot.experiment_id)
     elif config.snapshot.mode == "live":
         raise ExperimentError("live mode needs snapshot.experiment_id with a PREREG under agents/experiments/")
-    voters = dict(default_voters() if voters is None else voters)
+    owner = owner_config or OwnerConfig.load()
+    prompts = load_all(prompts_dir)
+    epoch = compute_epoch(prompts, owner, journal_epoch=journal_epoch)
+    if voters is None:
+        voters = default_voters()
+        if llm_client is not None:
+            voters.update(_llm_voters(owner, prompts, store, llm_client, llm_ledger, image_bytes, epoch.id,
+                                      config.node_timeout_s))
+    voters = dict(voters)
     if not voters:
         raise ValueError("at least one voter")
     judge = judge if judge is not None else make_judge(config.debate.judge)
@@ -119,7 +136,6 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
         debate_node = make_debate_node(debaters, judge, config.debate, clock)
     names = sorted(voters)
     config_json, config_hash = config.to_json(), config.config_hash()
-    epoch = current_epoch(prompts_dir, owner_config or OwnerConfig.load(), journal_epoch=journal_epoch)
     epoch_json = canonical_json(epoch.inputs)
     _warn_versions(store, epoch)
     stamp = {"epoch_id": epoch.id, "owner_config_sha256": epoch.owner_config_sha256,
@@ -204,6 +220,20 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
     g.add_edge("risk", "store")
     g.add_edge("store", END)
     return g.compile()
+
+
+def _llm_voters(owner, prompts, store, client, ledger, image_bytes, epoch_id, node_timeout_s) -> dict:
+    """The LLM round-1 voters, sharing one ledger and one budget."""
+    from agents.llm import Budget, CallDeps, MemoryLedger, SqliteLedger, make_llm_voters
+
+    if ledger is None:
+        ledger = SqliteLedger(store) if hasattr(store, "con") else MemoryLedger()
+    llm = owner.llm()
+    if not isinstance(llm, ConfigProblem) and (llm.max_retries + 1) * llm.timeout_s > node_timeout_s:
+        log.warning("llm: %d attempts x %.0f s can exceed node_timeout_s %.0f s; the node timeout would abstain "
+                    "first", llm.max_retries + 1, llm.timeout_s, node_timeout_s)
+    deps = CallDeps(client=client, ledger=ledger, budget=Budget(ledger), image_bytes=image_bytes)
+    return make_llm_voters(owner, prompts, deps, epoch_id)
 
 
 def _warn_versions(store: AgentStore, epoch: Epoch) -> None:

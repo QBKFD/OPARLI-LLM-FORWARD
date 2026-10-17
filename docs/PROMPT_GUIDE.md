@@ -317,6 +317,7 @@ The **epoch id** is a hash of, among others (full list:
       - `python -m agents.prompting check [--prompts DIR] [--config agents.toml]`:
         every prompt file (OK with its version, hash and placeholders, or
         the reason it's invalid), every config problem, and the epoch id;
-      - `python -m agents.llm count-tokens` (real token counts for the cost
-        estimate);
+      - `python -m agents.llm count-tokens --db <replay store> --t <UTC time>
+        [--config agents.toml]` (real token counts for the cost estimate; one
+        API call per agent, no generation);
       - a cache-only rerun on development data.

@@ -160,6 +160,7 @@ python -m agents.epoch --config agents.toml --db agents.sqlite
 | `owner_config.py` | the owner's `agents.toml` (`$AGENTS_CONFIG`): per-agent, per-round model/effort/max_tokens, discussion, Meta, LLM, budget. Validated per section; problems are abstain reasons |
 | `prompting/` | load, check and render the owner's prompts (`agents/prompts/`): [prompting/README.md](prompting/README.md) |
 | `epoch.py` | the epoch id over prompts, config and input code, stamped on every run and decision; `python -m agents.epoch` |
+| `llm/` | the LLM client layer: official SDK (lazy), cache, budget, kill switch, a ledger row per attempt, `LLMVoteAgent`: [llm/README.md](llm/README.md) |
 | `snapshot.py`, `resample.py` | v0 |
 | `graph.py`, `trigger.py` | v0 |
 | `voters/visual.py`, `technical.py`, `sentiment.py` | **stubs** (abstain) |

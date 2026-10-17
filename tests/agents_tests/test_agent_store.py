@@ -59,7 +59,7 @@ def test_reopen_does_not_remigrate(tmp_path):
     p = str(tmp_path / "a.sqlite")
     SqliteAgentStore(p).close()
     s = SqliteAgentStore(p)
-    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(MIGRATIONS) == 3
+    assert s.con.execute("SELECT COUNT(*) FROM schema_version").fetchone()[0] == len(MIGRATIONS) == 4
     s.close()
 
 
