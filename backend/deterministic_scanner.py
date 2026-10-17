@@ -20,6 +20,11 @@ Replay:   python backend/deterministic_scanner.py --date 2025-06-16
 Self-test: python backend/deterministic_scanner.py --selftest
 Live:     python backend/deterministic_scanner.py --live | --dry-live
 
+Instrument: INSTRUMENT (datafeed.instrument; default XAUUSD). It sets the live
+stream, the bars' symbol and the trading calendar (_market_open). Replay and the
+selftest are XAUUSD only (the parquet); the ibkr bar source is XAUUSD only.
+TELEGRAM_PREFIX (optional, e.g. [DRYRUN]) starts every Telegram message.
+
 Live bar source: SCANNER_BAR_SOURCE=ibkr (default) | stream.
   ibkr    this process's own IBKR connection (run_live). Unchanged; it is the
           rollback.
@@ -707,11 +712,14 @@ def _isnum(s: str) -> bool:
 
 
 class Telegram:
-    """Thin sendMessage / getUpdates wrapper. Token + chat id from env."""
+    """Thin sendMessage / getUpdates wrapper. Token + chat id from env.
+    TELEGRAM_PREFIX (optional): put in front of every message, with a space,
+    e.g. [DRYRUN] for a dry-run stack sharing the chat."""
     def __init__(self):
         import os
         self.token = os.environ.get("TELEGRAM_BOT_TOKEN")
         self.chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+        self.prefix = os.environ.get("TELEGRAM_PREFIX", "").strip()
         if not self.token or not self.chat_id:
             raise RuntimeError("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in the environment")
         self._base = f"https://api.telegram.org/bot{self.token}"
@@ -725,6 +733,8 @@ class Telegram:
             return json.load(r)
 
     def send(self, text: str):
+        if self.prefix:
+            text = f"{self.prefix} {text}"
         return self._get("sendMessage", {"chat_id": self.chat_id, "text": text})
 
     def poll(self, offset: int):
@@ -798,12 +808,34 @@ def _load_recent_history(symbol: str, days: int, host: str, port: int, client_id
     return df[["open", "high", "low", "close"]].astype(float).sort_index()
 
 
+# Trading calendar of the live instrument (datafeed.instrument.CALENDARS):
+# "xauusd" (the default, below) or "24/7". Set once by configure_instrument()
+# when a live path starts; replay and the selftest never change it.
+CALENDAR = "xauusd"
+
+
+def configure_instrument(env=os.environ):
+    """The live instrument (INSTRUMENT, INSTRUMENT_*; default XAUUSD). Sets
+    CALENDAR. An invalid setting is a startup error."""
+    global CALENDAR
+    from datafeed.instrument import InstrumentError, from_env
+    try:
+        inst = from_env(env)
+    except InstrumentError as e:
+        raise SystemExit(f"instrument: {e}") from None
+    CALENDAR = inst.calendar
+    return inst
+
+
 def _market_open(now) -> bool:
     """Approximate XAUUSD (spot gold) trading window, used only to suppress false
     'no data' heartbeat warnings. Sun 18:00 -> Fri 17:00 New York time, minus the
     daily 17:00-18:00 break. Evaluated in New York time because the break moves in
     UTC with US DST (21-22 UTC in summer, 22-23 UTC in winter). Holidays aren't
-    modelled — a rare spurious warning is acceptable for a safety-net notification."""
+    modelled — a rare spurious warning is acceptable for a safety-net notification.
+    With CALENDAR "24/7" (crypto) it is always open."""
+    if CALENDAR == "24/7":
+        return True
     et = now.tz_convert("America/New_York")
     wd, h = et.weekday(), et.hour       # Mon=0 .. Sun=6
     if wd == 5:                          # Saturday
@@ -850,8 +882,10 @@ def _valid_bar(ts, o, h, l, c) -> bool:
     return _market_open(ts) and all(x == x and x > 0 for x in (o, h, l, c)) and l <= h
 
 
-def run_live(symbol: str = "XAUUSD", dry: bool = False):
-    """Live path: identical scanner code, fed by real IBKR bars.
+def run_live(symbol: str = "XAUUSD", dry: bool = False, instrument=None):
+    """Live path: identical scanner code, fed by real IBKR bars. XAUUSD only:
+    services.tws_connector subscribes CMDTY bars, nothing else (another
+    instrument runs in stream mode, where the datafeed holds the contract).
 
     dry=False: alerts go to Telegram, TAKE/SKIP replies are logged, MISSED swept.
     dry=True : alerts print to the terminal, no Telegram at all — for watching the
@@ -859,6 +893,9 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
     import os
     import threading
     import time as _time
+    if instrument is not None and instrument.name != "XAUUSD":
+        raise SystemExit(f"the ibkr bar source is XAUUSD only, not {instrument.name}: "
+                         f"run it with SCANNER_BAR_SOURCE=stream")
     from services.tws_connector import TWSConnector
 
     host = os.environ.get("IB_HOST", "127.0.0.1")
@@ -1017,6 +1054,8 @@ def _open_minutes(start, end) -> pd.DatetimeIndex:
     if b <= a:                   # date_range(a, a, inclusive="left") would still return [a]
         return pd.DatetimeIndex([], tz="UTC")
     idx = pd.date_range(a, b, freq="1min", inclusive="left")
+    if CALENDAR == "24/7":
+        return idx
     et = idx.tz_convert("America/New_York")
     wd, h = et.weekday, et.hour
     closed = (wd == 5) | ((wd == 6) & (h < 18)) | ((wd == 4) & (h >= 17)) | (h == 17)
@@ -1369,7 +1408,7 @@ def _handle_reply(con, lock, tg, text: str, epoch: int):
         _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
 
 
-def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
+def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ, instrument=None):
     """Live path fed by the datafeed stream. Same journal, Telegram, replies and
     sweeps as run_live; dry=True prints alerts instead of sending them.
 
@@ -1382,6 +1421,9 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     from datafeed.bus import RedisStreamBus
     from datafeed.ingest.xauusd_bars import STREAM
 
+    stream = STREAM                         # default XAUUSD's bars.xauusd.1m
+    if instrument is not None:
+        symbol, stream = instrument.name, instrument.stream
     consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
     group = env.get("SCANNER_STREAM_GROUP", STREAM_GROUP)         # a dry run alongside: its own group
 
@@ -1407,8 +1449,8 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
                      warm_end=warm_end)
     sink.startup(live.warmup_alerts)
 
-    feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), STREAM, consumer, live, sink,
-                      lock=lock, last_bar_ts=warm_end, progress=sink.progress,
+    feed = StreamFeed(RedisStreamBus(url=env.get("REDIS_URL")), stream, consumer, live, sink,
+                      lock=lock, last_bar_ts=warm_end, progress=sink.progress, symbol=symbol,
                       on_history=sink.missed_history, group=group,
                       staleness=StreamStaleness(notify, started=now))
     fatal: list[BaseException] = []
@@ -1424,7 +1466,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     active = sum(1 for L in build_levels(live.hist)
                  if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
     mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
-    print(f"{mode}: scanning {symbol} from stream {STREAM} (group {group}, consumer "
+    print(f"{mode}: scanning {symbol} from stream {stream} (group {group}, consumer "
           f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
 
     offset = 0
@@ -1665,14 +1707,18 @@ def main():
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
 
+    if args.live or args.dry_live:
+        source = bar_source()
+        inst = configure_instrument()
+        if source == "stream":
+            run_live_stream(dry=args.dry_live, instrument=inst)
+        else:
+            run_live(dry=args.dry_live, instrument=inst)
+        return
+    if os.environ.get("INSTRUMENT", "XAUUSD") not in ("", "XAUUSD"):
+        ap.error("replay and --selftest use the XAUUSD parquet only; unset INSTRUMENT")
     if args.selftest:
         raise SystemExit(0 if selftest() else 1)
-    if args.live or args.dry_live:
-        if bar_source() == "stream":
-            run_live_stream(dry=args.dry_live)
-        else:
-            run_live(dry=args.dry_live)
-        return
     if not args.date:
         ap.error("give --date YYYY-MM-DD, --live, --dry-live, or --selftest")
 

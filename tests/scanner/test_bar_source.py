@@ -28,8 +28,8 @@ def test_switch_rejects_anything_else(bad):
 @pytest.mark.parametrize("flag", ["--live", "--dry-live"])
 def test_main_dispatches_on_the_switch(monkeypatch, env, want, flag):
     called = []
-    monkeypatch.setattr(ds, "run_live", lambda dry=False: called.append(("run_live", dry)))
-    monkeypatch.setattr(ds, "run_live_stream", lambda dry=False: called.append(("run_live_stream", dry)))
+    monkeypatch.setattr(ds, "run_live", lambda dry=False, **kw: called.append(("run_live", dry)))
+    monkeypatch.setattr(ds, "run_live_stream", lambda dry=False, **kw: called.append(("run_live_stream", dry)))
     monkeypatch.delenv("SCANNER_BAR_SOURCE", raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
