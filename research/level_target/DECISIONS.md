@@ -20,3 +20,10 @@ choices; nothing has been run.
 | T11 | **σ for dev and holdout is a HAR fit on 2007–2020 only**, pinned before dev. The forward test uses the production pin. | Both shipped models were fitted on data that includes the holdout years. | Use `parquet2021_2023` throughout (σ in sample on the holdout). |
 | T12 | **The 2026-02..09 gap is left unused** until the owner decides (§12 Q1). | Unseen data stays unseen. | Use it as a second holdout. |
 | T13 | **Jobs 3 and 4 share this branch,** as the task said ("push to the same branch as job 3"), with one PR. This overrides the general one-branch-per-job rule. | The explicit instruction for these two jobs is followed; both are docs. | Two branches. |
+
+**Owner decisions, 2026-10-17 (later):**
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| T14 | **Stop rule (owner):** if the historical net edge on 2007–2020 is below 0.10 R or not significant, the idea is dropped: no holdout, no forward test. **Reading:** "net edge" is the chosen variant's mean net R per trade at the central cost (the primary metric). "Significant" is the one-sided day-block bootstrap test of mean net R > 0 at **α = 0.05 / 16**, Bonferroni over the 16 variants, because the variant was chosen out of them on the same data. | The stricter reading makes it harder to carry a selection artefact into the holdout. | Unadjusted α = 0.05; or "edge" = Δ against the placebos. |
+| T15 | **The $1 TOL is kept** for this study; a σ-relative touch is an open item for a later scanner epoch (SPEC §12 Q4). | The forward test keeps the production scanner's alerts. | Change the scanner now. |

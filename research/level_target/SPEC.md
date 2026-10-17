@@ -8,7 +8,7 @@
   1. development (2007–2020);
   2. the one-look holdout (2021–2023);
   3. the sealed forward test.
-- Choices made without the owner are in [DECISIONS.md](DECISIONS.md) (T1–T13).
+- Choices made without the owner are in [DECISIONS.md](DECISIONS.md) (T1–T15).
   Open questions are in §12.
 
 ## 1. Question
@@ -198,6 +198,10 @@ net R = gross R − (spread + commission + financing) / |entry − stop|
   σ distances). So it is a holdout for the rule, not for the data.
 - A pass on the holdout justifies the forward test; it isn't evidence by
   itself.
+- The agents v1 Technical agent will also run once over 2021–2023, as a
+  sanity check (agents v1 PREREG §10, owner decision 2026-10-17). It is a
+  different rule, but it looks at the same years, which is one more reason
+  not to treat them as pristine.
 
 ### 7.3 σ model per phase
 
@@ -314,6 +318,18 @@ results. This is the rule `research/levels_diag` followed.
 4. If none survives step 2, the study **stops at development** with "no
    candidate", and the holdout stays unread.
 
+**Stop rule (owner decision 2026-10-17).** The idea is **dropped**, with no
+holdout look and no forward test, if the chosen variant's **historical net
+edge** on 2007–2020 is either:
+- **below 0.10 R:** mean net R per trade at the central cost < 0.10 R; or
+- **not significant:** the one-sided day-block bootstrap test of mean net R
+  > 0 doesn't reject at **α = 0.05 / 16 ≈ 0.0031**. Bonferroni is applied
+  over the 16 variants because the variant was selected out of them on the
+  same data (DECISIONS T14).
+
+This rule runs after the selection rule, on the variant it chose. It is a
+necessary condition, not evidence: passing it only opens the holdout.
+
 **Holdout test (one look, the chosen variant only).** Supported only if
 **both** of these hold, one-sided at α = 0.05 each (an intersection–union
 test, so no further correction):
@@ -373,9 +389,10 @@ of the study.
 2. **The level families in the grid.** Is "PDH/PDL/PWH/PWL only" the right
    second family, or should session levels be the alternative?
 3. **The reference order size** for the commission minimum (e.g. 10 oz).
-4. **Whether to keep the scanner's fixed $1 TOL** (as here, because the
-   forward test uses the production scanner) or study a σ-relative touch.
-   The latter would need a scanner change and a new journal epoch.
+4. **The scanner's fixed $1 TOL is kept** for this study (owner decision
+   2026-10-17), because the forward test uses the production scanner. A
+   σ-relative touch stays an **open item for a later scanner epoch**. It
+   would need a scanner change, a new journal epoch, and a new study.
 5. **The provisional costs** (1.0 bp spread + 0.5 bp commission round trip),
    until the 2-week capture exists.
 6. **The forward δ:** 0.15 R as in agents v1, or larger, given the duration

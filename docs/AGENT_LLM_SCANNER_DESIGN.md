@@ -6,7 +6,10 @@ built, nothing calls an LLM, and no PREREG exists yet.**
   `agents/experiments/<id>/` before the first evidence decision, like agents
   v1.
 - Choices made without the owner are in the root `DECISIONS.md`, section
-  `research/level-target-spec` (L1–L13). Open questions are in §14.
+  `research/level-target-spec` (L1–L13). The owner's answers of 2026-10-17
+  are in §14 (L14).
+- The multi-agent flow agreed later that day (`docs/AGENTS_ARCHITECTURE.md`,
+  PR #17) reuses this document's frozen-model, cache and epoch rules.
 
 ## 1. Purpose
 
@@ -69,7 +72,7 @@ it (the existing `agents.snapshot` rules).
 | Charts | three PNGs rendered **from the snapshot's bars only**: 15m over 2 days, 1h over 5 days, 4h over 20 days. Each has the scanner levels active at t drawn as lines, the touched level highlighted, and no indicators. Fixed size (1000 × 600 px) and style; `plt.close` after each | a port of legacy `_render_chart` (PORT_CANDIDATES: render only, from the snapshot, levels as of t) |
 | Levels | every level instance active at t, with id, type, value, `active_from` and touched-or-not, plus `trigger_levels` | the shared level library (`LevelSource`, agents v1 design §2) |
 | σ and vol state | `sigma_px_60`, `sigma_px_240`, `crosses_close_*`, L, S_hd, T, the L tercile | `vol_block` with the pinned HAR model (`parquet2021_2023`, SHA-256 checked) |
-| Calendar | events in [t − 6 h, t + 24 h]: UTC time, currency, tier (from the ported `news_events` tiers), name from an allowlist, and actual / forecast / previous **only if released before t** | a point-in-time calendar store: each scrape stored with its fetch time, read with `known_by = t`. **Not built yet** (§13) |
+| Calendar | events in [t − 6 h, t + 24 h]: UTC time, currency, tier (from the ported `news_events` tiers), name from an allowlist, and actual / forecast / previous **only if released before t** | a point-in-time calendar store: each scrape stored with its fetch time, read with `known_by = t`. **Not built yet.** It is built first (§13); if it isn't ready within 2 weeks, the agent launches without it (§14) |
 | Provenance | snapshot schema version, renderer version and source hash, model and prompt hashes (§8) | the runner |
 
 - **Hashing:** the snapshot hash covers the canonical JSON and the SHA-256 of
@@ -82,11 +85,13 @@ it (the existing `agents.snapshot` rules).
     news text.
   - The comparison is "this agent with this snapshot" against "the owner as
     they trade".
+- **Never in the snapshot:** the agents v1 Technical agent's vote, or any
+  other agent's (owner decision 2026-10-17). The arms stay independent.
 
 ## 4. The call
 
-- **Model:** pinned by exact id. The proposal is **`claude-opus-5-5`**, with
-  no alias and no date suffix. A response whose `model` field differs from
+- **Model:** pinned by exact id: **`claude-opus-5-5`**, effort `medium`
+  (owner decision 2026-10-17), with no alias and no date suffix. A response whose `model` field differs from
   the pin is an error (abstain).
 - **Request**, all pinned and hashed:
   - `system`: the frozen prompt file;
@@ -265,8 +270,8 @@ of 2026-10-06:
   ≈ $5/day on Opus. Past it, the agent abstains with reason `budget`.
 - **Prompt caching** isn't worth it here: one call every hour or more,
   while a cache entry lives 5 minutes (or 1 hour at 2× the write price).
-- **The model choice** is the owner's (§14). This design assumes Opus 5.5,
-  the current default.
+- **The model is Opus 5.5 at effort `medium`** (owner decision, §14), so
+  the Opus row applies.
 
 ## 11. Failure handling
 
@@ -333,20 +338,23 @@ none crashes the runner.
    evidence.
 9. **PREREG, freeze, epoch 1.**
 
-## 14. Open questions for the owner
+## 14. Owner decisions (2026-10-17)
 
-1. **The model:** Opus 5.5 (≈ $100–175/yr) or Sonnet 5.5 (≈ $50–90/yr).
-   Effort `medium` or `low`.
-2. **Blinding:** should the owner never see the agent's decisions during an
-   epoch (this design), or see them after replying? The latter is a
-   different experiment ("does the agent's view change the owner's
-   decision?").
-3. **The deadline and the common entry** (5 minutes): shorter would favour
-   the agent's speed, longer would give it more bars.
-4. **The calendar:** is the scraper reliable enough to run live, or should
-   v1 of this agent go without a calendar (one less moving part, and a
-   weaker snapshot)?
-5. **The primary outcome:** selection value with the neutral bracket (this
-   design), or with each arm's own SL/TP?
-6. **Should the agent also see the agents v1 Technical agent's vote?** This
-   design says no: the arms stay independent.
+1. **Model:** `claude-opus-5-5`, effort `medium` (≈ $100–175 a year, §10).
+2. **Blinding as designed:** the owner never sees the agent's decisions
+   during an epoch (§6).
+3. **Deadline:** 5 minutes, and the common entry at alert + 5 min (§2).
+4. **Calendar:** the point-in-time calendar store is built **first** (§13
+   step 1).
+   - If it isn't ready **within 2 weeks** of the start of the build, the
+     agent launches without it: `events = []`, flagged in every snapshot of
+     that epoch.
+   - Adding the calendar later changes the snapshot, so it is a new epoch
+     (§8).
+5. **Primary outcome:** selection value with the **neutral bracket** (§7).
+   Each arm's own SL/TP is reported only.
+6. **The Technical vote is not visible to other agents.** No agent sees the
+   agents v1 Technical agent's vote (§3).
+
+Nothing in §14 is open any more. The cost figures in §10 are still
+estimates until `count_tokens` runs on the real prompt.
