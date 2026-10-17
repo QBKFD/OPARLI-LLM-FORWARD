@@ -140,15 +140,21 @@ exists.
     `bars:<tf>:<start>..<end>`, `feature:<name>`).
   - Every ref must resolve with `agents.debate.evidence.check_ref`. An
     unresolved ref → abstain with the reason; there's no silent drop.
-- **SL/TP rule (deterministic, long; short is mirrored):**
+- **SL/TP rule (deterministic, long; short is mirrored).** Moved to the
+  H = 240 horizon by the owner on 2026-10-17, before any code or result
+  existed (PREREG §12, DECISIONS A11). σ below is σ₂₄₀ = `features.sigma_px_240`.
   - **SL.** Below the nearest support among:
     - the touched level, if it is below `ref_price`;
-    - the lowest low of the last complete 15m swing (the 20-bar window).
-    The stop goes that support − 0.1σ below it.
-  - **TP.** At the nearest resistance above: the next scanner level above, or
-    the 1h 20-bar high of complete candles, whichever is closer.
-  - **Clipping.** Each distance is clipped to [0.5σ, 3σ]. Clipped sides are
-    flagged, and the refs keep the structural source.
+    - the low of the last complete **1h** swing: the lowest low of the last
+      20 complete 1h candles. This is the same 20-bar window definition as
+      before, moved from 15m to 1h.
+
+    The stop goes 0.1σ₂₄₀ below that support.
+  - **TP.** At the nearest resistance above, whichever of these is closer:
+    - the next scanner level above;
+    - the **4h** 20-bar high of complete candles (moved from 1h to 4h).
+  - **Clipping.** Each distance is clipped to [0.5σ₂₄₀, 3σ₂₄₀]. Clipped
+    sides are flagged, and the refs keep the structural source.
   - **No structure.** If no structural level exists on a side → **abstain**
     with reason `no_structure_sl` / `no_structure_tp`, **counted** separately
     from other abstentions (owner decision: a clip-bound fallback would blur
@@ -267,11 +273,18 @@ CI's pytest and ruff (`agents` is linted).
    dev run; cap 12 months; SL/TP re-anchored at entry; σ = HAR parquet fit,
    pinned by SHA.
 8. **Development:** a full 2007–2023 backtest for the deterministic agent;
-   masking only for future LLM agents. *(Cut to 2007–2020 on 2026-10-17,
-   pending the owner's confirmation: PREREG §10.)*
+   masking only for future LLM agents. *(Cut to 2007–2020 on 2026-10-17 and
+   confirmed by the owner the same day; 2021–2023 is a sanity check, PREREG
+   §10.)*
 9. **LLM:** none in v1.
 
 **2026-10-17:** the primary horizon is H = 240 minutes, H = 60 secondary;
-swing horizons are v2 (PREREG §13). The SL/TP structure rule in §3 still uses
-15m/1h structure written for 60 minutes; whether it should move to 1h/4h is
-open (PREREG §12).
+swing horizons are v2 (PREREG §13).
+
+**2026-10-17, later (owner):**
+- The dev period 2007–2020 is confirmed; 2021–2023 is a sanity check
+  (PREREG §10).
+- The SL/TP structure moves to the 240-minute horizon: the 1h swing low or
+  the touched level − 0.1σ₂₄₀ for the stop; the next scanner level or the 4h
+  20-bar high for the target; clipped with σ₂₄₀ (§3). This was decided
+  before any code or result existed.

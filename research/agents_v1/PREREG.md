@@ -15,6 +15,13 @@
 >   exclusions are recomputed on 2007–2020 (§2), the dev backtest is cut to
 >   2007–2020 (§10), and §13 sets the v2 scope. Unattended choices are in
 >   `research/agents_v1/DECISIONS.md`.
+> - **Owner decisions, 2026-10-17 (later):**
+>   - the dev period 2007–2020 is confirmed, and 2021–2023 is a sanity check
+>     (§10);
+>   - the SL/TP structure moves to the 240-minute horizon (§3, design doc
+>     §3).
+>
+>   Both were decided before any agent code or result existed.
 
 ## 1. Questions
 
@@ -93,6 +100,11 @@ days) are v2 (§13).
   - SL and TP as distances from the reference price, each clipped to
     [0.5σ, 3σ] with σ = HAR `sigma_px` for H = 240 at t (the raw, unclipped
     distances are stored too; §6a uses them);
+  - the structure behind them (design doc §3, owner decision 2026-10-17):
+    - the stop goes 0.1σ₂₄₀ beyond the nearer of the touched level and the
+      last complete 1h swing (the 20-bar low or high);
+    - the target is the nearer of the next scanner level and the 4h 20-bar
+      high or low of complete candles;
   - evidence refs.
 - **Abstain is allowed.** The abstention rate is reported, overall and by
   level type.
@@ -282,13 +294,21 @@ fewer timeouts, and σ_d may differ; the dev run replaces it.
   - Replay of sealed data is refused by the code (`SealedError`), so no sealed
     period can be scored after the fact.
 - **Development uses a historical backtest, 2007–2020** (amended
-  2026-10-17).
+  2026-10-17, **confirmed by the owner** the same day).
   - It is dev only and is never evidence.
   - **Why not 2007–2023, as decided on 2026-10-15:** the data rules of
-    2026-10-17 make the parquet 2021–2023 a holdout with one look, for
-    pre-registered studies (`research/level_target/SPEC.md`). Running the agent
-    over it would spend that look. The conservative reading keeps it unused;
-    the owner can widen the dev period back (`DECISIONS.md` A2).
+    2026-10-17 keep the parquet 2021–2023 out of development
+    (`DECISIONS.md` A2, A10).
+- **2021–2023 is a sanity check** (owner decision 2026-10-17), run once on
+  the parquet:
+  - **When:** after the agent and the dev outputs (σ_d, DE, the rates) are
+    frozen, and before the final PREREG commit.
+  - **What is reported:** next to the dev values, the eligible trades per
+    day, the abstention rate by reason, σ_d and DE.
+  - **What it can't do:** change the agent, N, the cap or any rule. It is
+    never evidence.
+  - **If it shows a bug** (not a weak result): the fix is a dated amendment,
+    the dev run is redone, and both runs are reported.
   - The deterministic agent runs unmasked: masking applies only to future LLM
     agents.
   - The data is `XAUUSD.txt` 2007–2020.
@@ -351,14 +371,17 @@ fewer timeouts, and σ_d may differ; the dev run replaces it.
 - the `experiment_id`;
 - the freeze commit.
 
-**For the owner (raised 2026-10-17):**
-- **Dev period:** 2007–2020 (this draft) or 2007–2023 (the 2026-10-15
-  answer). See §10.
-- **SL/TP structure at 240 minutes.** The design's SL/TP rule (15m swing low,
-  1h 20-bar high; design doc §3) was written for a 60-minute trade, and only
-  its clip range moves to σ₂₄₀. Whether the structure should come from 1h/4h
-  candles instead is an agent-design question to settle before the freeze.
-- **The 60 % taken rate** in §8 is still a guess; the dev run replaces it.
+**Decided 2026-10-17, later (owner), before any code or result:**
+- **Dev period 2007–2020** is confirmed. 2021–2023 is a sanity check, run
+  once (§10).
+- **SL/TP structure at 240 minutes:**
+  - the stop goes 0.1σ₂₄₀ beyond the nearer of the touched level and the
+    last complete 1h swing;
+  - the target is the nearer of the next scanner level and the 4h 20-bar
+    extreme of complete candles;
+  - both are clipped to [0.5σ₂₄₀, 3σ₂₄₀] (§3, design doc §3).
+
+**Still a guess:** the 60 % taken rate in §8; the dev run replaces it.
 
 ## 13. v2 scope (not part of this experiment)
 
