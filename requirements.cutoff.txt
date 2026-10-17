@@ -12,6 +12,7 @@ langgraph-checkpoint<=4.2.0  # 2026-08-07
 langgraph-sdk<=0.4.5         # 2026-09-21
 langsmith<=0.14.1            # 2026-09-25
 orjson<=3.12.0               # 2026-08-14
+platformdirs<=4.12.2         # 2026-09-29 (added 2026-10-17 with textual; 4.13.3 is 2026-10-16)
 pytz<=2026.4                 # 2026-09-24
 tenacity<=9.1.4              # 2026-02-07
 truststore<=0.10.4           # 2025-08-12

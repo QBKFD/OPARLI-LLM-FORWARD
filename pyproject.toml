@@ -31,6 +31,9 @@ agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
 # plus pyarrow for pandas' parquet I/O. Pinned to the old backend venv
 # (algo_project/backend/venv, Python 3.13.1), where the research baseline of
 # 80 passed was run.
+# tools/status: the Textual TUI (python -m tools.status). --once and the
+# health.json writer are stdlib only and need no extra.
+status = ["textual==8.2.8"]
 research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1", "matplotlib==3.10.8",
             "numba==0.61.2", "pytest==9.1.1"]
 
@@ -46,11 +49,11 @@ datafeed = ["features/models/*.json"]
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed,
 # tests/agents_tests, tests/risk_tests, tests/scoring_tests, tests/scanner and
-# tests/deploy only. legacy/ is never collected: it is listed in norecursedirs
+# tests/deploy and tests/status_tests only. legacy/ is never collected: it is listed in norecursedirs
 # (with pytest's own defaults), so it is skipped even when a parent directory is
 # collected.
 testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests",
-             "tests/scoring_tests", "tests/scanner", "tests/deploy"]
+             "tests/scoring_tests", "tests/scanner", "tests/deploy", "tests/status_tests"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).
