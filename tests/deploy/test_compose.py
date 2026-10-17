@@ -236,3 +236,25 @@ def test_memory_limits_fit_a_3_8_gb_host():
     assert 3.8 * 1024 - sum(limits.values()) >= 800              # room for the OS and Docker
     redis_max = int(S["redis"]["command"][S["redis"]["command"].index("--maxmemory") + 1].rstrip("mb"))
     assert limits["redis"] >= redis_max * 1.4                    # AOF-rewrite fork headroom
+
+
+def test_entrypoint_alert_carries_the_telegram_prefix(tmp_path):
+    r, calls = _entrypoint(tmp_path, 1, SCANNER_BAR_SOURCE="stream", REDIS_URL="redis://x", REDIS_WAIT_TRIES="1",
+                           TELEGRAM_PREFIX="[DRYRUN]")
+    assert any(c.startswith("ALERT_TEXT=[DRYRUN] ⚠️ scanner: Redis not reachable") for c in calls)
+
+
+def test_export_parquet_symbol_follows_the_instrument(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("export_parquet_t", DEPLOY / "export_parquet.py")
+    ep = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ep)
+    seen = []
+    monkeypatch.setattr(ep, "export_day", lambda con, day, out, symbol: seen.append(symbol))
+    monkeypatch.setattr(ep.os.path, "isfile", lambda p: True)
+    monkeypatch.setattr(ep.sqlite3, "connect", lambda *a, **k: type("C", (), {"close": lambda s: None})())
+    monkeypatch.delenv("INSTRUMENT", raising=False)
+    ep.main(["s", "o", "--last-days", "1"])
+    monkeypatch.setenv("INSTRUMENT", "BTCUSD")
+    ep.main(["s", "o", "--last-days", "1"])
+    assert seen == ["XAUUSD", "BTCUSD"]

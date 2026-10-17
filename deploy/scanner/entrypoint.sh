@@ -6,7 +6,8 @@
 # scanner itself waits for the datafeed store (wait_for_store). If Redis doesn't
 # answer within REDIS_WAIT_TRIES x 5 s (default 10 min): one Telegram alert (at
 # most hourly, via a marker file on the /data volume) and exit 1. Docker's
-# restart policy then tries again.
+# restart policy then tries again. TELEGRAM_PREFIX (e.g. [DRYRUN]) starts the
+# alert, as it does every scanner message.
 #
 # Otherwise (ibkr, the default): wait for IB Gateway's API to complete a
 # handshake. The gateway container takes ~1-2 min to launch + log in; without
@@ -42,7 +43,7 @@ if [ "${SCANNER_BAR_SOURCE:-ibkr}" = "stream" ]; then
     fi
     sleep 5
   done
-  ALERT_TEXT="⚠️ scanner: Redis not reachable for $((tries * 5 / 60)) min — stream mode cannot start (the scanner retries). Check: docker compose ps redis. To fall back, set SCANNER_BAR_SOURCE=ibkr."
+  ALERT_TEXT="${TELEGRAM_PREFIX:+$TELEGRAM_PREFIX }⚠️ scanner: Redis not reachable for $((tries * 5 / 60)) min — stream mode cannot start (the scanner retries). Check: docker compose ps redis. To fall back, set SCANNER_BAR_SOURCE=ibkr."
   export ALERT_TEXT
   echo "entrypoint: Redis not reachable after $((tries * 5)) s; alerting and exiting 1" >&2
   python -c "$ALERT_PY" || echo "entrypoint: telegram alert failed" >&2

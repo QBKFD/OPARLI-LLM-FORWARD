@@ -68,6 +68,8 @@ def main(argv=None) -> int:
     ap.add_argument("outdir")
     ap.add_argument("--last-days", type=int, default=7)
     ap.add_argument("--today", help="UTC date to count back from (default: today)")
+    ap.add_argument("--symbol", default=os.environ.get("INSTRUMENT") or "XAUUSD",
+                    help="bars' symbol (default: $INSTRUMENT, else XAUUSD)")
     a = ap.parse_args(argv)
     if not os.path.isfile(a.store):
         print(f"export_parquet: {a.store}: no such file", file=sys.stderr)
@@ -76,7 +78,7 @@ def main(argv=None) -> int:
     con = sqlite3.connect(f"file:{a.store}?mode=ro", uri=True)
     try:
         for i in range(a.last_days, 0, -1):
-            done = export_day(con, today - timedelta(days=i), a.outdir)
+            done = export_day(con, today - timedelta(days=i), a.outdir, a.symbol)
             if done:
                 print(f"{done[0]} {done[1]}")
     finally:

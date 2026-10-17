@@ -1,0 +1,129 @@
+# Dry-run stack: BTC (24/7) through the whole stream path — feed -> Redis ->
+# recorder -> scanner (stream mode) -> journal + Telegram — next to production,
+# while gold is closed. Its own project, Redis, SQLite files, image tag and
+# Telegram bot; production is never stopped or changed. Commands: README.md.
+#
+# Safety, by construction:
+#   - NO ibgateway service here: starting a second gateway would log in a
+#     second session and drop production's. The feed reuses production's
+#     gateway, read-only, with its own client id (default 44), over
+#     production's network, which only the feed joins.
+#   - Everything in the dry run reaches its Redis as `dryrun-redis` (a network
+#     alias on the dry run's own network), never `redis`, so no name can
+#     resolve to a production container.
+#   - Own image tag (oparli-scanner:dryrun): building it doesn't replace
+#     production's image.
+#   - TELEGRAM_PREFIX [DRYRUN] on every message, and a SEPARATE bot
+#     (check_env.sh refuses production's token: two getUpdates pollers on one
+#     bot would take production's TAKE/SKIP replies).
+#
+# Memory limits: 96 + 192 + 128 + 320 = 736 MB, next to production. Check
+# `docker stats --no-stream` after an hour; README.md has the numbers to watch.
+name: dryrun
+
+x-app: &app
+  build:
+    context: ../..
+    dockerfile: deploy/scanner/Dockerfile
+  image: oparli-scanner:dryrun
+  networks: [dryrunnet]
+
+services:
+  redis:
+    image: redis:7.4.2-alpine
+    restart: unless-stopped
+    mem_limit: 96m                    # maxmemory 48mb + fork headroom; a dry run keeps ~1 week of bars
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "48mb", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      dryrunnet:
+        aliases: [dryrun-redis]
+
+  feed:
+    <<: *app
+    restart: unless-stopped           # crash-only, as in production
+    mem_limit: 192m
+    entrypoint: ["python", "-m", "datafeed.ingest"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      DATAFEED_SOURCE: ibkr
+      INSTRUMENT: ${INSTRUMENT:-BTCUSD}
+      INSTRUMENT_WHAT_TO_SHOW: ${INSTRUMENT_WHAT_TO_SHOW:-}   # empty: the preset's (set it from step 1)
+      REDIS_URL: redis://dryrun-redis:6379/0
+      IB_HOST: ibgateway              # production's gateway, reached over its network
+      IB_PORT: ${IB_PORT:-4004}       # the paper relay
+      IB_CLIENT_ID: ${DRYRUN_FEED_IB_CLIENT_ID:-44}   # taken: 11/21 scanner, 31 feed, 41/43 checks, 996, 999
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, redis; from datafeed.instrument import from_env; sys.exit(0 if redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=5).xlen(from_env().stream) else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 120s
+    networks: [dryrunnet, prod]
+
+  recorder:
+    <<: *app
+    restart: unless-stopped
+    mem_limit: 128m
+    entrypoint: ["python", "-m", "datafeed.recorder"]
+    depends_on:
+      feed:
+        condition: service_healthy
+    environment:
+      INSTRUMENT: ${INSTRUMENT:-BTCUSD}
+      REDIS_URL: redis://dryrun-redis:6379/0
+      DATAFEED_DB: /datafeed/datafeed.sqlite
+      DATAFEED_RECORDER_CONSUMER: recorder-1
+    volumes:
+      - datafeed_store:/datafeed
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sqlite3, sys; c = sqlite3.connect('file:/datafeed/datafeed.sqlite?mode=ro', uri=True); sys.exit(0 if c.execute('SELECT COUNT(*) FROM bars').fetchone()[0] else 1)"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 30s
+
+  scanner:
+    <<: *app
+    restart: unless-stopped
+    mem_limit: 320m                   # production's peak was ~194 MB on gold; BTC has a bar every minute
+    environment:
+      SCANNER_BAR_SOURCE: stream      # never connects to IBKR
+      INSTRUMENT: ${INSTRUMENT:-BTCUSD}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}    # the DRY-RUN bot, from this directory's .env
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      TELEGRAM_PREFIX: "[DRYRUN]"
+      SCANNER_DB: /data/scanner_decisions.sqlite   # its own journal (volume dryrun_scanner_data)
+      SCANNER_HEARTBEAT: /data/heartbeat
+      REDIS_URL: redis://dryrun-redis:6379/0
+      DATAFEED_DB: /datafeed/datafeed.sqlite
+      SCANNER_STREAM_CONSUMER: scanner-1
+    volumes:
+      - scanner_data:/data
+      - datafeed_store:/datafeed
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(0 if time.time() - os.path.getmtime('/data/heartbeat') < 300 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+
+networks:
+  dryrunnet:
+  prod:
+    external: true
+    name: ${PROD_NETWORK:-scanner_scannernet}      # production's network (project "scanner")
+
+volumes:
+  scanner_data:
+  datafeed_store:
+  redis_data:
