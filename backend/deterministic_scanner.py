@@ -34,6 +34,7 @@ import os
 import sqlite3
 from collections import defaultdict
 from pathlib import Path
+from typing import NamedTuple
 
 import pandas as pd
 
@@ -50,6 +51,8 @@ TOL = 1.00                       # touch tolerance ($)
 WINDOW_MIN = 15                  # collapse alerts within the same 15-min bucket
 CF_HORIZONS = {"1h": 60, "4h": 240}   # counterfactual MFE/MAE horizons (minutes)
 MISSED_AFTER_H = 4               # auto-assign MISSED to alerts unanswered this long
+OUTCOME_MAX_HOLD_MIN = 240       # a TAKE is scored over at most this many minutes (PREREG H = 240)
+OUTCOME_SETTLE_MIN = 5           # a timeout is final this long after the holding period ends
 RECONNECT_BACKOFF_S = 20         # wait before exiting on a dropped gateway, so the
                                  # container doesn't hammer-restart while the gateway
                                  # is down for minutes (weekly 2FA window)
@@ -439,8 +442,8 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
 # the bars, so two epochs can reuse an id on a switch day: every child row
 # (decision, outcome, counterfactual) carries the epoch of its alert, and joins
 # use (alert_id, epoch).
-JOURNAL_VERSION = 3              # PRAGMA user_version: 1 epoch columns, 2 source_switches,
-                                 # 3 alert status + scanner_state
+JOURNAL_VERSION = 4              # PRAGMA user_version: 1 epoch columns, 2 source_switches,
+                                 # 3 alert status + scanner_state, 4 Telegram update ids + outcome detail
 ALERT_STATUSES = ("sent", "missed_while_down", "missed_history")
 PRE_MIGRATION_EPOCH = 1          # rows written before the epoch columns existed
 
@@ -475,6 +478,12 @@ def _migrate_journal(con) -> None:
       3  alerts.status ('sent' for every existing row; 'missed_while_down' and
          'missed_history', see AlertSink) and scanner_state(key, value, updated_ts_utc), which holds
          last_live_bar_ts, the newest bar any live scanner processed.
+      4  decisions.telegram_update_id (UNIQUE when set: a redelivered Telegram
+         update can't be logged twice) and decisions.received_ts_utc (when the
+         scanner processed it; decision_ts_utc is the message's own date).
+         outcomes gains the scoring detail (decision_rowid, UNIQUE when set, so
+         a TAKE is scored once; entry, reason, MAE/MFE in R, bars used, gap).
+         Existing rows keep NULL in every new column.
     Code from before step 1 can't write to a migrated journal (its INSERTs are
     positional), so roll back by switching SCANNER_BAR_SOURCE, not by an older
     image."""
@@ -507,6 +516,27 @@ def _migrate_journal(con) -> None:
           CREATE TABLE IF NOT EXISTS scanner_state(key TEXT PRIMARY KEY, value TEXT NOT NULL,
                                                    updated_ts_utc TEXT NOT NULL);
           PRAGMA user_version = 3;
+          COMMIT;""")
+    if version < 4:
+        con.executescript("""BEGIN;
+          ALTER TABLE decisions ADD COLUMN telegram_update_id INTEGER;
+          ALTER TABLE decisions ADD COLUMN received_ts_utc TEXT;
+          CREATE UNIQUE INDEX decisions_telegram_update ON decisions(telegram_update_id)
+            WHERE telegram_update_id IS NOT NULL;
+          ALTER TABLE outcomes ADD COLUMN decision_rowid INTEGER;
+          ALTER TABLE outcomes ADD COLUMN entry_ts_utc TEXT;
+          ALTER TABLE outcomes ADD COLUMN entry_price REAL;
+          ALTER TABLE outcomes ADD COLUMN entry_source TEXT;
+          ALTER TABLE outcomes ADD COLUMN entry_ref_close REAL;
+          ALTER TABLE outcomes ADD COLUMN max_hold_min INTEGER;
+          ALTER TABLE outcomes ADD COLUMN reason TEXT;
+          ALTER TABLE outcomes ADD COLUMN mae_r REAL;
+          ALTER TABLE outcomes ADD COLUMN mfe_r REAL;
+          ALTER TABLE outcomes ADD COLUMN bars_used INTEGER;
+          ALTER TABLE outcomes ADD COLUMN gap INTEGER;
+          CREATE UNIQUE INDEX outcomes_decision ON outcomes(decision_rowid)
+            WHERE decision_rowid IS NOT NULL;
+          PRAGMA user_version = 4;
           COMMIT;""")
 
 
@@ -581,19 +611,32 @@ def _alert_epoch(con, alert_id, alert_ts=None) -> int:
 
 def record_decision(con, alert_id, decision, decision_ts, alert_ts, direction=None,
                     entry=None, stop=None, target=None, reasoning="", source="telegram",
-                    epoch: int | None = None):
+                    epoch: int | None = None, update_id: int | None = None,
+                    received_ts=None) -> bool:
     """Append a decision. reasoning_ts == decision_ts, which is the proof that the
     reasoning was recorded at decision time, not reconstructed with hindsight.
-    epoch: the decided alert's epoch; None looks it up from (alert_id, alert_ts)."""
+    For a Telegram reply, decision_ts is the message's own date (not when the
+    scanner processed it, which is received_ts) and update_id is Telegram's
+    update id: the journal holds each update id at most once.
+    epoch: the decided alert's epoch; None looks it up from (alert_id, alert_ts).
+    Returns False, writing nothing, if update_id is already in the journal."""
     if epoch is None:
         epoch = _alert_epoch(con, alert_id, alert_ts)
     mins = (_utc(decision_ts) - _utc(alert_ts)).total_seconds() / 60
-    con.execute("INSERT INTO decisions (alert_id, decision, decision_ts_utc, minutes_from_alert, "
-                "direction, entry, stop, target, reasoning, reasoning_ts_utc, source, epoch) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                (alert_id, decision, str(decision_ts), round(mins, 2), direction,
-                 entry, stop, target, reasoning, str(decision_ts), source, epoch))
+    try:
+        con.execute("INSERT INTO decisions (alert_id, decision, decision_ts_utc, minutes_from_alert, "
+                    "direction, entry, stop, target, reasoning, reasoning_ts_utc, source, epoch, "
+                    "telegram_update_id, received_ts_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (alert_id, decision, str(decision_ts), round(mins, 2), direction,
+                     entry, stop, target, reasoning, str(decision_ts), source, epoch, update_id,
+                     None if received_ts is None else str(_utc(received_ts))))
+    except sqlite3.IntegrityError:
+        # only the failed statement is undone; nothing else on the connection
+        if update_id is None:
+            raise
+        return False
     con.commit()
+    return True
 
 
 def record_outcome(con, alert_id, exit_price, r_multiple, exit_type, epoch: int | None = None):
@@ -652,6 +695,131 @@ def sweep_counterfactuals(con, df, now_utc) -> int:
         cf = counterfactual(df, alert_ts, price)
         insert_counterfactual(con, alert_id, cf, epoch=epoch)
         n += 1
+    if n:
+        con.commit()
+    return n
+
+
+# ── Realised outcomes of TAKEs ──────────────────────────────────────────────
+# Each TAKE is walked forward on the 1-min bars with the reply's own stop and
+# target, by scoring.score (stop before target in one bar, gaps through the
+# stop fill at the open, timeout at the last close). Only the FIRST decision
+# per alert and epoch counts, as for the TAKE-vs-SKIP comparison; a later
+# reply is logged but not scored. scoring is imported lazily, so replay and
+# selftest don't need it.
+OUTCOME_EXIT_TYPES = {"target": "tp", "stop": "sl", "timeout": "timeout"}
+
+
+def take_problem(direction, entry, stop, target) -> str | None:
+    """Why a TAKE can't be scored, or None. entry may be missing (then the
+    first bar's open after the reply is used, so only stop vs target is
+    checked here); stop and target may not."""
+    if direction not in ("long", "short"):
+        return "no direction (long/short)"
+    if stop is None:
+        return "no stop (sl)"
+    if target is None:
+        return "no target (tp)"
+    for name, x in (("entry", entry), ("stop", stop), ("target", target)):
+        if x is not None and not (x == x and x > 0):
+            return f"{name} must be > 0"
+    lo, hi = (stop, target) if direction == "long" else (target, stop)
+    if entry is None:
+        return None if lo < hi else f"a {direction} needs {'stop < target' if direction == 'long' else 'target < stop'}"
+    if not lo < entry < hi:
+        want = "stop < entry < target" if direction == "long" else "target < entry < stop"
+        return f"a {direction} needs {want}"
+    return None
+
+
+def score_take(direction, entry, stop, target, decision_ts, bars: pd.DataFrame, now,
+               max_hold_min: int = OUTCOME_MAX_HOLD_MIN) -> dict | None:
+    """The outcome row for one TAKE, or None while it isn't final yet.
+
+    Entry: the reply's entry price at the reply's time (entry_source 'reply'),
+    or, without one, the open of the first bar at or after the reply
+    ('market_open'). entry_ref_close is the close of the last bar before the
+    reply, so a stated entry far from the market is visible. A stop or target
+    hit is final at once; a timeout only OUTCOME_SETTLE_MIN after the holding
+    period. A TAKE that can't be scored is final with exit_type 'unscorable'
+    and the reason."""
+    from scoring.outcome import NoBarsError, bars_from_frame, score
+
+    t0, now = _utc(decision_ts), _utc(now)
+    end = t0 + pd.Timedelta(minutes=max_hold_min)
+    final = now >= end + pd.Timedelta(minutes=OUTCOME_SETTLE_MIN)
+    before = bars[bars.index < t0]
+    row = dict(entry_ts_utc=None, entry_price=entry, entry_source="reply",
+               entry_ref_close=float(before["close"].iloc[-1]) if len(before) else None,
+               max_hold_min=max_hold_min, exit_price=None, r_multiple=None, mae_r=None,
+               mfe_r=None, bars_used=None, gap=None)
+
+    def unscorable(reason):
+        return dict(row, exit_type="unscorable", reason=reason)
+
+    problem = take_problem(direction, entry, stop, target)
+    if problem:
+        return unscorable(problem)
+    window = bars[(bars.index >= t0) & (bars.index < end)]
+    entry_time = t0
+    if entry is None:
+        if window.empty:
+            return unscorable("no bar after the reply for a market entry") if final else None
+        entry_time, entry = window.index[0], float(window["open"].iloc[0])
+        row.update(entry_price=entry, entry_source="market_open")
+        problem = take_problem(direction, entry, stop, target)
+        if problem:
+            return unscorable(f"{problem} (market entry {entry})")
+    row["entry_ts_utc"] = str(_utc(entry_time))
+    try:
+        out = score(entry_time=entry_time.to_pydatetime(), direction=direction, entry_price=entry,
+                    stop=stop, target=target, max_hold_minutes=max_hold_min,
+                    bars=bars_from_frame(window))
+    except NoBarsError:
+        return unscorable("no bar inside the holding period") if final else None
+    except ValueError as e:
+        return unscorable(str(e))
+    if out.reason == "timeout" and not final:
+        return None
+    return dict(row, exit_type=OUTCOME_EXIT_TYPES[out.reason], reason=out.reason,
+                exit_price=out.exit_price, r_multiple=round(out.r_multiple, 4),
+                mae_r=round(out.mae_r, 4), mfe_r=round(out.mfe_r, 4), bars_used=out.bars_used,
+                gap=int(out.gap))
+
+
+def takes_needing_outcome(con):
+    """First decisions per (alert, epoch) that are TAKEs and have no outcome row
+    yet: (rowid, alert_id, epoch, direction, entry, stop, target, decision_ts)."""
+    return con.execute(
+        "SELECT d.rowid, d.alert_id, d.epoch, d.direction, d.entry, d.stop, d.target, "
+        "d.decision_ts_utc FROM decisions d "
+        "JOIN (SELECT MIN(rowid) AS r FROM decisions GROUP BY alert_id, epoch) f ON d.rowid = f.r "
+        "LEFT JOIN outcomes o ON o.alert_id = d.alert_id AND o.epoch = d.epoch "
+        "WHERE d.decision = 'TAKE' AND o.alert_id IS NULL ORDER BY d.rowid").fetchall()
+
+
+def insert_outcome(con, alert_id: str, epoch: int, decision_rowid: int, o: dict) -> None:
+    con.execute("INSERT INTO outcomes (alert_id, exit_price, r_multiple, exit_type, filled_ts_utc, "
+                "epoch, decision_rowid, entry_ts_utc, entry_price, entry_source, entry_ref_close, "
+                "max_hold_min, reason, mae_r, mfe_r, bars_used, gap) "
+                "VALUES(?,?,?,?,datetime('now'),?,?,?,?,?,?,?,?,?,?,?,?)",
+                (alert_id, o["exit_price"], o["r_multiple"], o["exit_type"], epoch, decision_rowid,
+                 o["entry_ts_utc"], o["entry_price"], o["entry_source"], o["entry_ref_close"],
+                 o["max_hold_min"], o["reason"], o["mae_r"], o["mfe_r"], o["bars_used"], o["gap"]))
+
+
+def sweep_outcomes(con, df, now_utc, log=print) -> int:
+    """Score every TAKE whose outcome is final, from the accumulated bar frame.
+    Runs with the other 5-min sweeps. Returns the number of outcomes written."""
+    n = 0
+    for rowid, alert_id, epoch, direction, entry, stop, target, ts in takes_needing_outcome(con):
+        o = score_take(direction, entry, stop, target, ts, df, now_utc)
+        if o is None:
+            continue
+        insert_outcome(con, alert_id, epoch, rowid, o)
+        n += 1
+        log(f"outcome {alert_id} (epoch {epoch}): {o['exit_type']} "
+            f"R={o['r_multiple']} ({o['reason']})", flush=True)
     if n:
         con.commit()
     return n
@@ -728,15 +896,56 @@ class Telegram:
         return self._get("sendMessage", {"chat_id": self.chat_id, "text": text})
 
     def poll(self, offset: int):
-        """Long-poll replies. Returns (messages, next_offset)."""
+        """Long-poll replies. Returns (messages, next_offset): TelegramMessage
+        for each text message from our chat, oldest first."""
         res = self._get("getUpdates", {"offset": offset, "timeout": 60})
-        msgs, nxt = [], offset
-        for u in res.get("result", []):
-            nxt = u["update_id"] + 1
-            m = u.get("message") or {}
-            if str(m.get("chat", {}).get("id")) == str(self.chat_id) and "text" in m:
-                msgs.append(m["text"])
-        return msgs, nxt
+        return parse_updates(res.get("result", []), self.chat_id, offset)
+
+
+class TelegramMessage(NamedTuple):
+    """One reply: Telegram's update id, the message's own date (UTC, whole
+    seconds, set by Telegram when it was sent) and its text. A NamedTuple, not
+    a dataclass: tests load this file by path without registering the module."""
+    update_id: int
+    date: pd.Timestamp
+    text: str
+
+
+def parse_updates(updates, chat_id, offset: int, log=print):
+    """getUpdates results -> ([TelegramMessage], next_offset). Updates from
+    other chats, non-text and edited messages are skipped but still move the
+    offset; a message without a usable date is skipped with a log line, never
+    given another time."""
+    msgs, nxt = [], offset
+    for u in updates:
+        nxt = max(nxt, u["update_id"] + 1)
+        m = u.get("message") or {}
+        if str(m.get("chat", {}).get("id")) != str(chat_id) or "text" not in m:
+            continue
+        date = m.get("date")
+        if isinstance(date, bool) or not isinstance(date, int) or date <= 0:
+            log(f"telegram update {u['update_id']}: no usable message date ({date!r}); skipped",
+                flush=True)
+            continue
+        msgs.append(TelegramMessage(u["update_id"], pd.Timestamp(date, unit="s", tz="UTC"),
+                                    m["text"]))
+    return msgs, nxt
+
+
+TELEGRAM_OFFSET_KEY = "telegram_offset"
+
+
+def load_offset(con) -> int:
+    """The getUpdates offset the last run confirmed (0 on a fresh journal)."""
+    row = con.execute("SELECT value FROM scanner_state WHERE key = ?", (TELEGRAM_OFFSET_KEY,)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def save_offset(con, offset: int) -> None:
+    con.execute("INSERT INTO scanner_state VALUES(?, ?, datetime('now')) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+                "updated_ts_utc = excluded.updated_ts_utc", (TELEGRAM_OFFSET_KEY, str(int(offset))))
+    con.commit()
 
 
 # ── Replay ──────────────────────────────────────────────────────────────────
@@ -921,7 +1130,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
     print(f"{mode}: scanning {symbol}, {active} levels active, journal epoch {epoch}. "
           f"Ctrl-C to stop.", flush=True)
 
-    offset = 0
+    offset = load_offset(con)
     last_sweep = 0.0
     heartbeat = os.environ.get("SCANNER_HEARTBEAT")
     try:
@@ -959,6 +1168,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
             if dry:
                 _time.sleep(2)
                 continue
+            polled_from = offset
             try:
                 msgs, offset = tg.poll(offset)
             except Exception as e:
@@ -968,8 +1178,11 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                 print(f"telegram poll failed ({e!r}); retrying", flush=True)
                 _time.sleep(5)
                 msgs = []
-            for text in msgs:
-                _handle_reply(con, lock, tg, text, epoch)
+            for msg in msgs:
+                _handle_reply(con, lock, tg, msg, epoch)
+            if msgs or offset != polled_from:
+                with lock:
+                    save_offset(con, offset)
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
@@ -977,6 +1190,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                     # counterfactuals need the future bars, so fill from the
                     # accumulated live frame once each alert's 4h window elapses
                     sweep_counterfactuals(con, live.hist.sort_index(), now)
+                    sweep_outcomes(con, live.hist.sort_index(), now)
                 last_sweep = _time.time()
     except KeyboardInterrupt:
         print("\nstopping."); tws.disconnect()
@@ -1348,12 +1562,17 @@ def _journal_new_alert(con, a: dict, *, epoch: int, bar_source: str) -> bool:
     return True
 
 
-def _handle_reply(con, lock, tg, text: str, epoch: int):
+def _handle_reply(con, lock, tg, msg: TelegramMessage, epoch: int, log=print):
     """One Telegram reply -> decision row (both bar sources). Only sent alerts
     can be decided (a missed_while_down id was never shown). An id that exists
     in several epochs (a switch day) means the alert of this process's epoch,
-    else the newest one."""
-    r = parse_reply(text)
+    else the newest one.
+
+    The decision time is the message's date, never the time it was processed.
+    An update already in the journal (redelivered after a restart) is skipped
+    without a second confirmation. The confirmation says when a TAKE can't be
+    scored, and when the alert already had a decision (the first one counts)."""
+    r = parse_reply(msg.text)
     if not r:
         return
     with lock:
@@ -1363,10 +1582,23 @@ def _handle_reply(con, lock, tg, text: str, epoch: int):
         if not row:
             _send_quietly(tg, f"unknown alert_id {r['alert_id']}")
             return
-        record_decision(con, r["alert_id"], r["decision"], pd.Timestamp.now(tz="UTC"),
-                        row[0], r.get("direction"), r.get("entry"), r.get("stop"),
-                        r.get("target"), r.get("reasoning"), epoch=row[1])
-        _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}")
+        first = con.execute("SELECT decision FROM decisions WHERE alert_id=? AND epoch=? "
+                            "ORDER BY rowid LIMIT 1", (r["alert_id"], row[1])).fetchone()
+        if not record_decision(con, r["alert_id"], r["decision"], msg.date, row[0],
+                               r.get("direction"), r.get("entry"), r.get("stop"), r.get("target"),
+                               r.get("reasoning"), epoch=row[1], update_id=msg.update_id,
+                               received_ts=pd.Timestamp.now(tz="UTC")):
+            log(f"telegram update {msg.update_id} already journaled; skipped", flush=True)
+            return
+        notes = []
+        if r["decision"] == "TAKE":
+            problem = take_problem(r.get("direction"), r.get("entry"), r.get("stop"), r.get("target"))
+            if problem:
+                notes.append(f"outcome not scorable: {problem}")
+        if first:
+            notes.append(f"already decided {first[0]}; the first decision counts")
+        _send_quietly(tg, f"logged {r['decision']} for {r['alert_id']}"
+                      + (f" ({'; '.join(notes)})" if notes else ""))
 
 
 def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
@@ -1427,7 +1659,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     print(f"{mode}: scanning {symbol} from stream {STREAM} (group {group}, consumer "
           f"{consumer}), {active} levels active, journal epoch {epoch}. Ctrl-C to stop.", flush=True)
 
-    offset = 0
+    offset = load_offset(con)
     last_sweep = 0.0
     try:
         while True:
@@ -1440,19 +1672,24 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
             if dry:
                 _time.sleep(2)
                 continue
+            polled_from = offset
             try:
                 msgs, offset = tg.poll(offset)
             except Exception as e:
                 print(f"telegram poll failed ({e!r}); retrying", flush=True)
                 _time.sleep(5)
                 msgs = []
-            for text in msgs:
-                _handle_reply(con, lock, tg, text, epoch)
+            for msg in msgs:
+                _handle_reply(con, lock, tg, msg, epoch)
+            if msgs or offset != polled_from:
+                with lock:
+                    save_offset(con, offset)
             if _time.time() - last_sweep > 300:      # every 5 min
                 with lock:
                     now = pd.Timestamp.now(tz="UTC")
                     sweep_auto_missed(con, now)
                     sweep_counterfactuals(con, live.hist.sort_index(), now)
+                    sweep_outcomes(con, live.hist.sort_index(), now)
                 last_sweep = _time.time()
     except KeyboardInterrupt:
         print("\nstopping.")
@@ -1628,7 +1865,7 @@ def selftest():
     dec = con.execute("SELECT epoch, decision FROM decisions ORDER BY rowid").fetchall()
     cfe = con.execute("SELECT epoch FROM counterfactuals ORDER BY rowid").fetchall()
     if not (rows == [("A20251014-001", 1, "ibkr")] and kids == [[(1,)], [(1,)]]
-            and ver == JOURNAL_VERSION == 3 and epochs == [1, 2, 2, 3, 4]
+            and ver == JOURNAL_VERSION == 4 and epochs == [1, 2, 2, 3, 4]
             and switches == [(None, "ibkr", 1), ("ibkr", "stream", 2), ("stream", "ibkr", 3),
                              ("ibkr", "stream", 4)]
             and n_missed == 1 and n_cf == 1
