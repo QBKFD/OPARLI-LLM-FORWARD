@@ -29,7 +29,7 @@ running and is never stopped, rebuilt or reconfigured.
 
 ```bash
 cd ~/Desktop/algo_project.worktrees/instrument-config      # or any checkout of this branch
-ssh -i ~/Downloads/oparli.pem ubuntu@<IP> \
+ssh -i <your-key.pem> ubuntu@<IP> \
   'cd ~/oparli/deploy/scanner && docker compose run --rm -T --no-deps --entrypoint python scanner - --host ibgateway --port 4004' \
   < tools/ibkr_instrument_check.py | tee ~/btc_check.json
 ```
@@ -48,7 +48,7 @@ days?) runs the same way, with client id 41. It is best run on a Thursday or
 Friday:
 
 ```bash
-ssh -i ~/Downloads/oparli.pem ubuntu@<IP> \
+ssh -i <your-key.pem> ubuntu@<IP> \
   'cd ~/oparli/deploy/scanner && docker compose run --rm -T --no-deps --entrypoint python scanner - --host ibgateway --port 4004' \
   < tools/ibkr_duration_check.py
 ```
@@ -56,7 +56,7 @@ ssh -i ~/Downloads/oparli.pem ubuntu@<IP> \
 ## Start (on EC2)
 
 ```bash
-ssh -i ~/Downloads/oparli.pem ubuntu@<IP>
+ssh -i <your-key.pem> ubuntu@<IP>
 free -m                                  # want >= 1 GB "available" before starting
 
 # a separate checkout; production's ~/oparli stays on its branch, untouched
