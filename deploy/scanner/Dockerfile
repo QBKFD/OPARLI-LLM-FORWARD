@@ -16,8 +16,12 @@ WORKDIR /app
 COPY backend/services/__init__.py       /app/services/__init__.py
 COPY backend/services/tws_connector.py  /app/services/tws_connector.py
 COPY backend/deterministic_scanner.py   /app/deterministic_scanner.py
-# datafeed is imported from /app (the working directory), not pip-installed
+COPY backend/journal_summary.py         /app/journal_summary.py
+# datafeed, scoring and risk are imported from /app (the working directory),
+# not pip-installed. scoring scores TAKE outcomes (scoring -> risk, datafeed.store).
 COPY datafeed                           /app/datafeed
+COPY scoring                            /app/scoring
+COPY risk                               /app/risk
 COPY deploy/scanner/backup_sqlite.py    /app/backup_sqlite.py
 COPY deploy/scanner/export_parquet.py   /app/export_parquet.py
 COPY deploy/scanner/entrypoint.sh       /app/entrypoint.sh

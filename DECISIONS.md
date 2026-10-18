@@ -58,3 +58,27 @@ conservative option, log it here, continue.
 | D18 | `rejected_messages` growth: the first observation is the **baseline** (existing rows don't alert). After that, an alert reports the delta since the last alert, at most hourly. No "recovery" message, because rejections are events, not a state. | No alert storm on first install; nothing missed between alerts, since the delta accumulates. | Alert on every row. |
 | D19 | The daily Telegram heartbeat goes out on the first run at or after 07:00 UTC, **every day, weekends included**. It summarises gateway, scanner health and restarts, disk, memory and swap, last backup, and recorder lag and rejected count. | Silence on any day means the watchdog or cron is broken. | Weekdays only. |
 | D20 | In stream mode, the entrypoint's Redis wait times out after `REDIS_WAIT_TRIES` × 5 s (default 120, so 10 min, as the gateway wait). Then it sends one Telegram alert and exits 1; it doesn't start the scanner anyway. The alert is at most hourly, via a marker file on the `/data` volume, because Docker restarts it into the next 10-min wait. Sent with Python's urllib (the image has no curl); no token means no send. | One clear alert per hour instead of a crash loop without context; never one alert per restart. | Alert every time; start the scanner anyway (the old behaviour). |
+
+## fix/journal-scoring
+
+Written 2026-10-17, in the ops terminal, for the owner's TAKE/SKIP replies
+starting 2026-10-18 23:00 UTC. The journal check found all three items
+missing, on `main` and on `pipeline-fixes-and-cleanup` (the branch EC2 runs):
+`record_outcome()` had no caller; the decision time was the processing time
+(`pd.Timestamp.now()`); `update_id` only moved an in-memory offset, which
+restarted at 0.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| J1 | Fixed on a branch off `origin/main` (9cbf4fc). Not backported to `pipeline-fixes-and-cleanup`. The fixes reach EC2 only with the cut-over to `main`, the owner's call. | No change to what production runs; one code line. | A backport to the old branch. |
+| J2 | Decision time = the Telegram message's `date` (whole seconds, set by Telegram). The processing time is kept in a new `received_ts_utc`. A message without a usable date is skipped with a log line, never given another time. | The time you decided, not when the scanner caught up (polls, restarts). | Processing time (the old behaviour). |
+| J3 | Dedupe: a UNIQUE index on `decisions.telegram_update_id` (non-null values), so a repeated update is refused by the database. The duplicate is skipped with a log line and no second confirmation. The `getUpdates` offset is saved in `scanner_state` after each batch. | Belt and braces: the offset avoids re-reading, the index guarantees once. | Only persist the offset. |
+| J4 | The **first** decision per (alert, epoch) counts, for scoring and the summary. A later reply is journaled, and its confirmation says the first one counts. | The pre-registered comparison uses first decisions (PR #16 design §6); no answer is ever rewritten. | The last decision counts; refuse revisions. |
+| J5 | Outcome horizon 240 min (`OUTCOME_MAX_HOLD_MIN`), the PREREG's primary H and the counterfactual's 4h. Without a stop or target by then, a timeout at the last bar's close. A timeout is written 5 min after the window ends; a stop or target at once. | One fixed horizon for every TAKE, the same as the analysis plan. | Hold until stop or target with no cap; a horizon per reply. |
+| J6 | Entry = the reply's price, at the reply's time (scored from the next full minute). Without an entry, the first bar's open after the reply. The last close before the reply is stored (`entry_ref_close`), so an off-market entry is visible. It isn't rejected. | No guess about limit orders; the data to judge it is kept. | Treat a stated entry as a limit order that must trade. |
+| J7 | A TAKE that can't be scored gets an outcome row `exit_type = unscorable` with the reason, and the confirmation message says so at reply time. | It never stays "open" forever, and you learn at once that sl/tp is missing. | No row (open forever); refuse the reply. |
+| J8 | Scoring reuses `scoring.score` (stop before target, gap fills, timeout), imported lazily; the scanner image now copies `scoring/` and `risk/`. | One scorer for the journal and the agents; replay and selftest don't load it. | A second scorer inside the scanner. |
+| J9 | The daily summary is a separate stdlib script, `backend/journal_summary.py`, opened read-only (`mode=ro`). It isn't a scanner flag: the scanner is loaded by file path and `backend/` stays off `sys.path`, so the scanner can't import a sibling module before the parked refactor. | Safe on the production journal: it can't create, migrate or write it. | `--summary` inside the scanner. |
+| J10 | `TelegramMessage` is a `NamedTuple`, not a dataclass. A dataclass fails when a test loads the scanner by path without registering the module (`tests/datafeed/test_xauusd_bars.py`). | Works however the file is loaded. | Change that test's loader. |
+| J11 | `docs/ARCHITECTURE_MAP.md` and `docs/REPO_MAP.md` still say `record_outcome` has no caller. They are dated maps of the cleanup and are left as written. | No edits to historical snapshots. | Update both. |
+| J12 | mypy: `journal_summary.py` passes `--strict`. In the scanner file mypy reports the same 16 findings as on `main`, none new; the old code isn't retyped. | No edits to the calibrated scanner beyond the fix. | Make the whole file mypy-clean. |

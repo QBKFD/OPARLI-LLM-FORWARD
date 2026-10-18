@@ -207,6 +207,7 @@ def test_dockerfile_pins_and_copies():
         assert pin in d
     assert not re.search(r"pip install[^\n]*\s(pyarrow|tzdata|redis)(\s|$)", d)   # nothing unpinned
     for src in ("backend/deterministic_scanner.py", "backend/services/tws_connector.py", "datafeed",
+                "backend/journal_summary.py", "scoring", "risk",
                 "deploy/scanner/backup_sqlite.py", "deploy/scanner/entrypoint.sh"):
         assert re.search(rf"^COPY\s+{re.escape(src)}\s", d, re.M), src
         assert (DEPLOY.parents[1] / src).exists(), src
