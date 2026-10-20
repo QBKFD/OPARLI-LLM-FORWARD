@@ -5,12 +5,14 @@ replay data. One test per item (A1..A9), plus a run over one real parquet day
 A1 a snapshot never contains a bar >= t
 A2 the same inputs give the same snapshot hash
 A3 a node that raises becomes an abstain and the graph still finishes
-A4 debate disabled -> only the blind decision exists
-A5 debate enabled -> two decisions on the same snapshot (blind, debate); round-1 rows unchanged
-A6 a claim with a nonexistent evidence_ref is invalid and ignored
-A7 tie -> hold; a debater error -> the debate still finishes
-A8 a debater sees nothing outside the snapshot + round-1 votes + opponent's previous turn
-A9 same snapshot + same fake debaters -> identical DebateResult
+A4 no discussant -> the discussion is skipped with its reason; both decisions exist
+A5 a discussion -> two decisions on the same snapshot (blind, discussion); round-1 rows unchanged
+A6 a ref that doesn't resolve is kept as invalid and never counts as evidence for a change
+A7 a discussant error -> its vote is carried forward and the discussion still finishes
+A8 a discussant sees nothing outside the snapshot + its own previous vote + the others' latest
+   votes, content only
+A9 same snapshot + same fake discussants -> identical DiscussionResult
+(A4-A9 replaced the bull/bear debate items in agents v2, job 4.)
 """
 
 import json
@@ -20,20 +22,17 @@ from pathlib import Path
 import pytest
 
 from agents.config import AgentsConfig
-from agents.debate import CodeJudgeV0, DebaterView
-from agents.debate.subgraph import content_only
 from agents.graph import build_graph, run_once
 from agents.schemas import TriggerEvent
 from agents.store import SqliteAgentStore
 from agents.voters import default_voters
-from agents_fakes import FakeBear, FakeBull, FixedVoter, RaisingDebater, RaisingVoter, RecordingDebater, SpyJudge
-from agents_testkit import DATA_END, DATA_START, make_replay_db
+from agents_fakes import FakeDiscussant, FixedVoter, RaisingVoter, bar_ref
+from agents_testkit import DATA_END, DATA_START, make_replay_db, write_test_prompts
 
 UTC = timezone.utc
 T = datetime(2025, 6, 11, 14, 30, 30, tzinfo=UTC)
 FIXED = lambda: 0.0                                           # noqa: E731
 OFF = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}})
-ON = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}, "debate": {"enabled": True}})
 PARQUET = Path(__file__).resolve().parents[2] / "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
 
 
@@ -59,9 +58,10 @@ def rows(store, table, run_id, drop=("run_id", "created_ts")):
     return [{k: r[k] for k in r.keys() if k not in drop} for r in cur]
 
 
-def debate_graph(store, db, bull, bear, voters=None, judge=None):
-    return build_graph(ON, store, db, voters=voters or long_voters(), debaters={"bull": bull, "bear": bear},
-                       judge=judge, clock=FIXED)
+def discussion_graph(store, db, tmp_path, visual, technical):
+    v = long_voters()
+    v.update(visual=visual, technical=technical)
+    return build_graph(OFF, store, db, voters=v, clock=FIXED, prompts_dir=write_test_prompts(tmp_path / "prompts"))
 
 
 # A1 ------------------------------------------------------------------------
@@ -105,110 +105,88 @@ def test_a3_raising_node_becomes_abstain_and_graph_finishes(store, replay_db):
     assert (tech["abstain"], tech["direction"], tech["confidence"], tech["abstain_reason"]) == \
         (1, "none", 0.0, "error: RuntimeError: boom")
     assert store.load_run("a3")["run"].status == "done"
-    assert [r["arm"] for r in rows(store, "decisions", "a3")] == ["blind"]
+    assert [r["arm"] for r in rows(store, "decisions", "a3")] == ["blind", "discussion"]
 
 
 # A4 ------------------------------------------------------------------------
 
-def test_a4_debate_disabled_only_blind(store, replay_db):
-    bull, bear = RecordingDebater(FakeBull()), RecordingDebater(FakeBear())
-    run_once(build_graph(OFF, store, replay_db, voters=long_voters(), debaters={"bull": bull, "bear": bear}),
-             ev(), run_id="a4")
-    assert [r["arm"] for r in rows(store, "decisions", "a4")] == ["blind"]
-    assert rows(store, "debate_turns", "a4") == [] and store.load_run("a4")["debate"] is None
-    assert bull.calls == bear.calls == []
+def test_a4_no_discussant_skips_the_discussion_with_its_reason(store, replay_db):
+    out = run_once(build_graph(OFF, store, replay_db, voters=long_voters(), clock=FIXED), ev(), run_id="a4")
+    dec = rows(store, "decisions", "a4")
+    assert [d["arm"] for d in dec] == ["blind", "discussion"]
+    assert dec[0]["direction"] == dec[1]["direction"] == "long"
+    disc = rows(store, "discussions", "a4")[0]
+    assert (disc["rounds_run"], disc["skip_reason"]) == (0, "no LLM discussants in this graph")
+    assert all(v["round"] == 1 for v in rows(store, "votes", "a4")) and out["discussion"].votes == ()
 
 
 # A5 ------------------------------------------------------------------------
 
-def test_a5_debate_enabled_two_decisions_round1_unchanged(store, replay_db):
-    run_once(build_graph(OFF, store, replay_db, voters=long_voters(), clock=FIXED), ev(), run_id="off")
-    run_once(debate_graph(store, replay_db, FakeBull(n_valid=2), FakeBear()), ev(), run_id="on")
+def test_a5_two_decisions_on_one_snapshot_round1_unchanged(store, replay_db, tmp_path):
+    flip = lambda v: {"direction": "short", "confidence": 0.7, "refs": [bar_ref(v.snapshot, 4)]}   # noqa: E731
+    run_once(discussion_graph(store, replay_db, tmp_path, FakeDiscussant("visual", "long", script=flip),
+                              FakeDiscussant("technical", "long", script=flip)), ev(), run_id="on")
     dec = rows(store, "decisions", "on")
-    assert [d["arm"] for d in dec] == ["blind", "debate"]
-    run_snap = store.con.execute("SELECT snapshot_hash FROM runs WHERE run_id = 'on'").fetchone()[0]
-    assert dec[0]["snapshot_hash"] == dec[1]["snapshot_hash"] == run_snap
-    assert run_snap == store.con.execute("SELECT snapshot_hash FROM runs WHERE run_id = 'off'").fetchone()[0]
-    # round-1 rows are the same with and without the debate
-    assert rows(store, "votes", "on") == rows(store, "votes", "off")
-    assert all(r["round"] == 1 for r in rows(store, "votes", "on"))
-    assert dec[0] == rows(store, "decisions", "off")[0]
-    assert (dec[1]["direction"], dec[1]["debate_outcome"], dec[1]["decided_by"]) == ("long", "long", "code_v0")
+    assert [d["arm"] for d in dec] == ["blind", "discussion"] and dec[0]["snapshot_hash"] == dec[1]["snapshot_hash"]
+    assert (dec[0]["direction"], dec[1]["direction"]) == ("long", "short")   # both changed, citing a new bar
+    plain = SqliteAgentStore(str(tmp_path / "plain.sqlite"))
+    run_once(build_graph(OFF, plain, replay_db, voters=long_voters(), clock=FIXED), ev(), run_id="on")
+    keep = ("agent", "direction", "confidence", "abstain")
+    r1 = lambda st: [{k: r[k] for k in keep} for r in rows(st, "votes", "on") if r["round"] == 1]   # noqa: E731
+    assert r1(store) == r1(plain)                                           # round-1 rows are the same
+    plain.close()
 
 
 # A6 ------------------------------------------------------------------------
 
-def test_a6_nonexistent_evidence_ref_is_invalid_and_ignored(store, replay_db):
-    spy = SpyJudge(CodeJudgeV0())
-    voters = default_voters()
-    voters.update(visual=FixedVoter("visual", "short"), technical=FixedVoter("technical", "short"))
-    # bull: 6 claims a round, 5 unsupported; bear: 2 supported. Counting all claims, bull would win.
-    out = run_once(debate_graph(store, replay_db, FakeBull(n_valid=1, n_invalid=5), FakeBear(n_valid=2),
-                                voters=voters, judge=spy), ev(), run_id="a6")
-    turns = rows(store, "debate_turns", "a6")
-    bull = [c for t in turns if t["role"] == "bull" for c in json.loads(t["claims_json"])]
-    assert len(bull) == 12 and sum(not c["valid"] for c in bull) == 10                     # kept, flagged
-    assert all(c["invalid_reason"] for c in bull if not c["valid"])
-    (inp,) = spy.inputs
-    assert all(c.valid for t in inp.turns for c in t.claims)                               # judge saw valid only
-    assert sum(len(t.claims) for t in inp.turns if t.role == "bull") == 2
-    assert out["final_decisions"]["debate"].direction == "short"
+def test_a6_an_unresolved_ref_is_invalid_and_never_counts(store, replay_db, tmp_path):
+    bad = lambda v: {"direction": "short", "confidence": 0.9, "refs": ["level:no-such-level"]}   # noqa: E731
+    run_once(discussion_graph(store, replay_db, tmp_path, FakeDiscussant("visual", "long", script=bad),
+                              FakeDiscussant("technical", "long")), ev(), run_id="a6")
+    v = [r for r in rows(store, "votes", "a6") if r["agent"] == "visual" and r["round"] == 2][0]
+    assert (v["direction"], v["change_rejected"]) == ("long", "no new snapshot ref")
+    prop = json.loads(v["rejected_proposal_json"])
+    assert prop["evidence"][0]["valid"] is False and "not in snapshot" in prop["evidence"][0]["invalid_reason"]
 
 
 # A7 ------------------------------------------------------------------------
 
-def test_a7_tie_is_hold(store, replay_db):
-    out = run_once(debate_graph(store, replay_db, FakeBull(n_valid=2), FakeBear(n_valid=2)), ev(), run_id="tie")
-    d = rows(store, "decisions", "tie")[1]
-    assert (d["debate_outcome"], d["direction"], d["reason"]) == ("hold", "none", "tie: bull 4, bear 4 valid claims")
-    assert out["final_decisions"]["blind"].direction == "long"                             # blind arm unaffected
-
-
-def test_a7_debater_error_debate_still_finishes(store, replay_db):
-    out = run_once(debate_graph(store, replay_db, RaisingDebater(), FakeBear()), ev(), run_id="err")
+def test_a7_a_discussant_error_and_the_discussion_still_finishes(store, replay_db, tmp_path):
+    boom = lambda v: (_ for _ in ()).throw(RuntimeError("discussant down"))   # noqa: E731
+    out = run_once(discussion_graph(store, replay_db, tmp_path, FakeDiscussant("visual", "long", script=boom),
+                                    FakeDiscussant("technical", "long")), ev(), run_id="err")
     assert out["status"] == "done"
-    turns = rows(store, "debate_turns", "err")
-    assert len(turns) == 4
-    assert all(t["error"] == "error: RuntimeError: debater down" and t["n_claims"] == 0
-               for t in turns if t["role"] == "bull")
-    assert rows(store, "decisions", "err")[1]["debate_outcome"] == "hold"     # bear ahead but round 1 is long
+    v = [r for r in rows(store, "votes", "err") if r["agent"] == "visual" and r["round"] == 2][0]
+    assert (v["direction"], v["abstain"]) == ("long", 0)
+    assert v["change_rejected"] == "call failed: error: RuntimeError: discussant down"
+    assert out["final_decisions"]["discussion"].direction == "long"
 
 
 # A8 ------------------------------------------------------------------------
 
-def test_a8_debater_sees_only_snapshot_votes_and_opponent_previous_turn(store, replay_db):
-    bull, bear = RecordingDebater(FakeBull(n_valid=2, n_invalid=1)), RecordingDebater(FakeBear())
-    run_once(debate_graph(store, replay_db, bull, bear), ev(), run_id="a8")
-    rec = store.load_run("a8")
-    snap = store.load_snapshot(rec["run"].snapshot_hash)
-    votes = tuple(content_only(v) for v in rec["votes"])
-    turns = {(t.role, t.round): t for t in rec["debate"].turns}
-    for role, r in (("bull", bull), ("bear", bear)):
-        assert len(r.calls) == 2
-        for args, kwargs in r.calls:
-            assert kwargs == {} and len(args) == 1 and type(args[0]) is DebaterView
-            view = args[0]
-            assert set(view.model_dump()) == {"role", "round", "snapshot", "round1_votes", "opponent_previous_turn"}
-            assert view.role == role and view.snapshot == snap and view.round1_votes == votes
-            opp = "bear" if role == "bull" else "bull"
-            want = None if view.round == 1 else content_only(turns[(opp, view.round - 1)])
-            assert view.opponent_previous_turn == want
+def test_a8_a_discussant_sees_only_its_inputs(store, replay_db, tmp_path):
+    a, b = FakeDiscussant("visual", "long"), FakeDiscussant("technical", "short")
+    out = run_once(discussion_graph(store, replay_db, tmp_path, a, b), ev(), run_id="a8")
+    (view,) = a.views
+    assert view.snapshot == out["snap"] and view.round == 1 and view.max_rounds == 2
+    assert {v.agent for v in view.others} == {"gex", "sentiment", "technical"}
+    assert all(v.model_id is None and v.call_id is None and v.latency_ms is None for v in view.others)
+    assert view.own_previous.direction == "long"
+    assert set(type(view).model_fields) == {"agent", "round", "max_rounds", "snapshot", "own_previous", "others"}
 
 
 # A9 ------------------------------------------------------------------------
 
-def test_a9_same_snapshot_same_fakes_identical_debate_result(tmp_path, replay_db):
-    results = []
-    for name, db in (("x", replay_db), ("y", make_replay_db(tmp_path))):
-        s = SqliteAgentStore(str(tmp_path / f"{name}.sqlite"))
-        run_once(debate_graph(s, db, FakeBull(n_valid=2, n_invalid=2), FakeBear(n_valid=1, n_invalid=1)),
-                 ev(), run_id=name)
-        results.append(s.load_run(name)["debate"])
-        s.close()
-    assert results[0] == results[1] and results[0].turns
+def test_a9_same_snapshot_same_fakes_identical_discussion_result(tmp_path, replay_db):
+    def once(name):
+        st = SqliteAgentStore(str(tmp_path / f"{name}.sqlite"))
+        flip = lambda v: {"direction": "short", "confidence": 0.7, "refs": [bar_ref(v.snapshot, 4)]}   # noqa: E731
+        out = run_once(discussion_graph(st, replay_db, tmp_path / name, FakeDiscussant("visual", "long", script=flip),
+                                        FakeDiscussant("technical", "long")), ev(), run_id="x")
+        st.close()
+        return out["discussion"]
+    assert once("a") == once("b")
 
-
-# real parquet ----------------------------------------------------------------
 
 def test_real_parquet_day_through_the_graph(tmp_path):
     if not PARQUET.exists():
@@ -226,7 +204,7 @@ def test_real_parquet_day_through_the_graph(tmp_path):
     con.close()
 
     store = SqliteAgentStore(str(tmp_path / "agents.sqlite"))
-    g = debate_graph(store, db, FakeBull(n_valid=2, n_invalid=1), FakeBear(n_valid=1))
+    g = discussion_graph(store, db, tmp_path, FakeDiscussant("visual", "long"), FakeDiscussant("technical", "short"))
     t0 = datetime(2025, 6, 11, tzinfo=UTC) + timedelta(seconds=17)
     outs = [run_once(g, ev(t0 + timedelta(minutes=30 * i), str(i))) for i in range(48)]
     done = [o for o in outs if o["status"] == "done"]
@@ -241,5 +219,5 @@ def test_real_parquet_day_through_the_graph(tmp_path):
         snap = store.load_snapshot(o["snap"].hash)
         assert all(b.ts < o["event"].t for s in snap.bars.values() for b in s)
         assert len(snap.bars["1m"]) == 240 and snap.bars["4h"]
-        assert {d.arm for d in store.load_run(o["run_id"])["decisions"]} == {"blind", "debate"}
+        assert {d.arm for d in store.load_run(o["run_id"])["decisions"]} == {"blind", "discussion"}
     store.close()

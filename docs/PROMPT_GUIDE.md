@@ -147,6 +147,18 @@ the alert when a trigger carries none. `{{bars_table:<tf>}}` needs
 | `{{other_votes_json}}` | every other agent's latest vote, the same fields, with GEX and abstained agents included as they are. No model ids, timings or tokens |
 | `{{change_rule}}` | one fixed sentence, written by code, stating the vote-change rule (§6). Use it if you want the model told the rule in exactly the words code enforces |
 
+Each vote in `{{own_previous_vote_json}}` and `{{other_votes_json}}` is
+`{"agent", "round", "direction", "confidence", "reason", "abstain",
+"abstain_reason", "evidence": [{"ref", "claim", "valid", "invalid_reason"}]}`.
+`round` is the vote's round (1 = the blind vote, 2 = the first discussion
+round, …), the number to use in a `vote:<agent>:<round>` ref. The current
+`{{change_rule}}` text is:
+
+> A changed vote (a different direction or confidence) is accepted only if its
+> evidence includes at least one ref into the snapshot that your previous vote
+> did not cite; vote: refs do not count on their own. Otherwise your previous
+> vote stands. Keeping your vote needs no new evidence.
+
 Round-1 placeholders are not allowed in `discussion.md`: the agent's round-1
 content is already sent again before it (§3.3).
 
@@ -317,6 +329,7 @@ The **epoch id** is a hash of, among others (full list:
       - `python -m agents.prompting check [--prompts DIR] [--config agents.toml]`:
         every prompt file (OK with its version, hash and placeholders, or
         the reason it's invalid), every config problem, and the epoch id;
-      - `python -m agents.llm count-tokens` (real token counts for the cost
-        estimate);
+      - `python -m agents.llm count-tokens --db <replay store> --t <UTC time>
+        [--config agents.toml]` (real token counts for the cost estimate; one
+        API call per agent, no generation);
       - a cache-only rerun on development data.

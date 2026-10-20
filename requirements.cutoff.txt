@@ -3,6 +3,9 @@
 # younger than two weeks. Locked on 2026-10-14, cutoff 2026-09-30. Each cap is
 # the newest release uploaded before the cutoff. Only the packages whose latest
 # release was newer are capped. Upload date in the comment.
+# 2026-10-17: anthropic==1.11.0 added (llm extra), cutoff 2026-10-03. Its new
+# dependencies (docstring-parser 0.18.0, jiter 0.17.0) had no release after
+# the cutoff, so no new cap; every existing pin is unchanged.
 charset-normalizer<=3.5.1    # 2026-08-15
 iniconfig<=2.3.0             # 2025-10-18
 jsonpatch<=1.33              # 2023-06-16

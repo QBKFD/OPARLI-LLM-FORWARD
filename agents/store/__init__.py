@@ -1,4 +1,4 @@
-"""Agent store: snapshots, runs, votes, debate turns, decisions.
+"""Agent store: snapshots, runs, votes (every round), discussions, decisions, LLM calls.
 Separate from the datafeed store."""
 
 from agents.store.base import AgentStore, RunRecord

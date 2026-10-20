@@ -7,7 +7,7 @@ from typing import Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
-from agents.schemas import DebateResult, Decision, Snapshot, TriggerEvent, UtcDatetime, Vote
+from agents.schemas import Decision, DiscussionResult, Snapshot, TriggerEvent, UtcDatetime, Vote
 
 
 class RunRecord(BaseModel):
@@ -31,7 +31,7 @@ class AgentStore(Protocol):
         """Called before any agent node runs. The same content again is a no-op."""
 
     def save_run(self, run: RunRecord, votes: Sequence[Vote], decisions: Sequence[Decision],
-                 debate: DebateResult | None = None) -> None:
+                 discussion: DiscussionResult | None = None) -> None:
         """Everything else about a run, in one transaction, written once."""
 
 
@@ -39,8 +39,8 @@ class StoreConflict(RuntimeError):
     pass
 
 
-def _check_types(run, votes, decisions, debate) -> None:
+def _check_types(run, votes, decisions, discussion) -> None:
     if not (isinstance(run, RunRecord) and all(isinstance(v, Vote) for v in votes)
             and all(isinstance(d, Decision) for d in decisions)
-            and (debate is None or isinstance(debate, DebateResult))):
-        raise TypeError("save_run takes a RunRecord, Votes, Decisions and an optional DebateResult")
+            and (discussion is None or isinstance(discussion, DiscussionResult))):
+        raise TypeError("save_run takes a RunRecord, Votes, Decisions and an optional DiscussionResult")
