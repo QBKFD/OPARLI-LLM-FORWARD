@@ -10,7 +10,7 @@ epoch_id = SHA-256 of the canonical JSON of epoch_inputs(). That JSON holds:
 - the output schema's SHA-256;
 - the snapshot schema version and the SHA-256 of the code that builds and
   renders the inputs;
-- the Meta rule name (and version, once Meta rules exist);
+- the Meta rule name and version (agents/meta);
 - the σ model and the scanner journal epoch, once the run knows them.
 
 Any change of any input is a new epoch, automatically: nobody bumps anything.
@@ -46,8 +46,9 @@ log = logging.getLogger(__name__)
 EPOCH_SCHEMA = 1
 PKG = Path(__file__).resolve().parent
 # the code that builds and renders what an agent sees
-INPUT_CODE = ("snapshot.py", "resample.py", "schemas.py", "hashing.py", "prompting/files.py",
-              "prompting/placeholders.py", "prompting/render.py", "prompting/output_schema.py")
+INPUT_CODE = ("snapshot.py", "resample.py", "schemas.py", "hashing.py", "evidence.py", "prompting/files.py",
+              "prompting/placeholders.py", "prompting/render.py", "prompting/output_schema.py",
+              "discussion/rule.py", "meta/rules.py")
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,9 @@ def epoch_inputs(prompts: Mapping[str, PromptFile | PromptProblem], cfg: OwnerCo
                  meta_rule_version: str | None = None, sigma_model_sha256: str | None = None,
                  journal_epoch: int | None = None, code_root: Path = PKG) -> dict[str, Any]:
     meta = cfg.meta()
+    if meta_rule_version is None:
+        from agents.meta import rule_version       # noqa: PLC0415 - meta imports the config, not the epoch
+        meta_rule_version = rule_version(cfg)
     return {
         "epoch_schema": EPOCH_SCHEMA,
         "prompts": {name: prompt_entry(p) for name, p in sorted(prompts.items())},

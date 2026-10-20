@@ -221,7 +221,7 @@ def test_without_a_client_the_stubs_stay(replay_db, owner):
     cfg = AgentsConfig.model_validate({"snapshot": {"mode": "replay"}})
     out = run_once(build_graph(cfg, MemoryStore(), replay_db, owner_config=owner),
                    TriggerEvent(source="test", t=T, trigger_id="1"))
-    assert all(v.abstain_reason.startswith("stub:") for v in out["votes"].values())
+    assert all(v.abstain_reason.startswith("stub:") for n, v in out["votes"].items() if n != "gex")
 
 
 def test_make_llm_voters_builds_every_llm_agent(owner):

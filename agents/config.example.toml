@@ -3,7 +3,7 @@
 # The agent store path comes from $AGENTS_DB (or SqliteAgentStore(path=...)),
 # the datafeed store from $DATAFEED_DB.
 
-node_timeout_s = 120            # per round-1 agent call; a timeout is an abstain
+node_timeout_s = 120            # per agent call (round 1 and each discussion round); a timeout is an abstain
 
 [snapshot]
 mode = "replay"                 # "live" or "replay"; required, no default
@@ -26,8 +26,5 @@ require_market_open = true
 "1h" = 1
 "4h" = 1
 
-[debate]
-enabled = false                 # round 2 (bull vs bear) is off by default
-max_rounds = 2                  # opening + one rebuttal
-judge = "code_v0"               # placeholder judge; an LLM judge is a later slot
-turn_timeout_s = 60
+# The discussion (rounds, early stop), the Meta rule and the LLM settings are
+# the owner's: agents.toml ($AGENTS_CONFIG), see agents/agents.example.toml.

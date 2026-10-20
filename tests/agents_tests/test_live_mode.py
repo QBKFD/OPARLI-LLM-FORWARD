@@ -23,7 +23,8 @@ from agents.prereg import ExperimentError
 from agents.schemas import TriggerEvent
 from agents.snapshot import LiveClockError, SealedError, Stale, build_snapshot
 from agents.store import SqliteAgentStore
-from agents_fakes import FakeBear, FakeBull, FixedVoter
+from agents_fakes import FakeDiscussant, FixedVoter
+from agents_testkit import write_test_prompts
 
 UTC = timezone.utc
 T_LIVE = datetime(2026, 10, 14, 14, 30, 30, tzinfo=UTC)          # Wednesday, after the seal
@@ -165,12 +166,11 @@ def test_live_cannot_read_sealed_history_at_an_arbitrary_t(experiments, live_db)
 def test_live_run_after_the_seal(experiments, live_db, tmp_path):
     from agents.voters import default_voters
     voters = default_voters()
-    voters.update(visual=FixedVoter("visual", "long"), technical=FixedVoter("technical", "long"))
-    cfg = AgentsConfig.model_validate({"snapshot": {"mode": "live", "experiment_id": EXP},
-                                       "debate": {"enabled": True}})
+    voters.update(visual=FakeDiscussant("visual", "long"), technical=FixedVoter("technical", "long"))
+    cfg = AgentsConfig.model_validate({"snapshot": {"mode": "live", "experiment_id": EXP}})
     store = SqliteAgentStore(str(tmp_path / "agents.sqlite"))
-    g = build_graph(cfg, store, live_db, voters=voters, debaters={"bull": FakeBull(n_valid=2), "bear": FakeBear()},
-                    clock=lambda: 0.0, wall_clock=WALL)
+    g = build_graph(cfg, store, live_db, voters=voters, clock=lambda: 0.0, wall_clock=WALL,
+                    prompts_dir=write_test_prompts(tmp_path / "prompts"))
     out = run_once(g, ev(T_LIVE), run_id="live1")
     assert out["status"] == "done"
     snap = store.load_snapshot(out["snap"].hash)
@@ -179,7 +179,7 @@ def test_live_run_after_the_seal(experiments, live_db, tmp_path):
     # known_by = t: the 13:00 history bar, backfilled after t, is invisible
     assert datetime(2026, 10, 14, 13, 0, tzinfo=UTC) not in {b.ts for b in snap.bars["1m"]}
     rows = store.con.execute("SELECT arm, experiment_id FROM decisions WHERE run_id = 'live1' ORDER BY arm")
-    assert [tuple(r) for r in rows] == [("blind", EXP), ("debate", EXP)]
+    assert [tuple(r) for r in rows] == [("blind", EXP), ("discussion", EXP)]
     assert store.con.execute("SELECT experiment_id FROM snapshots").fetchone()[0] == EXP
     loaded = store.load_run("live1")["decisions"]
     assert {d.experiment_id for d in loaded} == {EXP}
