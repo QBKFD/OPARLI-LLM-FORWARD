@@ -34,10 +34,17 @@
 # Install (as ubuntu):  crontab -e  and add
 #   */5 * * * * $HOME/oparli/deploy/scanner/watchdog.sh >> $HOME/scanner-watchdog.log 2>&1
 #
+# - Every run also writes health.json (HEALTH_JSON, default ~/scanner-health.json):
+#   green/yellow/red per component for the status board (python -m tools.status).
+#   The alert thresholds below come from tools/status/thresholds.toml, the one
+#   place thresholds are set; the numbers here are the fallback if it can't be
+#   read (a test keeps them equal).
+#
 # Test hooks: WATCHDOG_STATE (state file), WATCHDOG_NY_DOW / WATCHDOG_NY_HOUR
 # (override the New York weekday 1-7 and hour), WATCHDOG_NOW (epoch seconds),
 # WATCHDOG_MEMINFO (default /proc/meminfo), WATCHDOG_DISK_PATHS (default
-# "/ /var/lib/docker"), BACKUP_STATE (default ~/.scanner-backup).
+# "/ /var/lib/docker"), BACKUP_STATE (default ~/.scanner-backup), WATCHDOG_REPO
+# (repo root, default ../..), STATUS_PYTHON (default python3), HEALTH_JSON.
 set -uo pipefail
 cd "$(dirname "$0")" || exit 1
 
@@ -51,12 +58,28 @@ DAILY_HEARTBEAT_HOUR_UTC=7
 now=${WATCHDOG_NOW:-$(date +%s)}
 log() { echo "$(date -u '+%F %T') $*"; }
 
+REPO=${WATCHDOG_REPO:-$(cd ../.. && pwd)}
+STATUS_PY=${STATUS_PYTHON:-python3}
+HEALTH_JSON=${HEALTH_JSON:-$HOME/scanner-health.json}
+# alert thresholds from tools/status/thresholds.toml (the red values); keep the
+# numbers above if it can't be read
+if th=$(cd "$REPO" && "$STATUS_PY" -m tools.status.config --watchdog-env 2>&1); then
+  while IFS='=' read -r k v; do
+    case "$k" in
+      DISK_ALERT_PCT|MEM_AVAIL_MIN_PCT|BACKUP_MAX_AGE_H|RECORDER_LAG_MAX_MIN)
+        [[ "$v" =~ ^[0-9]+$ ]] && printf -v "$k" '%s' "$v" ;;
+    esac
+  done <<< "$th"
+else
+  log "thresholds.toml not read ($th); using the built-in alert thresholds"
+fi
+
 fails=0; last_alert=0; alerted=0; last_rc=-1; relogins=""
 hfails=0; halerted=0; last_halert=0
 rfails=0; ralerted=0; last_ralert=0
 last_rc_feed=-1; last_rc_rec=-1; last_salert=0
 al_disk=0; last_disk=0; al_mem=0; last_mem=0; al_backup=0; last_backup=0; al_lag=0; last_lag=0
-rej_reported=-1; last_rej=0; last_daily=-1
+rej_reported=-1; last_rej=0; last_daily=-1; rej_seen=-1; rej_grow_ts=0
 # shellcheck source=/dev/null
 [ -f "$STATE" ] && . "$STATE"
 save() {
@@ -70,6 +93,7 @@ save() {
       "$al_disk" "$last_disk" "$al_mem" "$last_mem" "$al_backup" "$last_backup"
     printf 'al_lag=%s\nlast_lag=%s\nrej_reported=%s\nlast_rej=%s\nlast_daily=%s\n' \
       "$al_lag" "$last_lag" "$rej_reported" "$last_rej" "$last_daily"
+    printf 'rej_seen=%s\nrej_grow_ts=%s\n' "$rej_seen" "$rej_grow_ts"
   } > "$STATE"
 }
 
@@ -128,6 +152,9 @@ if last:
         t += timedelta(minutes=1)
 print(lag, rej)"
 health() { docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$1" 2>/dev/null || echo missing; }
+cstate() { docker inspect -f '{{.State.Status}}' "$1" 2>/dev/null || echo missing; }
+# restarts since the previous run, or -1 when either count is unknown
+delta() { if [ "$1" -ge 0 ] && [ "$2" -ge 0 ]; then echo $(($2 - $1)); else echo -1; fi; }
 
 # market closed (Fri 17:00 -> Sun 17:00 NY): track state, but don't alert or restart
 u=${WATCHDOG_NY_DOW:-$(TZ=America/New_York date +%u)}
@@ -168,6 +195,7 @@ else
     fi
   fi
 fi
+rc_delta=$(delta "$last_rc" "$rc")
 last_rc=$rc
 
 # scanner heartbeat (compose healthcheck): a hung main loop
@@ -198,6 +226,7 @@ if [ "$quiet" = 0 ] && [ $((now - last_salert)) -ge 3600 ]; then
     last_salert=$now; log "datafeed crash-loop alert: $msg"
   fi
 fi
+feed_delta=$(delta "$last_rc_feed" "$rcf")
 last_rc_feed=$rcf; last_rc_rec=$rcr
 
 if [ "$(health scanner-redis-1)" != missing ]; then
@@ -240,6 +269,8 @@ if [ "$(health scanner-recorder-1)" != missing ]; then
     "⚠️ scanner datafeed: the store's newest live bar is ${lag} market-open min old (alert at ${RECORDER_LAG_MAX_MIN}) — check 'docker compose logs feed recorder'." \
     "✅ scanner datafeed: recorder caught up (lag ${lag} market-open min)."
   if [ "$rej" -ge 0 ]; then
+    if [ "$rej_seen" -ge 0 ] && [ "$rej" -gt "$rej_seen" ]; then rej_grow_ts=$now; fi
+    rej_seen=$rej
     if [ "$rej_reported" -lt 0 ]; then
       rej_reported=$rej                       # first look: the baseline, no alert
     elif [ "$rej" -gt "$rej_reported" ] && [ $((now - last_rej)) -ge 3600 ]; then
@@ -258,4 +289,47 @@ if [ "$day" != "$last_daily" ] && [ "$hour_utc" -ge "$DAILY_HEARTBEAT_HOUR_UTC" 
   tg "💓 scanner daily: gateway ${gw}; scanner ${hs}, ${rc} restarts; disk ${disk}%; memory ${mem}% available, swap ${swap_mb} MB; last backup ${backup_info}${datafeed_info}."
   last_daily=$day; log "daily heartbeat"
 fi
+
+# health.json for the status board: the facts above plus two probes that run
+# inside the containers, evaluated against thresholds.toml by tools/status
+write_health() {
+  local bs relogin_limit=0 stream_expected=0 backup_configured=0 backup_age=-1 n line
+  local -a facts probe
+  bs=$(val SCANNER_BAR_SOURCE); bs=${bs:-ibkr}
+  if [ "$bs" = stream ] || [[ "$(val COMPOSE_PROFILES)" == *stream* ]]; then stream_expected=1; fi
+  n=$(echo "$relogins" | wc -w | tr -d ' ')
+  [ "$n" -ge "$MAX_RELOGINS" ] && relogin_limit=1
+  if [ -n "$(val BACKUP_S3_URI)" ]; then
+    backup_configured=1
+    [ "${last_ok:-0}" -gt 0 ] && backup_age=$age_h
+  fi
+  facts=("now=$now" "market_open=$((1 - quiet))" "bar_source=$bs" "stream_expected=$stream_expected"
+         "gateway_ok=$gateway_ok" "gateway_fails=$fails" "gateway_relogin_limit=$relogin_limit"
+         "scanner_state=$(cstate scanner-scanner-1)" "scanner_health=$hs"
+         "scanner_unhealthy_checks=$hfails" "scanner_restarts_5min=$rc_delta"
+         "feed_state=$(cstate scanner-feed-1)" "feed_restarts_5min=$feed_delta"
+         "redis_state=$(cstate scanner-redis-1)" "redis_fails=$rfails"
+         "recorder_state=$(cstate scanner-recorder-1)" "recorder_lag_min=$lag"
+         "rejected_total=$rej" "rejected_last_growth_ts=$rej_grow_ts"
+         "backup_configured=$backup_configured" "backup_age_h=$backup_age"
+         "disk_pct=$disk" "mem_avail_pct=$mem" "swap_mb=$swap_mb" "agents_deployed=0")
+  if [ "$(cstate scanner-scanner-1)" = running ]; then
+    probe=()
+    while IFS= read -r line; do probe+=("$line"); done < <(timeout 60 docker compose exec -T scanner \
+      python - < "$REPO/tools/status/probes/journal_stats.py" 2>/dev/null)
+    [ "${#probe[@]}" -gt 0 ] || probe=("journal_ok=0" "journal_error=journal probe gave no output")
+  else
+    probe=("journal_ok=0" "journal_error=scanner container not running")
+  fi
+  facts+=("${probe[@]}")
+  if [ "$stream_expected" = 1 ] && [ "$(cstate scanner-recorder-1)" = running ]; then
+    probe=()
+    while IFS= read -r line; do probe+=("$line"); done < <(timeout 60 docker compose exec -T recorder \
+      python - < "$REPO/tools/status/probes/stream_stats.py" 2>/dev/null)
+    [ "${#probe[@]}" -gt 0 ] && facts+=("${probe[@]}")
+  fi
+  (cd "$REPO" && "$STATUS_PY" -m tools.status.write --out "$HEALTH_JSON" "${facts[@]}") \
+    || log "health.json not written"
+}
+write_health
 save
