@@ -45,6 +45,7 @@ from agents import __version__
 from agents.config import AgentsConfig
 from agents.discussion import discussants_of, make_discussion
 from agents.epoch import Epoch, compute_epoch, last_stored_inputs, version_warnings
+from agents.features import sigma_model_sha256
 from agents.hashing import canonical_json
 from agents.nodes import gate
 from agents.meta import meta_decision
@@ -118,7 +119,8 @@ def build_graph(config: AgentsConfig, store: AgentStore, db=None, *,
         raise ExperimentError("live mode needs snapshot.experiment_id with a PREREG under agents/experiments/")
     owner = owner_config or OwnerConfig.load()
     prompts = load_all(prompts_dir)
-    epoch = compute_epoch(prompts, owner, journal_epoch=journal_epoch)
+    epoch = compute_epoch(prompts, owner, journal_epoch=journal_epoch,
+                          sigma_model_sha256=sigma_model_sha256(config.snapshot.sigma_model))
     if voters is None:
         voters = default_voters()
         if llm_client is not None:

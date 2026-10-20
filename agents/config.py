@@ -37,6 +37,10 @@ class SnapshotConfig(_Cfg):
     # agents/experiments/<experiment_id>/PREREG.md. Required in live mode;
     # optional in replay. Stored on every snapshot and decision.
     experiment_id: str | None = None
+    # The HAR σ model for the snapshot features (a name in
+    # datafeed.features.vol_block.SIGMA_MODELS, SHA-256 checked on load). None:
+    # no features, marked unavailable with the reason. It enters the epoch.
+    sigma_model: str | None = None
 
     @model_validator(mode="after")
     def _check(self):

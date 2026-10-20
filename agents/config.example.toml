@@ -10,6 +10,7 @@ mode = "replay"                 # "live" or "replay"; required, no default
 symbol = "XAUUSD"
 fetch_lookback = "P30D"
 max_staleness = "PT5M"
+sigma_model = "parquet2021_2023"  # HAR σ for the features (vol_block.SIGMA_MODELS); omit = no features
 
 [snapshot.keep]                 # bars kept per timeframe
 "1m" = 240
