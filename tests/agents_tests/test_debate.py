@@ -105,9 +105,12 @@ def test_check_ref(snap, ref, ok):
 
 def test_level_feature_event_refs_resolve_when_present(snap):
     from agents.schemas import Event, Level, Snapshot
-    rich = Snapshot(**{**snap.model_dump(exclude={"hash", "levels", "features", "events"}),
-                       "levels": (Level(id="pdh", price=3350.0),), "features": {"atr_14": 1.2},
-                       "events": (Event(id="nfp-2025-06", ts=datetime(2025, 6, 6, 12, 30, tzinfo=UTC)),)})
+    filled = {"levels", "features", "events"}
+    rich = Snapshot(**{**snap.model_dump(exclude={"hash", "unavailable", *filled}),
+                       "levels": (Level(id="pdh", type="PDH", value=3350.0, active_from=snap.as_of),),
+                       "features": {"atr_14": 1.2},
+                       "events": (Event(id="nfp-2025-06", ts=datetime(2025, 6, 6, 12, 30, tzinfo=UTC)),),
+                       "unavailable": {k: v for k, v in snap.unavailable.items() if k not in filled}})
     assert [check_ref(r, rich) for r in ("level:pdh", "feature:atr_14", "event:nfp-2025-06")] == [None] * 3
 
 

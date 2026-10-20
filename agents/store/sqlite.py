@@ -1,6 +1,8 @@
 """SQLite agent store. Its own file ($AGENTS_DB), separate from the datafeed store.
 
-Tables (migration 1; migration 2 adds experiment_id to snapshots and decisions):
+Tables (migration 1; migration 2 adds experiment_id to snapshots and decisions;
+migration 3 adds the epoch: runs.epoch_id and runs.epoch_inputs_json, and on
+every decision epoch_id, owner_config_sha256 and prompts_sha256_json):
   snapshots     one row per snapshot hash; canonical content JSON
   runs          one row per trigger: done, or skipped + reason
   votes         round-1 votes (round 1 = blind)
@@ -120,7 +122,19 @@ ALTER TABLE decisions ADD COLUMN experiment_id TEXT;
 CREATE INDEX decisions_experiment ON decisions (experiment_id);
 """
 
-MIGRATIONS = [(1, _V1), (2, _V2)]
+# Agents v2, job 2: the epoch and the SHA-256 of the owner's config and prompts
+# on every run and decision (docs/AGENTS_ARCHITECTURE.md §7, §8).
+_V3 = """
+ALTER TABLE runs ADD COLUMN epoch_id TEXT;
+ALTER TABLE runs ADD COLUMN epoch_inputs_json TEXT;
+ALTER TABLE decisions ADD COLUMN epoch_id TEXT;
+ALTER TABLE decisions ADD COLUMN owner_config_sha256 TEXT;
+ALTER TABLE decisions ADD COLUMN prompts_sha256_json TEXT;
+CREATE INDEX runs_epoch ON runs (epoch_id);
+CREATE INDEX decisions_epoch ON decisions (epoch_id);
+"""
+
+MIGRATIONS = [(1, _V1), (2, _V2), (3, _V3)]
 
 
 def _utcnow() -> str:
@@ -230,10 +244,14 @@ class SqliteAgentStore:
         c = self.con
         c.execute("BEGIN IMMEDIATE")
         try:
-            c.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            c.execute("INSERT INTO runs (run_id, trigger_source, trigger_id, trigger_t, trigger_payload_json,"
+                      " as_of, status, skip_reason, snapshot_hash, config_json, config_hash, code_version,"
+                      " created_ts, epoch_id, epoch_inputs_json)"
+                      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                       (run.run_id, run.trigger.source, run.trigger.trigger_id, _iso(run.trigger.t),
                        canonical_json(run.trigger.payload), _iso(run.as_of), run.status, run.skip_reason,
-                       run.snapshot_hash, run.config_json, run.config_hash, run.code_version, now))
+                       run.snapshot_hash, run.config_json, run.config_hash, run.code_version, now,
+                       run.epoch_id, run.epoch_inputs_json))
             for v in votes:
                 c.execute(f"INSERT INTO votes (run_id, round, agent, direction, confidence, reason, abstain,"
                           f" abstain_reason, {', '.join(META)}, created_ts)"
@@ -255,11 +273,12 @@ class SqliteAgentStore:
                                      f"its snapshot has {snap_exp[0]!r}")
                 c.execute(f"INSERT INTO decisions (run_id, arm, snapshot_hash, direction, reason, decided_by,"
                           f" debate_outcome, debate_max_rounds, entry, sl, tp, size, sigma, experiment_id,"
-                          f" {', '.join(META)}, created_ts)"
-                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          f" {', '.join(META)}, created_ts, epoch_id, owner_config_sha256, prompts_sha256_json)"
+                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (d.run_id, d.arm, d.snapshot_hash, d.direction, d.reason, d.decided_by,
                            deb.outcome if deb else None, deb.max_rounds if deb else None,
-                           d.entry, d.sl, d.tp, d.size, d.sigma, d.experiment_id, *_meta(d), now))
+                           d.entry, d.sl, d.tp, d.size, d.sigma, d.experiment_id, *_meta(d), now,
+                           d.epoch_id, d.owner_config_sha256, canonical_json(d.prompts_sha256)))
             c.execute("COMMIT")
         except BaseException:
             c.execute("ROLLBACK")
@@ -286,6 +305,7 @@ class SqliteAgentStore:
         run = RunRecord(run_id=r["run_id"], as_of=r["as_of"], status=r["status"], skip_reason=r["skip_reason"],
                         snapshot_hash=r["snapshot_hash"], config_json=r["config_json"],
                         config_hash=r["config_hash"], code_version=r["code_version"],
+                        epoch_id=r["epoch_id"], epoch_inputs_json=r["epoch_inputs_json"],
                         trigger={"source": r["trigger_source"], "trigger_id": r["trigger_id"],
                                  "t": r["trigger_t"], "payload": json.loads(r["trigger_payload_json"])})
         meta = lambda row: {k: row[k] for k in META}                      # noqa: E731
@@ -297,7 +317,10 @@ class SqliteAgentStore:
         decisions = tuple(Decision(run_id=d["run_id"], snapshot_hash=d["snapshot_hash"], arm=d["arm"],
                                    direction=d["direction"], reason=d["reason"], decided_by=d["decided_by"],
                                    entry=d["entry"], sl=d["sl"], tp=d["tp"], size=d["size"], sigma=d["sigma"],
-                                   experiment_id=d["experiment_id"], **meta(d)) for d in rows)
+                                   experiment_id=d["experiment_id"], epoch_id=d["epoch_id"],
+                                   owner_config_sha256=d["owner_config_sha256"],
+                                   prompts_sha256=json.loads(d["prompts_sha256_json"] or "{}"),
+                                   **meta(d)) for d in rows)
         debate = None
         deb_row = next((d for d in rows if d["arm"] == "debate"), None)
         if deb_row is not None:
