@@ -12,7 +12,7 @@ import deterministic_scanner as ds
 from datafeed.bus import InMemoryBus
 from datafeed.ingest.xauusd_bars import STREAM
 
-from scanner_helpers import FakeLive, Log, bar_msg
+from scanner_helpers import FakeLive, Log, bar_msg, tg_msg
 
 T = lambda s: pd.Timestamp(s, tz="UTC")   # noqa: E731
 
@@ -91,7 +91,7 @@ def test_missed_alerts_are_never_decided_but_get_counterfactuals(tmp_path):
                       index=pd.date_range("2025-06-16", periods=600, freq="1min", tz="UTC"))
     assert ds.sweep_counterfactuals(con, df, T("2025-06-16 08:00")) == 2
     tg = type("Tg", (), {"sent": [], "send": lambda self, t: self.sent.append(t)})()
-    ds._handle_reply(con, threading.Lock(), tg, "A20250616-001 SKIP late", 2)
+    ds._handle_reply(con, threading.Lock(), tg, tg_msg("A20250616-001 SKIP late"), 2)
     assert tg.sent == ["unknown alert_id A20250616-001"]              # never shown, can't be decided
 
 

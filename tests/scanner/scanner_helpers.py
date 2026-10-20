@@ -34,6 +34,13 @@ def make_bus(kind):
     return InMemoryBus() if kind == "memory" else redis_bus()
 
 
+def tg_msg(text: str, update_id: int = 1, date: str = "2025-10-14 01:30:00"):
+    """A Telegram reply as the scanner receives it: update id, message date (UTC), text."""
+    import pandas as pd
+    import deterministic_scanner as ds
+    return ds.TelegramMessage(update_id, pd.Timestamp(date, tz="UTC"), text)
+
+
 class FakeLive:
     """Stands in for LiveLevels: records bars, returns scripted alerts per bar_ts.
     Like LiveLevels it keeps every bar it has seen in .hist (warm-up included)."""
