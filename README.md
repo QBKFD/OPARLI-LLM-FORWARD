@@ -1,74 +1,85 @@
 # OPARLI
 
-Research and tooling for spot gold (XAUUSD). One small thing runs in
-production: a deterministic level scanner that alerts on Telegram and logs
-the owner's decisions. Everything else is research, a data feed that is built
-but not deployed, or legacy code kept as a port source.
+Research and tooling for spot gold (XAUUSD) on 1-minute bars. One service runs
+in production: a deterministic level scanner that sends Telegram alerts and
+journals the owner's TAKE/SKIP replies. Nothing here trades.
 
-It does not trade. Not investment advice.
+Diagrams and a map of every file and store:
+[docs/ARCHITECTURE_CURRENT.md](docs/ARCHITECTURE_CURRENT.md).
 
-## What runs in production
+## What runs
 
-**The deterministic level scanner.**
+- **Production: the level scanner**
+  - **Code:** `backend/deterministic_scanner.py`.
+  - **Deployment:** the `deploy/scanner/` Docker stack (IB Gateway + scanner)
+    on one EC2 host, plus host crons `watchdog.sh` (every 5 min) and
+    `backup.sh` (daily, to S3).
+  - **Alerts:** on the first touch of 12 level types: previous day/week
+    high/low, day/week open, and Asia/London/NY session high/low.
+  - **Journal:** replies go to SQLite. Every 5 minutes it marks unanswered
+    alerts MISSED, adds 1h/4h counterfactuals and scores TAKEs with
+    `scoring/`.
+- **The host's commit isn't tracked in git.** On 2026-10-18 the host ran
+  branch `pipeline-fixes-and-cleanup` (PR #18). That branch has none of
+  main's journal migrations, TAKE scoring, backups or stream mode.
+- **Built, not running:**
+  - the datafeed `stream` profile (opt-in);
+  - the agents graph;
+  - the LLM agents, which live on the unmerged `feat/agents-*` branches.
 
-- **Code:** `backend/deterministic_scanner.py`, plus the IBKR connector
-  `backend/services/tws_connector.py`.
-- **Deployment:** a two-container Docker stack (IB Gateway + scanner) from
-  `deploy/scanner/` on one AWS EC2 host. A host-cron `watchdog.sh` probes the
-  gateway every 5 minutes, alerts on Telegram and re-logs the gateway in when
-  it stays down.
-- **What it does:**
-  1. Builds 1-min bars from IBKR bid/ask midpoints.
-  2. Computes 12 level types (previous day/week high/low, day/week open,
-     Asia/London/NY session high/low; UTC days and sessions).
-  3. Alerts Telegram on the first touch of a level.
-  4. Records `TAKE`/`SKIP` replies in an append-only SQLite journal, and fills
-     in counterfactual 1h/4h MFE/MAE later.
-- **What it doesn't use:** no LLM, no Postgres, no agents.
-- **Data it keeps:** bars live only in memory (about 10 days, reloaded from
-  IBKR on every restart). Only the decision journal is persisted.
+## Packages
+
+| Path | Status |
+|---|---|
+| `backend/` | **production**: the scanner, `journal_summary.py` (read-only daily summary), `services/tws_connector.py` (IBKR) |
+| `deploy/scanner/` | **production** stack: compose, entrypoint, watchdog, backup/restore; the `stream` profile is opt-in |
+| `scoring/` | **production** inside the scanner image: TAKE outcomes. `score_neutral` (k·σ bracket) has no caller yet |
+| `risk/` | `bracket` is used through `scoring`; `sizing` has no caller |
+| `datafeed/` | built and tested, runs only in the `stream` profile: IBKR → Redis → point-in-time SQLite (`bars_before`); HAR σ in `features/vol_block.py` |
+| `agents/` | v0 skeleton, not deployed: LangGraph graph, snapshot, store. The three voters are stubs that abstain; no LLM, no trigger |
+| `research/` | 12 pre-registered studies, below; index in [research/README.md](research/README.md) |
+| `tools/` | IBKR history fetch, calendar scraper, σ calibration, IBKR duration check |
+| `tests/` | datafeed, scanner, deploy, agents, risk, scoring |
+| `deploy/datafeed/` | local replay stack only |
+| `legacy/` | the old agent framework: port source, never imported ([legacy/PORT_CANDIDATES.md](legacy/PORT_CANDIDATES.md)) |
+| `docs/` | architecture, [deploy runbook](docs/DEPLOY_RUNBOOK.md), design notes |
+
+## Study verdicts
+
+| Study | Verdict |
+|---|---|
+| `vol_features` r1–r3 | 3 volatility features don't replace the 13 at 4h (r1); r2 and r3 fail the no-clock rule, r3 narrowly |
+| `vol_block` | L, S_hd, T locked as an engineering decision |
+| `trend_features` | not recommended (the 24h rule fails by 0.00007) |
+| `regime_v2` | jump-model regimes add nothing over L terciles |
+| `levels` | 0 of 6 hypotheses supported; PDH/PDL breaks continue less than placebo breaks |
+| `levels_confirm` | rejected: near-open breaks continued more, not less (+11.3 pp) |
+| `levels_diag` | stopped at machinery validation (bootstrap coverage outside 93–97 %) |
+| `sigma_compare` | HAR σ replaces the plug-in (QLIKE −18 % at 60 min, −16 % at 240) |
+| `agents_v1` | draft PREREG; no agent code |
+| `level_target` | spec only |
+
+Data periods ([research/SEALING.md](research/SEALING.md)): 2024-01-01 to
+2026-01-30 is spent (read once by `levels_confirm`), and data from 2026-10-01
+is sealed.
+
+## Install and test
 
 ```
-python backend/deterministic_scanner.py --selftest   # needs pandas, pyarrow and the local parquet
+python3.13 -m venv .venv
+.venv/bin/pip install --require-hashes -r requirements.lock
+.venv/bin/pip install --no-deps --no-build-isolation -e .
+.venv/bin/pytest -m "not ibkr"
+.venv/bin/python backend/deterministic_scanner.py --selftest
 ```
 
-## Folders
-
-| Folder | Status | Contents |
-|---|---|---|
-| `backend/` | **production** | `deterministic_scanner.py`, `services/tws_connector.py`, `services/__init__.py`. Nothing else |
-| `deploy/scanner/` | **production** | Dockerfile, compose file (IB Gateway + scanner), entrypoint, host-cron `watchdog.sh`, `.env.example` |
-| `datafeed/` | built, **not deployed** | Datafeed v1: IBKR or parquet-replay bars → Redis stream → recorder → point-in-time SQLite store, read back with `bars_before(symbol, t, lookback)`. See [datafeed/README.md](datafeed/README.md) |
-| `deploy/datafeed/` | local only | Compose file for running the datafeed locally in replay mode. Never deployed |
-| `tests/` | active | `tests/datafeed/`: the datafeed test suite |
-| `research/` | active | Pre-registered studies, each with its PREREG/DECISIONS/REPORT: `levels`, `levels_confirm`, `levels_diag`, `vol_block`, `vol_features` (r1–r3), `trend_features`, `regime_v2`. Shared code in `research/_shared/`. Data from 2026-10-01 is sealed ([research/SEALING.md](research/SEALING.md)) |
-| `tools/` | utilities | `tools/data/fetch_data_xauusd.py` (IBKR 1-min MIDPOINT history fetch: data provenance), `tools/scraper_fxfac/` (Forex Factory calendar scraper, for rebuilding the historical event file) |
-| `database/` | data notes | `historical_news/DATA_NOTES_events.md` (calendar timezone rules). The data files themselves (`ohlcv_data/`, calendar exports) are local and not in git |
-| `legacy/` | **port source only** | The old multi-agent framework (FastAPI app, bus agents, services, frontend, regime classifier, notebooks, old scripts). Unmaintained, not deployed, never imported, excluded from tests. See [legacy/README.md](legacy/README.md) and [legacy/PORT_CANDIDATES.md](legacy/PORT_CANDIDATES.md) |
-| `docs/` | docs | Survey and work notes (below) |
-
-## Tests
-
-```
-python3.13 -m venv .venv && .venv/bin/pip install -e '.[feed,replay,dev]'
-.venv/bin/pytest            # research/ + tests/, never legacy/
-```
-
-- **Research suites need extra packages.** They also import scipy, matplotlib
-  and numba, and several read the local parquet
-  (`database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet`, not in git).
-- **Datafeed tests that need a throwaway Redis** run only when
-  `REDIS_TEST_URL` is set.
-
-## Docs
-
-- [docs/ARCHITECTURE_MAP.md](docs/ARCHITECTURE_MAP.md),
-  [docs/REPO_MAP.md](docs/REPO_MAP.md): surveys of the repo **before** the
-  phase 1 cleanup (old paths).
-- [docs/DATAFEED_NOTES.md](docs/DATAFEED_NOTES.md): the scanner's bar
-  contract, datafeed decisions, open questions, scanner-switch plan.
-- [docs/CLEANUP_NOTES.md](docs/CLEANUP_NOTES.md): what the cleanup moved,
-  deleted and verified (old → new paths).
+- **Redis tests** run when `REDIS_TEST_URL` points at a throwaway database,
+  e.g. `redis://localhost:6379/15` (the tests flush it). Otherwise they skip.
+- **Data tests** need the untracked files in `database/ohlcv_data/` and
+  `research/*/cache/`, and skip themselves without them. The selftest needs
+  the parquet. CI has none of these files, so they run only locally.
+- **IBKR tests** are manual: `-m ibkr` with `DATAFEED_IBKR_LIVE=1`, against a
+  paper gateway only.
 
 ## Disclaimer
 
