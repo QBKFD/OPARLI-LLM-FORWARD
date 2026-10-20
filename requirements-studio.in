@@ -1,0 +1,9 @@
+# LangGraph Studio's local dev server (`langgraph dev`), for debugging the
+# agents graph on a laptop: docs/LANGGRAPH_STUDIO.md. Not used by CI, the
+# tests, the scanner image or any deployment, so it stays out of
+# requirements.lock. Pinned to a release at least two weeks old on 2026-10-17.
+langgraph-cli[inmem]==0.4.32
+# the editable install of this repo (pip install --no-build-isolation -e .)
+# needs the build backend in the venv
+setuptools==84.0.0
+wheel==0.48.0

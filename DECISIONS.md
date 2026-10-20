@@ -59,10 +59,26 @@ conservative option, log it here, continue.
 | D19 | The daily Telegram heartbeat goes out on the first run at or after 07:00 UTC, **every day, weekends included**. It summarises gateway, scanner health and restarts, disk, memory and swap, last backup, and recorder lag and rejected count. | Silence on any day means the watchdog or cron is broken. | Weekdays only. |
 | D20 | In stream mode, the entrypoint's Redis wait times out after `REDIS_WAIT_TRIES` × 5 s (default 120, so 10 min, as the gateway wait). Then it sends one Telegram alert and exits 1; it doesn't start the scanner anyway. The alert is at most hourly, via a marker file on the `/data` volume, because Docker restarts it into the next 10-min wait. Sent with Python's urllib (the image has no curl); no token means no send. | One clear alert per hour instead of a crash loop without context; never one alert per restart. | Alert every time; start the scanner anyway (the old behaviour). |
 
-## feat/status-board
+## feat/langgraph-studio
 
-Written 2026-10-17, ops terminal: `health.json` from the watchdog,
-`tools/status` (thresholds, writer, reader, `--once`, the Textual board).
+Overnight run, 2026-10-17, unattended. Rule: on any decision, take the
+conservative option, log it here, continue. How to use it:
+`docs/LANGGRAPH_STUDIO.md`.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| S1 | **The Studio tooling stays out of `requirements.lock` and `pyproject.toml`.** `langgraph-cli[inmem]==0.4.32` and its 35 packages are pinned with hashes in `requirements-studio.lock`, compiled with `requirements.lock` as constraints, so every project pin is unchanged (a test checks this). It installs into a separate `.venv-studio`. | CI, the tests, the scanner image and the deploy stack don't change. The project venv keeps matching its lock. | A `studio` extra in `pyproject.toml`, which pulls the server (uvicorn, grpcio, OpenTelemetry…) into the main lock. |
+| S2 | **Versions at least two weeks old:** everything is resolved with `--exclude-newer 2026-10-03`. That gives langgraph-cli 0.4.32 (2026-09-23), langgraph-api 0.15.1 and langgraph-runtime-inmem 0.35.1. The server prints a "Critical support" notice for langgraph-api 0.15.1, but 0.16.x is 2 days old. | The repo's two-week rule (requirements.cutoff.txt); a local debug tool. | Take 0.16.1 now. |
+| S3 | **Replay only.** `make_graph` refuses a live-mode config. The agent store is in memory (`MemoryStore`). The datafeed store is `$STUDIO_DATAFEED_DB` or a synthetic one. | Studio can't write evidence rows, can't use live mode, and the seal holds (a sealed `t` raises `SealedError`, checked through the server). | A SQLite agent store, or live mode with an experiment. |
+| S4 | **Parquet replay stores for Studio stop at 2021-01-01** (`build-db --parquet` refuses a later end). | Debugging looks only at the development period: no holdout, spent or sealed bars. | Any pre-seal window. |
+| S5 | **The synthetic data moves from `tests/agents_tests/agents_testkit.py` into `tools/langgraph_studio/studio.py`.** The test kit loads it by file path and re-exports it, so there is one copy. The walk is the same byte for byte: a SHA-256 of the rows is pinned in `test_studio.py` and equals the old test kit's output. | No duplicated generator; every replay-based test keeps its data. | Keep two copies, or import test helpers from the package. |
+| S6 | **`make_graph` is async and builds the graph once per process** in a worker thread. The server calls the factory on its event loop for every run, and its blocking-call guard (blockbuster) failed the first version on `os.getcwd`. | No blocking I/O on the server's loop. One graph, one store, the same config for every run. | `--allow-blocking`, which hides real blocking calls in graph code. |
+| S7 | **Prebuilding the store is step 1 of the doc.** Inside the server, building the synthetic store took ~16 s (it takes 0.4–0.7 s from the CLI) and logs a "Slow graph load" error. With a prebuilt store, the first run takes 0.85 s. The cause inside the server wasn't investigated further; the Recorder's per-bar commits are the likely cost under the server's instrumentation. | Measured, documented and avoided, without touching `datafeed/` (another session owns it). | Optimise the Recorder's commits. |
+| S8 | `langgraph.json` has an **empty `env`**: no keys, no `.env` file. The doc starts the server with `LANGGRAPH_CLI_NO_ANALYTICS=1` and `LANGSMITH_TRACING=false`. | No secret in the repo, and no telemetry by default. | An `.env` file referenced from `langgraph.json`. |
+| S9 | **The entry point lives in `tools/langgraph_studio/`, not in the `agents` package.** It records bars through datafeed's bus, recorder and schema, and `tests/agents_tests/test_agents_package.py` allows the package only `datafeed.store.query` and `datafeed.ingest.xauusd_bars`. It is loaded by file path (langgraph.json, the test kit), as `tests/scanner` loads the scanner. | The package boundary and its test are unchanged. | Widen the boundary test. |
+| S10 | No PR merge, nothing deployed; the branch is off `origin/main` @ 9cbf4fc. | The overnight rules. | none |
+
+## fix/journal-scoring (merged in #18)
 
 | # | Decision | Conservative because | Alternative |
 |---|---|---|---|
@@ -79,6 +95,25 @@ Written 2026-10-17, ops terminal: `health.json` from the watchdog,
 | J11 | `docs/ARCHITECTURE_MAP.md` and `docs/REPO_MAP.md` still say `record_outcome` has no caller. They are dated maps of the cleanup and are left as written. | No edits to historical snapshots. | Update both. |
 | J12 | mypy: `journal_summary.py` passes `--strict`. In the scanner file mypy reports the same 16 findings as on `main`, none new; the old code isn't retyped. | No edits to the calibrated scanner beyond the fix. | Make the whole file mypy-clean. |
 
+## feat/status-board (merged in #20)
+
+Written 2026-10-17, ops terminal: `health.json` from the watchdog,
+`tools/status` (thresholds, writer, reader, `--once`, the Textual board).
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| S1 | The watchdog (bash) only **collects** facts and passes them as `key=value` to `python3 -m tools.status.write`, which evaluates them and writes `health.json`. The JSON and the thresholds logic are in Python, not bash. | Testable pure functions; no JSON built by hand in shell. | Build the JSON in bash. |
+| S2 | **One thresholds file**, `tools/status/thresholds.toml`. The watchdog reads its four alert thresholds from it (the `red` values) and keeps its old constants as a fallback if the file can't be read. A test pins the fallback numbers to the file. | One source of truth, and a broken file can't silence the alerts. | Separate numbers for alerts and board. |
+| S3 | A missing or malformed fact is **red** ("no data: …"), never green or yellow. | Unknown is never reported as fine. | Yellow for unknown. |
+| S4 | Components that aren't part of the deployment are status green with `deployed: false`, shown **OFF**: Redis and recorder without the stream profile, agents for now. "Expected" comes from `.env` (`SCANNER_BAR_SOURCE=stream` or `stream` in `COMPOSE_PROFILES`); an expected container that is missing is **red**. | No permanent yellow for parts that don't exist, but a vanished container is never mistaken for one that isn't deployed. | Yellow for not deployed; a fourth status. |
+| S5 | Stale (`stale_after_s` = 900 s, 3 missed runs), missing, invalid, truncated, future-dated (> 2 min, flagged only) or oversized files: every component **red**, OFF ones included, with the last known state in the reason. | A board that can't know shows red. | Grey out a stale board. |
+| S6 | Bar ages (feed, scanner, recorder) count **market-open minutes** (datafeed's `_market_open`), as the scanner's own staleness rules do. | No yellow every weekend and every daily break. | Wall-clock ages. |
+| S7 | Two probes run inside the containers, fed on stdin (`docker compose exec -T … python - < probe.py`): the journal (read-only, `mode=ro`) in the scanner container, the newest live stream bar in the recorder container. They report failures as facts (`journal_ok=0`, `feed_probe_error=…`). | No new files in the image; real, linted, tested files instead of inline `python -c` strings; a probe failure is red, never a watchdog crash. | Inline `-c` snippets; copy the probes into the image. |
+| S8 | **Textual 8.2.8** (released 2026-06-30) as the `status` extra; the main lock gains 7 packages, no existing pin moves; `platformdirs` capped at 4.12.2 (its newest is from 2026-10-16). `tools/status/requirements-status.lock` is a verbatim, test-checked subset for a host venv. `--once` and the writer are stdlib only. | Two-week rule kept; the host needs no packages for `--once`; the board installs hash-locked without the full lock. | Unhashed `pip install textual`; curses. |
+| S9 | `--once` exits 0 / 1 / 2 for green / yellow / red (OFF ignored), and colours only on a terminal without `NO_COLOR` or `TERM=dumb`; the status is always printed as a word. | Scriptable over ssh, readable without colour. | Always exit 0. |
+| S10 | The journal component counts today's **first** decisions per alert (as PR #18 does) and turns yellow when a sent alert of today has waited ≥ 60 min. The probe works on journals before and after PR #18's migration 4. | Same counting rule as the journal summary; no dependency on #18 merging first. | Count every decision row. |
+| S11 | `agents` is always reported as not deployed (`agents_deployed=0`) until an agents runner exists to report a last run; the evaluator already handles a deployed agents component. | No guessing where a future runner keeps its state. | Read `$AGENTS_DB` from the host. |
+
 ## feat/datafeed-spread
 
 Built 2026-10-15 as WIP (3a9e0d9, b05bafe), finished 2026-10-20 in the ops
@@ -93,17 +128,7 @@ the agents PREREG. `origin/main` was merged in (no rebase); no conflicts.
 | SP4 | The message fields are optional and come as a set of four; the recorder rejects a partial or non-finite set (stage `invalid`). History and replay messages carry none: **replay parity checked**, 30,087 replay messages for May 2025 identical to `main`. | Only additive change on the bus; no consumer has to change. | Always-present nullable fields (changes every message). |
 | SP5 | `tools/spread_by_hour.py`: per hour of day (UTC or `--tz`) bars, quotes, quote-weighted mean, median of bar medians, p90 of bar means, max. Read-only; a missing store or one from before migration 4 exits 2 with the reason (it never migrates). | Production's store is still at version 3 until the recorder restarts; the tool must not write it. | Migrate on open. |
 | SP6 | mypy: the tool passes `--strict`; the three findings in `xauusd_bars.py` predate the branch (one sits on the `Bar(...)` line the WIP re-wrapped, unchanged). | No unrelated edits. | Retype the module. |
-| S1 | The watchdog (bash) only **collects** facts and passes them as `key=value` to `python3 -m tools.status.write`, which evaluates them and writes `health.json`. The JSON and the thresholds logic are in Python, not bash. | Testable pure functions; no JSON built by hand in shell. | Build the JSON in bash. |
-| S2 | **One thresholds file**, `tools/status/thresholds.toml`. The watchdog reads its four alert thresholds from it (the `red` values) and keeps its old constants as a fallback if the file can't be read. A test pins the fallback numbers to the file. | One source of truth, and a broken file can't silence the alerts. | Separate numbers for alerts and board. |
-| S3 | A missing or malformed fact is **red** ("no data: …"), never green or yellow. | Unknown is never reported as fine. | Yellow for unknown. |
-| S4 | Components that aren't part of the deployment are status green with `deployed: false`, shown **OFF**: Redis and recorder without the stream profile, agents for now. "Expected" comes from `.env` (`SCANNER_BAR_SOURCE=stream` or `stream` in `COMPOSE_PROFILES`); an expected container that is missing is **red**. | No permanent yellow for parts that don't exist, but a vanished container is never mistaken for one that isn't deployed. | Yellow for not deployed; a fourth status. |
-| S5 | Stale (`stale_after_s` = 900 s, 3 missed runs), missing, invalid, truncated, future-dated (> 2 min, flagged only) or oversized files: every component **red**, OFF ones included, with the last known state in the reason. | A board that can't know shows red. | Grey out a stale board. |
-| S6 | Bar ages (feed, scanner, recorder) count **market-open minutes** (datafeed's `_market_open`), as the scanner's own staleness rules do. | No yellow every weekend and every daily break. | Wall-clock ages. |
-| S7 | Two probes run inside the containers, fed on stdin (`docker compose exec -T … python - < probe.py`): the journal (read-only, `mode=ro`) in the scanner container, the newest live stream bar in the recorder container. They report failures as facts (`journal_ok=0`, `feed_probe_error=…`). | No new files in the image; real, linted, tested files instead of inline `python -c` strings; a probe failure is red, never a watchdog crash. | Inline `-c` snippets; copy the probes into the image. |
-| S8 | **Textual 8.2.8** (released 2026-06-30) as the `status` extra; the main lock gains 7 packages, no existing pin moves; `platformdirs` capped at 4.12.2 (its newest is from 2026-10-16). `tools/status/requirements-status.lock` is a verbatim, test-checked subset for a host venv. `--once` and the writer are stdlib only. | Two-week rule kept; the host needs no packages for `--once`; the board installs hash-locked without the full lock. | Unhashed `pip install textual`; curses. |
-| S9 | `--once` exits 0 / 1 / 2 for green / yellow / red (OFF ignored), and colours only on a terminal without `NO_COLOR` or `TERM=dumb`; the status is always printed as a word. | Scriptable over ssh, readable without colour. | Always exit 0. |
-| S10 | The journal component counts today's **first** decisions per alert (as PR #18 does) and turns yellow when a sent alert of today has waited ≥ 60 min. The probe works on journals before and after PR #18's migration 4. | Same counting rule as the journal summary; no dependency on #18 merging first. | Count every decision row. |
-| S11 | `agents` is always reported as not deployed (`agents_deployed=0`) until an agents runner exists to report a last run; the evaluator already handles a deployed agents component. | No guessing where a future runner keeps its state. | Read `$AGENTS_DB` from the host. |
+
 ## feat/agents-architecture
 
 Written 2026-10-17, design only (no code): `docs/AGENTS_ARCHITECTURE.md` and
