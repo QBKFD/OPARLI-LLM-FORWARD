@@ -268,6 +268,21 @@ class Snapshot(_Frozen):
 
 # ---------------------------------------------------------------- votes
 
+class Evidence(_Frozen):
+    """One claim of an LLM vote and the ref it rests on. `valid` is set by the
+    evidence check in code (check_ref), never by the model."""
+    ref: str
+    claim: str = Field(max_length=200)
+    valid: bool | None = None
+    invalid_reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if (self.valid is False) != (self.invalid_reason is not None):
+            raise ValueError("invalid_reason is set exactly when valid is False")
+        return self
+
+
 class Vote(_ModelMeta):
     agent: str = Field(min_length=1)
     round: int = Field(1, ge=1)          # 1 = blind
@@ -276,6 +291,8 @@ class Vote(_ModelMeta):
     reason: str = ""
     abstain: bool = False
     abstain_reason: str | None = None
+    evidence: tuple[Evidence, ...] = ()  # LLM votes; empty for code agents and abstains
+    call_id: str | None = None           # the llm_calls row that produced it (LLM agents)
 
     @model_validator(mode="after")
     def _check(self):

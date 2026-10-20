@@ -27,6 +27,10 @@ dev = ["pytest==9.1.1", "pytest-timeout==2.4.0"]
 # The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
 # least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
 agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
+# The official Claude SDK for the LLM agents (agents/llm/anthropic_client.py,
+# imported lazily: nothing else in agents/ loads it). Pinned to the newest
+# release at least two weeks old on 2026-10-17 (1.11.0, 2026-09-30).
+llm = ["anthropic==1.11.0"]
 # Everything research/ imports (numpy, pandas, scipy, matplotlib, numba, pytest),
 # plus pyarrow for pandas' parquet I/O. Pinned to the old backend venv
 # (algo_project/backend/venv, Python 3.13.1), where the research baseline of

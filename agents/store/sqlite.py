@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from agents.hashing import canonical_json
-from agents.schemas import Claim, DebateResult, Decision, Snapshot, Turn, Vote
+from agents.schemas import Claim, DebateResult, Decision, Evidence, Snapshot, Turn, Vote
 from agents.store.base import RunRecord, StoreConflict, _check_types
 
 META_COLS = "model_id TEXT, prompt_hash TEXT, tokens_in INTEGER, tokens_out INTEGER, latency_ms REAL"
@@ -134,7 +134,62 @@ CREATE INDEX runs_epoch ON runs (epoch_id);
 CREATE INDEX decisions_epoch ON decisions (epoch_id);
 """
 
-MIGRATIONS = [(1, _V1), (2, _V2), (3, _V3)]
+# Agents v2, job 3: the LLM ledger (agents/llm/ledger.py) and the evidence of
+# every vote. llm_calls references the snapshot, not the run: calls happen
+# before the run's own row is written. Both new tables are append-only.
+LLM_TABLES = ("llm_calls", "llm_responses")
+_V4 = """
+CREATE TABLE llm_responses (
+    prompt_hash      TEXT PRIMARY KEY,
+    model            TEXT NOT NULL,
+    request_id       TEXT,
+    stop_reason      TEXT,
+    refusal_category TEXT,
+    text             TEXT,
+    usage_json       TEXT NOT NULL,
+    response_json    TEXT NOT NULL,
+    latency_ms       REAL,
+    created_ts       TEXT NOT NULL
+);
+CREATE TABLE llm_calls (
+    call_id            TEXT PRIMARY KEY,
+    snapshot_hash      TEXT NOT NULL,
+    agent              TEXT NOT NULL,
+    round              INTEGER NOT NULL CHECK (round >= 1),
+    mode               TEXT NOT NULL CHECK (mode IN ('live', 'rerun')),
+    attempt            INTEGER NOT NULL CHECK (attempt >= 0),
+    model_requested    TEXT NOT NULL,
+    effort             TEXT NOT NULL,
+    max_tokens         INTEGER NOT NULL,
+    prompt_hash        TEXT NOT NULL,
+    cached             INTEGER NOT NULL CHECK (cached IN (0, 1)),
+    utc_day            TEXT NOT NULL,
+    created_ts         TEXT NOT NULL,
+    model_returned     TEXT,
+    prompt_file_sha256 TEXT,
+    config_sha256      TEXT,
+    epoch_id           TEXT,
+    request_id         TEXT,
+    stop_reason        TEXT,
+    refusal_category   TEXT,
+    input_tokens       INTEGER,
+    output_tokens      INTEGER,
+    cache_read_tokens  INTEGER,
+    cache_write_tokens INTEGER,
+    latency_ms         REAL,
+    error              TEXT,
+    cost_usd           REAL
+);
+CREATE INDEX llm_calls_day ON llm_calls (utc_day, cached);
+CREATE INDEX llm_calls_snapshot ON llm_calls (snapshot_hash);
+ALTER TABLE votes ADD COLUMN evidence_json TEXT;
+ALTER TABLE votes ADD COLUMN call_id TEXT;
+""" + "".join(
+    f"CREATE TRIGGER {t}_no_update BEFORE UPDATE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;\n"
+    f"CREATE TRIGGER {t}_no_delete BEFORE DELETE ON {t} BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END;\n"
+    for t in LLM_TABLES)
+
+MIGRATIONS = [(1, _V1), (2, _V2), (3, _V3), (4, _V4)]
 
 
 def _utcnow() -> str:
@@ -254,10 +309,10 @@ class SqliteAgentStore:
                        run.epoch_id, run.epoch_inputs_json))
             for v in votes:
                 c.execute(f"INSERT INTO votes (run_id, round, agent, direction, confidence, reason, abstain,"
-                          f" abstain_reason, {', '.join(META)}, created_ts)"
-                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                          f" abstain_reason, {', '.join(META)}, created_ts, evidence_json, call_id)"
+                          " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                           (run.run_id, v.round, v.agent, v.direction, v.confidence, v.reason, int(v.abstain),
-                           v.abstain_reason, *_meta(v), now))
+                           v.abstain_reason, *_meta(v), now, canonical_json(list(v.evidence)), v.call_id))
             for t in (debate.turns if debate is not None else ()):
                 c.execute(f"INSERT INTO debate_turns (run_id, round, role, claims_json, n_claims, n_valid,"
                           f" conceded, error, {', '.join(META)}, created_ts)"
@@ -311,7 +366,8 @@ class SqliteAgentStore:
         meta = lambda row: {k: row[k] for k in META}                      # noqa: E731
         votes = tuple(Vote(agent=v["agent"], round=v["round"], direction=v["direction"], confidence=v["confidence"],
                            reason=v["reason"], abstain=bool(v["abstain"]), abstain_reason=v["abstain_reason"],
-                           **meta(v))
+                           evidence=tuple(Evidence(**e) for e in json.loads(v["evidence_json"] or "[]")),
+                           call_id=v["call_id"], **meta(v))
                       for v in c.execute("SELECT * FROM votes WHERE run_id = ? ORDER BY round, agent", (run_id,)))
         rows = c.execute("SELECT * FROM decisions WHERE run_id = ? ORDER BY arm = 'debate', arm", (run_id,)).fetchall()
         decisions = tuple(Decision(run_id=d["run_id"], snapshot_hash=d["snapshot_hash"], arm=d["arm"],

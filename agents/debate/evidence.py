@@ -7,6 +7,8 @@ evidence_ref forms:
   level:<id>                 an id in snapshot.levels
   feature:<name>             a key in snapshot.features
   event:<id>                 an id in snapshot.events
+  metric:<name>              a metric in snapshot.metrics with available = true
+  chart:<tf>                 a chart attached to the snapshot (snapshot.charts)
 
 A claim whose ref doesn't resolve gets valid=False with the reason. It stays in
 the turn (and in the log), but the judge never sees it.
@@ -57,6 +59,13 @@ def check_ref(ref: str, snap: Snapshot) -> str | None:
         return None if rest in snap.features else f"feature {rest!r} not in snapshot"
     if kind == "event":
         return None if rest in {e.id for e in snap.events} else f"event {rest!r} not in snapshot"
+    if kind == "metric":
+        m = next((m for m in snap.metrics if m.name == rest), None)
+        if m is None:
+            return f"metric {rest!r} not in snapshot"
+        return None if m.available else f"metric {rest!r} is unavailable: {m.reason}"
+    if kind == "chart":
+        return None if rest in {c.tf for c in snap.charts} else f"chart {rest!r} not in snapshot"
     return f"unknown evidence_ref kind {kind!r}"
 
 

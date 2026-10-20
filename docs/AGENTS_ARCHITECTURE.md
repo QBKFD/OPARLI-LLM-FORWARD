@@ -443,6 +443,17 @@ All tables stay append-only (the existing triggers).
     vote.
 - **Tests** use a `FakeLLMClient` with scripted responses. No unit test calls
   the API.
+- *Built (job 3, `agents/llm/`), with these specifics:*
+  - **Retries:** the SDK's own retries are off, and `call.py` retries with a
+    capped backoff, so every attempt is a ledger row.
+  - **Live mode reuses a cached response** for an identical request instead
+    of paying for a new one.
+  - **The kill switch** applies to live calls; rerun mode makes none.
+  - **The budget** counts sent attempts only, not cache hits or rerun
+    misses.
+  - **`llm_calls` references the snapshot hash:** calls happen before the
+    run row exists.
+  - Store migration 4.
 
 ### 6.1 Per-agent, per-round call settings (`agents.toml`)
 
