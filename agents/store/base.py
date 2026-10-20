@@ -22,6 +22,8 @@ class RunRecord(BaseModel):
     config_json: str
     config_hash: str
     code_version: str
+    epoch_id: str | None = None          # agents/epoch.py; set by the graph
+    epoch_inputs_json: str | None = None # what the epoch id is the hash of (for `python -m agents.epoch --db`)
 
 
 class AgentStore(Protocol):

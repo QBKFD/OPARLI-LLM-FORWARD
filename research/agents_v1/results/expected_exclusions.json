@@ -1,0 +1,326 @@
+{
+  "data": "XAUUSD.txt 1-min (UTC), alerts 2007-01-01 .. 2020-12-31; level warm-up from 2006-11-01",
+  "entry_delay_minutes": 2.0,
+  "entry_hour_utc": {
+    "00": 1738,
+    "01": 1336,
+    "02": 691,
+    "03": 389,
+    "04": 332,
+    "05": 390,
+    "06": 562,
+    "07": 3746,
+    "08": 1193,
+    "09": 694,
+    "10": 516,
+    "11": 494,
+    "12": 4249,
+    "13": 1747,
+    "14": 1160,
+    "15": 807,
+    "16": 415,
+    "17": 261,
+    "18": 253,
+    "19": 143,
+    "20": 87,
+    "21": 333,
+    "22": 898,
+    "23": 586
+  },
+  "not_modelled": [
+    "stale snapshot",
+    "invalid HAR state",
+    "no bars in the window",
+    "holidays",
+    "missed_while_down / missed_history (live downtime)"
+  ],
+  "summary": {
+    "by_year": {
+      "2007": {
+        "H240": {
+          "crossing": 77,
+          "crossing_daily_break": 66,
+          "crossing_share": 0.0442,
+          "crossing_weekend": 11,
+          "eligible_per_day": 6.3793
+        },
+        "H60": {
+          "crossing": 42,
+          "crossing_daily_break": 36,
+          "crossing_share": 0.0241,
+          "crossing_weekend": 6,
+          "eligible_per_day": 6.5134
+        },
+        "alerts": 1742,
+        "alerts_per_day": 6.6743,
+        "trading_days": 261
+      },
+      "2008": {
+        "H240": {
+          "crossing": 62,
+          "crossing_daily_break": 56,
+          "crossing_share": 0.038,
+          "crossing_weekend": 6,
+          "eligible_per_day": 5.9962
+        },
+        "H60": {
+          "crossing": 27,
+          "crossing_daily_break": 24,
+          "crossing_share": 0.0165,
+          "crossing_weekend": 3,
+          "eligible_per_day": 6.1298
+        },
+        "alerts": 1633,
+        "alerts_per_day": 6.2328,
+        "trading_days": 262
+      },
+      "2009": {
+        "H240": {
+          "crossing": 68,
+          "crossing_daily_break": 63,
+          "crossing_share": 0.0404,
+          "crossing_weekend": 5,
+          "eligible_per_day": 6.1839
+        },
+        "H60": {
+          "crossing": 30,
+          "crossing_daily_break": 25,
+          "crossing_share": 0.0178,
+          "crossing_weekend": 5,
+          "eligible_per_day": 6.3295
+        },
+        "alerts": 1682,
+        "alerts_per_day": 6.4444,
+        "trading_days": 261
+      },
+      "2010": {
+        "H240": {
+          "crossing": 64,
+          "crossing_daily_break": 53,
+          "crossing_share": 0.038,
+          "crossing_weekend": 11,
+          "eligible_per_day": 6.2107
+        },
+        "H60": {
+          "crossing": 29,
+          "crossing_daily_break": 22,
+          "crossing_share": 0.0172,
+          "crossing_weekend": 7,
+          "eligible_per_day": 6.3448
+        },
+        "alerts": 1685,
+        "alerts_per_day": 6.4559,
+        "trading_days": 261
+      },
+      "2011": {
+        "H240": {
+          "crossing": 62,
+          "crossing_daily_break": 55,
+          "crossing_share": 0.0377,
+          "crossing_weekend": 7,
+          "eligible_per_day": 6.1042
+        },
+        "H60": {
+          "crossing": 20,
+          "crossing_daily_break": 16,
+          "crossing_share": 0.0122,
+          "crossing_weekend": 4,
+          "eligible_per_day": 6.2664
+        },
+        "alerts": 1643,
+        "alerts_per_day": 6.3436,
+        "trading_days": 259
+      },
+      "2012": {
+        "H240": {
+          "crossing": 56,
+          "crossing_daily_break": 45,
+          "crossing_share": 0.0348,
+          "crossing_weekend": 11,
+          "eligible_per_day": 5.9961
+        },
+        "H60": {
+          "crossing": 19,
+          "crossing_daily_break": 14,
+          "crossing_share": 0.0118,
+          "crossing_weekend": 5,
+          "eligible_per_day": 6.139
+        },
+        "alerts": 1609,
+        "alerts_per_day": 6.2124,
+        "trading_days": 259
+      },
+      "2013": {
+        "H240": {
+          "crossing": 62,
+          "crossing_daily_break": 51,
+          "crossing_share": 0.0392,
+          "crossing_weekend": 11,
+          "eligible_per_day": 5.8953
+        },
+        "H60": {
+          "crossing": 14,
+          "crossing_daily_break": 8,
+          "crossing_share": 0.0088,
+          "crossing_weekend": 6,
+          "eligible_per_day": 6.0814
+        },
+        "alerts": 1583,
+        "alerts_per_day": 6.1357,
+        "trading_days": 258
+      },
+      "2014": {
+        "H240": {
+          "crossing": 63,
+          "crossing_daily_break": 58,
+          "crossing_share": 0.0386,
+          "crossing_weekend": 5,
+          "eligible_per_day": 6.0656
+        },
+        "H60": {
+          "crossing": 22,
+          "crossing_daily_break": 19,
+          "crossing_share": 0.0135,
+          "crossing_weekend": 3,
+          "eligible_per_day": 6.2239
+        },
+        "alerts": 1634,
+        "alerts_per_day": 6.3089,
+        "trading_days": 259
+      },
+      "2015": {
+        "H240": {
+          "crossing": 65,
+          "crossing_daily_break": 58,
+          "crossing_share": 0.0409,
+          "crossing_weekend": 7,
+          "eligible_per_day": 5.888
+        },
+        "H60": {
+          "crossing": 25,
+          "crossing_daily_break": 21,
+          "crossing_share": 0.0157,
+          "crossing_weekend": 4,
+          "eligible_per_day": 6.0425
+        },
+        "alerts": 1590,
+        "alerts_per_day": 6.139,
+        "trading_days": 259
+      },
+      "2016": {
+        "H240": {
+          "crossing": 71,
+          "crossing_daily_break": 64,
+          "crossing_share": 0.0431,
+          "crossing_weekend": 7,
+          "eligible_per_day": 6.1124
+        },
+        "H60": {
+          "crossing": 31,
+          "crossing_daily_break": 27,
+          "crossing_share": 0.0188,
+          "crossing_weekend": 4,
+          "eligible_per_day": 6.2674
+        },
+        "alerts": 1648,
+        "alerts_per_day": 6.3876,
+        "trading_days": 258
+      },
+      "2017": {
+        "H240": {
+          "crossing": 82,
+          "crossing_daily_break": 72,
+          "crossing_share": 0.0489,
+          "crossing_weekend": 10,
+          "eligible_per_day": 6.2101
+        },
+        "H60": {
+          "crossing": 26,
+          "crossing_daily_break": 22,
+          "crossing_share": 0.0155,
+          "crossing_weekend": 4,
+          "eligible_per_day": 6.428
+        },
+        "alerts": 1678,
+        "alerts_per_day": 6.5292,
+        "trading_days": 257
+      },
+      "2018": {
+        "H240": {
+          "crossing": 86,
+          "crossing_daily_break": 72,
+          "crossing_share": 0.0522,
+          "crossing_weekend": 14,
+          "eligible_per_day": 6.0581
+        },
+        "H60": {
+          "crossing": 27,
+          "crossing_daily_break": 22,
+          "crossing_share": 0.0164,
+          "crossing_weekend": 5,
+          "eligible_per_day": 6.2868
+        },
+        "alerts": 1649,
+        "alerts_per_day": 6.3915,
+        "trading_days": 258
+      },
+      "2019": {
+        "H240": {
+          "crossing": 79,
+          "crossing_daily_break": 66,
+          "crossing_share": 0.047,
+          "crossing_weekend": 13,
+          "eligible_per_day": 6.2054
+        },
+        "H60": {
+          "crossing": 35,
+          "crossing_daily_break": 27,
+          "crossing_share": 0.0208,
+          "crossing_weekend": 8,
+          "eligible_per_day": 6.376
+        },
+        "alerts": 1680,
+        "alerts_per_day": 6.5116,
+        "trading_days": 258
+      },
+      "2020": {
+        "H240": {
+          "crossing": 62,
+          "crossing_daily_break": 57,
+          "crossing_share": 0.0396,
+          "crossing_weekend": 5,
+          "eligible_per_day": 5.7992
+        },
+        "H60": {
+          "crossing": 32,
+          "crossing_daily_break": 29,
+          "crossing_share": 0.0205,
+          "crossing_weekend": 3,
+          "eligible_per_day": 5.9151
+        },
+        "alerts": 1564,
+        "alerts_per_day": 6.0386,
+        "trading_days": 259
+      }
+    },
+    "overall": {
+      "H240": {
+        "crossing": 959,
+        "crossing_daily_break": 836,
+        "crossing_share": 0.0417,
+        "crossing_weekend": 123,
+        "eligible_per_day": 6.0791
+      },
+      "H60": {
+        "crossing": 379,
+        "crossing_daily_break": 312,
+        "crossing_share": 0.0165,
+        "crossing_weekend": 67,
+        "eligible_per_day": 6.2389
+      },
+      "alerts": 23020,
+      "alerts_per_day": 6.3433,
+      "trading_days": 3629
+    }
+  }
+}

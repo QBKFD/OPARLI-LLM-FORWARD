@@ -92,6 +92,24 @@ event are both possible; neither is built here.
 `argue(view: DebaterView) -> Turn | dict`. The judge is chosen by `debate.judge`
 from `agents.debate.judges.JUDGES`; only `code_v0`, a placeholder, exists.
 
+## Prompts, config and epochs (agents v2, job 2)
+
+- **The owner writes** the prompts in `agents/prompts/` (templates ship with
+  `version: TEMPLATE` and are refused until written) and `agents.toml` (from
+  `agents/agents.example.toml`).
+- **Code never supplies** a default prompt, model, effort, `max_tokens` or
+  Meta rule. A missing or invalid one makes the agent that needs it abstain,
+  with the reason.
+- **Every decision carries** the epoch id, the SHA-256 of `agents.toml` and of
+  every prompt file. Any change is a new epoch. See
+  [docs/PROMPT_GUIDE.md](../docs/PROMPT_GUIDE.md) and
+  [docs/AGENTS_ARCHITECTURE.md](../docs/AGENTS_ARCHITECTURE.md).
+
+```
+python -m agents.prompting check --config agents.toml
+python -m agents.epoch --config agents.toml --db agents.sqlite
+```
+
 ## The rules the code enforces
 
 - **As of t.**
@@ -138,7 +156,10 @@ from `agents.debate.judges.JUDGES`; only `code_v0`, a placeholder, exists.
 
 | Module | Status |
 |---|---|
-| `schemas.py`, `hashing.py`, `config.py` | v0 |
+| `schemas.py`, `hashing.py`, `config.py` | v0; snapshot schema 3 (alert facts, slots marked unavailable until built) |
+| `owner_config.py` | the owner's `agents.toml` (`$AGENTS_CONFIG`): per-agent, per-round model/effort/max_tokens, discussion, Meta, LLM, budget. Validated per section; problems are abstain reasons |
+| `prompting/` | load, check and render the owner's prompts (`agents/prompts/`): [prompting/README.md](prompting/README.md) |
+| `epoch.py` | the epoch id over prompts, config and input code, stamped on every run and decision; `python -m agents.epoch` |
 | `snapshot.py`, `resample.py` | v0 |
 | `graph.py`, `trigger.py` | v0 |
 | `voters/visual.py`, `technical.py`, `sentiment.py` | **stubs** (abstain) |
