@@ -32,12 +32,20 @@ Sources (both publish bar messages to STREAM, see bar_message):
 
 Volume: none. Live CMDTY XAUUSD carries no usable volume (0 in the old bars),
 so bar messages have no volume field rather than an invented one.
+
+Spread (live bars only): every quote that sets the midpoint also gives a
+spread, ask - bid in price units, taken as quoted. A crossed quote gives a
+negative spread. A live bar carries spread_mean, spread_median, spread_max and
+n_quotes over those quotes, so n_quotes == n_ticks. History and replay bars
+have no quotes, so their messages carry no spread fields and are unchanged.
+The spread never changes a bar's OHLC.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import statistics
 import time as _time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -104,6 +112,11 @@ class Bar:
     low: float
     close: float
     n_ticks: int | None     # None for history/replay bars (no tick count)
+    # live bars only (None for history/replay): spread = ask - bid of the quotes
+    spread_mean: float | None = None
+    spread_median: float | None = None
+    spread_max: float | None = None
+    n_quotes: int | None = None
 
     def ohlc(self):
         return (self.bar_ts, self.open, self.high, self.low, self.close)
@@ -120,6 +133,7 @@ class BarBuilder:
         self.grace = timedelta(seconds=grace_s)
         self._cur: datetime | None = None       # open bar's minute
         self._prices: list[float] = []
+        self._spreads: list[float] = []         # ask - bid, one per price above
         self._last_closed: datetime | None = None
         self.counters = dict(ticks_in=0, ticks_used=0, dropped_no_quote=0,
                              skipped_one_sided=0, late_ticks=0, ticks_without_ts=0,
@@ -129,10 +143,12 @@ class BarBuilder:
         return minute + timedelta(seconds=BAR_S) + self.grace
 
     def _close(self) -> Bar:
-        p = self._prices
+        p, sp = self._prices, self._spreads
         bar = Bar(self.symbol, self._cur, float(p[0]), float(max(p)), float(min(p)),
-                  float(p[-1]), len(p))
-        self._last_closed, self._cur, self._prices = self._cur, None, []
+                  float(p[-1]), len(p),
+                  spread_mean=sum(sp) / len(sp), spread_median=float(statistics.median(sp)),
+                  spread_max=float(max(sp)), n_quotes=len(sp))
+        self._last_closed, self._cur, self._prices, self._spreads = self._cur, None, [], []
         self.counters["bars_closed"] += 1
         return bar
 
@@ -153,6 +169,7 @@ class BarBuilder:
         c["ticks_in"] += 1
         if _px(bid) and _px(ask):
             price = (float(bid) + float(ask)) / 2.0
+            spread = float(ask) - float(bid)
         elif _px(close):
             c["skipped_one_sided"] += 1                      # #1: no stale close
             return out
@@ -177,6 +194,7 @@ class BarBuilder:
             out.append(self._close())                        # rollover, as before
             self._cur = m
         self._prices.append(price)
+        self._spreads.append(spread)
         c["ticks_used"] += 1
         return out
 
@@ -196,13 +214,19 @@ def trim_history(bars, now: datetime) -> list:
 def bar_message(bar: Bar, *, source: str, history: bool,
                 ingest_ts: datetime | None = None) -> dict:
     """Bar -> bus message (schema_version 1). source_ts is the bar's open time.
-    history=True marks warm-up bars from the IBKR history load, never live."""
+    history=True marks warm-up bars from the IBKR history load, never live.
+    The spread fields are optional and additive: only a bar with spread stats
+    (live) carries them, so history and replay messages are unchanged, and
+    consumers that read named fields (the recorder, the scanner) keep working."""
+    payload = dict(bar_ts=bar.bar_ts.astimezone(timezone.utc).isoformat(),
+                   open=bar.open, high=bar.high, low=bar.low, close=bar.close,
+                   n_ticks=bar.n_ticks, history=history)
+    if bar.n_quotes is not None:
+        payload.update(spread_mean=bar.spread_mean, spread_median=bar.spread_median,
+                       spread_max=bar.spread_max, n_quotes=bar.n_quotes)
     return make_message(
         schema_version=SCHEMA_VERSION, source=source, symbol=bar.symbol,
-        source_ts=bar.bar_ts, ingest_ts=ingest_ts,
-        payload=dict(bar_ts=bar.bar_ts.astimezone(timezone.utc).isoformat(),
-                     open=bar.open, high=bar.high, low=bar.low, close=bar.close,
-                     n_ticks=bar.n_ticks, history=history))
+        source_ts=bar.bar_ts, ingest_ts=ingest_ts, payload=payload)
 
 
 def _utcnow() -> datetime:

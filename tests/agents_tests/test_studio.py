@@ -131,7 +131,7 @@ def test_resolve_db_falls_back_to_the_synthetic_store(monkeypatch):
 
 def test_load_config_is_the_replay_example():
     cfg = studio.load_config({})
-    assert cfg.snapshot.mode == "replay" and cfg.debate.enabled is False
+    assert cfg.snapshot.mode == "replay" and "debate" not in type(cfg).model_fields
 
 
 def test_load_config_refuses_live_mode(tmp_path):
@@ -154,7 +154,10 @@ def test_make_graph_is_async_and_builds_once(fresh_graph, monkeypatch, replay_db
     g1 = asyncio.run(studio.make_graph({"configurable": {}}))
     g2 = asyncio.run(studio.make_graph())
     assert g1 is g2 is studio.studio_graph()
-    assert {"trigger", "snapshot", "gate", "technical", "aggregator", "risk", "store"} <= set(g1.get_graph().nodes)
+    nodes = set(g1.get_graph().nodes)
+    assert {"trigger", "snapshot", "gate", "visual", "technical", "sentiment", "gex",
+            "meta_blind", "discussion", "meta_discussion", "risk", "store"} <= nodes
+    assert not {"aggregator", "debate"} & nodes
 
 
 def test_the_studio_graph_runs_the_example_input(fresh_graph, monkeypatch, replay_db):
@@ -163,8 +166,10 @@ def test_the_studio_graph_runs_the_example_input(fresh_graph, monkeypatch, repla
     out = graph.invoke(studio.example_input())
     s = studio.summarise(out)
     assert s["status"] == "done" and s["skip_reason"] is None
-    assert s["decisions"]["blind"]["direction"] == "none"           # the stubs abstain
-    assert set(s["votes"]) == {"sentiment", "technical", "visual"}
+    assert set(s["votes"]) == {"gex", "sentiment", "technical", "visual"}
+    assert all(v["abstain"] for v in s["votes"].values())          # three stubs, and GEX has no data
+    assert set(s["decisions"]) == {"blind", "discussion"}
+    assert all(d["direction"] == "none" for d in s["decisions"].values())
     assert s["bars"]["1m"] == 240
     json.dumps(s)                                                    # printable
 

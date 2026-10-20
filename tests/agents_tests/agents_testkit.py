@@ -31,7 +31,8 @@ _studio = load_studio()
 DATA_START, DATA_END = _studio.SYNTH_START, _studio.SYNTH_END
 synthetic_rows = _studio.synthetic_rows
 
-__all__ = ["DATA_END", "DATA_START", "load_studio", "make_replay_db", "synthetic_rows"]
+__all__ = ["DATA_END", "DATA_START", "TEST_DISCUSSION", "load_studio", "make_replay_db", "synthetic_rows",
+           "write_test_prompts"]
 
 
 def make_replay_db(directory, rows=None):
@@ -39,3 +40,24 @@ def make_replay_db(directory, rows=None):
     The same path the datafeed uses, so the bars are kind 'replay'."""
     pytest.importorskip("pandas")
     return _studio.make_replay_db(directory, rows)
+
+
+# A minimal discussion.md for tests, so the discussion node runs (fake
+# discussants don't read it). Test text, not the owner's prompt.
+TEST_DISCUSSION = """---
+agent: discussion
+version: test
+---
+## user
+
+Round {{round}} of {{max_rounds}}. Others: {{other_votes_json}}
+"""
+
+
+def write_test_prompts(directory):
+    """A prompt directory holding only the test discussion.md."""
+    from pathlib import Path
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "discussion.md").write_text(TEST_DISCUSSION)
+    return d

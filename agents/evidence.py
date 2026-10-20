@@ -1,4 +1,5 @@
-"""Evidence check, in code: every claim must point at something inside the snapshot.
+"""Evidence refs, checked in code: every claim must point at something inside
+the snapshot (docs/PROMPT_GUIDE.md §6).
 
 evidence_ref forms:
   bars:<tf>:<start>..<end>   tf in the snapshot; start and end are bar open
@@ -7,16 +8,20 @@ evidence_ref forms:
   level:<id>                 an id in snapshot.levels
   feature:<name>             a key in snapshot.features
   event:<id>                 an id in snapshot.events
+  metric:<name>              a metric in snapshot.metrics with available = true
+  chart:<tf>                 a chart attached to the snapshot (snapshot.charts)
+  vote:<agent>:<round>       discussion only: a vote shown in this discussion
+                             round (check_vote_ref)
 
-A claim whose ref doesn't resolve gets valid=False with the reason. It stays in
-the turn (and in the log), but the judge never sees it.
+A ref that doesn't resolve is kept, with valid=False and the reason. It is
+never dropped silently, and it never counts as evidence.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from agents.schemas import Claim, Snapshot, Turn
+from agents.schemas import Snapshot
 
 
 def _ts(s: str) -> datetime:
@@ -57,14 +62,26 @@ def check_ref(ref: str, snap: Snapshot) -> str | None:
         return None if rest in snap.features else f"feature {rest!r} not in snapshot"
     if kind == "event":
         return None if rest in {e.id for e in snap.events} else f"event {rest!r} not in snapshot"
+    if kind == "metric":
+        m = next((m for m in snap.metrics if m.name == rest), None)
+        if m is None:
+            return f"metric {rest!r} not in snapshot"
+        return None if m.available else f"metric {rest!r} is unavailable: {m.reason}"
+    if kind == "chart":
+        return None if rest in {c.tf for c in snap.charts} else f"chart {rest!r} not in snapshot"
     return f"unknown evidence_ref kind {kind!r}"
 
 
-def check_turn(turn: Turn, snap: Snapshot) -> Turn:
-    """The same turn with every claim's valid / invalid_reason set by code."""
-    claims = []
-    for c in turn.claims:
-        reason = check_ref(c.evidence_ref, snap)
-        claims.append(Claim(text=c.text, evidence_ref=c.evidence_ref, valid=reason is None,
-                            invalid_reason=reason))
-    return Turn(**{**turn.model_dump(exclude={"claims"}), "claims": tuple(claims)})
+
+def check_vote_ref(ref: str, shown: set[tuple[str, int]]) -> str | None:
+    """None if `vote:<agent>:<round>` names a vote shown in this discussion
+    round, else the reason."""
+    kind, _, rest = ref.strip().partition(":")
+    if kind != "vote":
+        return f"{ref!r} is not a vote: ref"
+    agent, sep, rnd = rest.rpartition(":")
+    if not sep or not agent or not rnd.isdigit():
+        return "vote ref must be vote:<agent>:<round>"
+    if (agent, int(rnd)) not in shown:
+        return f"vote {agent} round {rnd} was not shown in this discussion round"
+    return None

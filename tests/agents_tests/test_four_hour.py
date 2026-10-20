@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from agents.config import SnapshotConfig
-from agents.debate import check_ref
+from agents.evidence import check_ref
 from agents.resample import resample
 from agents.schemas import NY, Bar, bucket_end, bucket_start, is_aligned
 from agents.snapshot import build_snapshot

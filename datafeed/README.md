@@ -113,9 +113,15 @@ One JSON object per entry (Redis field `json`).
 | `open`, `high`, `low`, `close` | float | bid/ask midpoint (live) or vendor/IBKR bar |
 | `n_ticks` | int or null | quote-update events in the minute (live); null for history and replay |
 | `history` | bool | true = IBKR history warm-up, never live |
+| `spread_mean`, `spread_median`, `spread_max` | float, optional | live bars only: ask − bid over the minute's quotes, in price units, as quoted (a crossed quote is negative) |
+| `n_quotes` | int, optional | live bars only: quotes behind the spread stats (= `n_ticks`) |
 
 All timestamps are ISO-8601 UTC with `+00:00`.
 - **No `volume` field.** Live CMDTY XAUUSD has no usable volume.
+- **The spread fields are additive.** Only live bars carry them, as all four
+  together. History and replay messages are unchanged, and the spread never
+  changes the OHLC. Consumers that read named fields (the recorder, the
+  scanner, the agents' store reads) are unaffected.
 - **Only bars that pass the scanner's `_valid_bar`** are published: inside
   market hours, all prices > 0, `low <= high`.
 
@@ -134,6 +140,22 @@ SQLite in WAL mode. Migrations are numbered in `datafeed/store/schema.py`.
   `replay` (bars from a parquet replay).
   - Columns: OHLC, `n_ticks`, `source`, `schema_version`, `ingest_ts`,
     `recorded_ts`.
+  - **Migration 4:** `spread_mean`, `spread_median`, `spread_max` and
+    `n_quotes`, set for live bars, NULL for history, replay and older rows.
+    - They are next to the bar values but not bar values. They don't enter
+      the duplicate/conflict comparison, and `bars_before` doesn't return
+      them.
+    - A partial or non-finite set is rejected by the recorder (stage
+      `invalid`).
+    - Read them with `query.spreads(symbol, start, end)`, or as a table
+      by hour of day with `tools/spread_by_hour.py`:
+
+      ```bash
+      python tools/spread_by_hour.py --db $DATAFEED_DB [--start ...] [--end ...] [--tz America/New_York] [--csv out.csv]
+      ```
+
+      The tool is read-only and exits 2 for a missing store or one from
+      before migration 4. The recorder migrates on its next start.
   - Writing the same values again is a no-op.
   - Different values for an existing key are not written. They're logged in
     `bar_conflicts`, and the first recorded row is kept.

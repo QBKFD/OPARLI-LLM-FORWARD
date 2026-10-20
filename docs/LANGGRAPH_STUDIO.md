@@ -19,12 +19,16 @@ It's a laptop tool for debugging only:
     unset, a synthetic store is built in a temp dir: a seeded random walk,
     Mon 2025-06-09 to Wed 2025-06-11 UTC. The same data the agents tests use,
     so it is **not market data**;
-  - **the config** `agents/config.example.toml` (replay, debate off), or
+  - **the config** `agents/config.example.toml` (replay), or
     `$STUDIO_AGENTS_CONFIG`. Live mode is refused;
+  - **the Meta rule** from the owner's `agents.toml` (`$AGENTS_CONFIG`).
+    Without it, both decisions are `none` with the reason "no rule
+    configured";
   - **an in-memory agent store**, so Studio runs leave no rows anywhere.
-- The three voters are still the skeleton's stubs. Every run ends in
-  `abstain` votes and a blind decision `none`. Studio shows the plumbing,
-  not a strategy.
+- No LLM client is passed, so visual, technical and sentiment are stubs,
+  and GEX abstains (no options data). Every run ends in four `abstain`
+  votes, a skipped discussion and the decisions `blind` and `discussion`
+  both `none`. Studio shows the plumbing, not a strategy.
 
 ## Install (once)
 
@@ -100,28 +104,28 @@ Three inputs show the three paths through the graph:
 
 | `t` | Path | What you should see |
 |---|---|---|
-| `2025-06-11T14:30:00Z` (Wed, market open) | trigger → snapshot → gate → the three voters in one step → aggregator → risk → store | `status: done`. Three `abstain` votes, blind decision `none` |
+| `2025-06-11T14:30:00Z` (Wed, market open) | trigger → snapshot → gate → the four voters in one step → meta_blind → discussion → meta_discussion → risk → store | `status: done`. Four `abstain` votes, decisions `blind` and `discussion` both `none` |
 | `2025-06-11T21:30:00Z` (the daily break, EDT) | trigger → snapshot → gate → store | `status: skipped`, `gate: market closed at as_of …` |
 | `2025-06-14T12:00:00Z` (Saturday, after the data) | trigger → snapshot → store | `status: skipped`, `stale: newest 1m bar … behind the last market-open minute …` |
 | `2026-10-02T14:00:00Z` (sealed) | trigger → snapshot (raises) | the run fails with `SealedError` |
 
 ## What to look at
 
-- **The graph picture.** The fan-out from `gate` to the voters, the fan-in
-  at `aggregator`, and the two conditional edges into `store` (stale, gate
-  no-go). With `debate.enabled` a `debate` node would sit between
-  `aggregator` and `risk`. No debaters ship yet, so that config fails at
-  build time.
+- **The graph picture.** The fan-out from `gate` to the four voters, the
+  fan-in at `meta_blind`, then `discussion` and `meta_discussion`, and the
+  two conditional edges into `store` (stale, gate no-go).
 - **State after `snapshot`.** `snap.as_of` is `t` floored to the minute.
   `snap.newest_bar_ts` is strictly before `as_of`: the forming minute is
   never included. Also check `snap.bars` per timeframe (1m 240, 15m 192, 1h
   and 4h as far as the data goes), the `complete` flag on the last candle of
   each timeframe, and `snap.hash`.
-- **State after the voters.** `votes.<agent>.abstain` and its `reason`. A
+- **State after the voters.** `votes.<agent>.abstain` and its `abstain_reason`. A
   voter that raises or times out shows as an abstain with the error as the
   reason, never as a direction.
-- **State after `aggregator` and `risk`.** `decisions.blind` and
-  `final_decisions.blind`: the same while the risk node is a pass-through.
+- **State after `meta_blind`, `discussion`, `meta_discussion` and `risk`.**
+  `decisions.blind`, `discussion` (`rounds_run` 0, `skip_reason` "no LLM
+  discussants in this graph") and `decisions.discussion`;
+  `final_decisions` are the same while the risk node is a pass-through.
 - **Checkpoints.** Every step is a checkpoint you can open and inspect.
   - **Don't replay or fork from a checkpoint after `trigger`.** `trigger` sets
     `run_id`, so the replayed run reaches `store` with a `run_id` that is

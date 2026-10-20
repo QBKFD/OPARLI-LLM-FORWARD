@@ -8,7 +8,7 @@ from agents.store.base import RunRecord, StoreConflict, _check_types
 class MemoryStore:
     def __init__(self) -> None:
         self.snapshots: dict = {}
-        self.runs: dict = {}          # run_id -> {"run", "votes", "decisions", "debate"}
+        self.runs: dict = {}          # run_id -> {"run", "votes", "decisions", "discussion"}
 
     def save_snapshot(self, snapshot) -> None:
         old = self.snapshots.get(snapshot.hash)
@@ -16,8 +16,8 @@ class MemoryStore:
             raise StoreConflict(f"snapshot {snapshot.hash} exists with other content")
         self.snapshots[snapshot.hash] = snapshot
 
-    def save_run(self, run: RunRecord, votes, decisions, debate=None) -> None:
-        _check_types(run, votes, decisions, debate)
+    def save_run(self, run: RunRecord, votes, decisions, discussion=None) -> None:
+        _check_types(run, votes, decisions, discussion)
         if run.run_id in self.runs:
             raise StoreConflict(f"run {run.run_id} already stored")
         if run.snapshot_hash is not None and run.snapshot_hash not in self.snapshots:
@@ -28,4 +28,4 @@ class MemoryStore:
                 raise ValueError(f"decision {d.arm} has experiment_id {d.experiment_id!r}, "
                                  f"its snapshot has {snap.experiment_id!r}")
         self.runs[run.run_id] = {"run": run, "votes": tuple(votes), "decisions": tuple(decisions),
-                                 "debate": debate}
+                                 "discussion": discussion}

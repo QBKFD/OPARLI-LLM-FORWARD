@@ -9,8 +9,10 @@ opens a network connection, and nothing is written outside a temp directory:
   Wed 2025-06-11 UTC, a seeded random walk recorded through datafeed's own
   replay path (ReplaySource -> InMemoryBus -> Recorder). The bars are
   synthetic, not market data.
-- **Config.** agents/config.example.toml (replay mode, debate off), or
+- **Config.** agents/config.example.toml (replay mode), or
   $STUDIO_AGENTS_CONFIG. Live mode is refused: Studio is for replay only.
+  The Meta rule comes from the owner's agents.toml ($AGENTS_CONFIG); without
+  it both decisions are `none` with the reason.
 - **Agent store.** In memory (MemoryStore), so Studio runs leave no rows.
 
 The seal holds as everywhere: replay as_of after 2026-10-01 raises SealedError.

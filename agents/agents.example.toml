@@ -1,0 +1,81 @@
+# agents.example.toml: every key of the owner's agents.toml, with
+# placeholders instead of values. Copy it, fill in every "<...>", and point
+# $AGENTS_CONFIG at the copy. Code never reads this example at run time.
+#
+# Unfilled, every "<...>" fails validation, so each agent that needs it
+# abstains with "config_invalid: <key>: <problem>". There is no default model,
+# effort, max_tokens or Meta rule anywhere in code. The only defaults are the
+# owner's: discussion.rounds = 2 and discussion.early_stop = true.
+#
+# Any change of a value starts a new epoch (`python -m agents.epoch`).
+# Comments and formatting don't.
+
+[discussion]
+# rounds = 2            # 1..10; default 2 when omitted
+# early_stop = true     # stop after a round in which no vote changed; default true
+
+[meta]
+rule = "<a Meta rule name>"            # the rules ship with the discussion job
+
+[llm]
+mode = "<live|rerun>"                  # rerun = response cache only, never a call
+timeout_s = "<seconds per attempt, e.g. 60.0>"
+max_retries = "<0..5>"
+
+[budget]
+max_calls_per_day = "<int: attempts per UTC day, cache hits excluded>"
+kill_switch_path = "<path: while this file exists, no LLM call is made>"
+
+[render.bars_rows]                     # rows shown by {{bars_table:<tf>}}; only the timeframes your prompts use
+# "1m" = "<int>"
+# "15m" = "<int>"
+# "1h" = "<int>"
+# "4h" = "<int>"
+
+# One block per LLM agent: visual, technical, sentiment. Each has its own
+# round-1 and discussion call settings, which may differ.
+[agents.visual]
+enabled = "<true|false>"
+
+[agents.visual.round1]
+model = "<exact model id, e.g. claude-opus-5-5>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+[agents.visual.discussion]
+model = "<exact model id>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+[agents.technical]
+enabled = "<true|false>"
+
+[agents.technical.round1]
+model = "<exact model id>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+[agents.technical.discussion]
+model = "<exact model id>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+[agents.sentiment]
+enabled = "<true|false>"
+
+[agents.sentiment.round1]
+model = "<exact model id>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+[agents.sentiment.discussion]
+model = "<exact model id>"
+effort = "<low|medium|high|xhigh|max>"
+max_tokens = "<int, 1..128000>"
+
+# Code agents: no model, only on or off.
+[agents.gex]
+enabled = "<true|false>"
+
+[agents.technical_v1]
+enabled = "<true|false>"
