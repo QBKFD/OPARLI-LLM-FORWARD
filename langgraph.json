@@ -1,0 +1,8 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "agents": "./tools/langgraph_studio/studio.py:make_graph"
+  },
+  "env": {}
+}
