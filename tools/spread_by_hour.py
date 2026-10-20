@@ -13,7 +13,10 @@ over the minute's quotes) and summarises them per hour of day:
     max     largest single-quote spread
 
 History and replay bars have no quotes and are not counted. Spreads are in
-price units (USD per oz).
+price units (USD per oz). The store is opened read-only. Exit codes: 0 table
+printed, 1 no live bars with spread stats in the window, 2 the store is missing
+or unreadable, or predates migration 4 (the recorder applies it on its next
+start; this tool never writes the store).
 
     python tools/spread_by_hour.py --db database/datafeed.sqlite \\
         [--start 2026-10-16T00:00:00+00:00] [--end 2026-10-30T00:00:00+00:00] \\
@@ -25,15 +28,18 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import sqlite3
 import statistics
 import sys
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from datafeed.ingest.base import parse_utc
 from datafeed.store.query import spreads
 
 COLUMNS = ("hour", "bars", "quotes", "mean", "median", "p90", "max")
+Row = dict[str, Any]
 
 
 def _p90(xs: list[float]) -> float:
@@ -42,7 +48,7 @@ def _p90(xs: list[float]) -> float:
     return statistics.quantiles(xs, n=10, method="inclusive")[-1]
 
 
-def _stats(label, rows) -> dict:
+def _stats(label: str, rows: list[Row]) -> Row:
     quotes = sum(r["n_quotes"] for r in rows)
     return {"hour": label, "bars": len(rows), "quotes": quotes,
             "mean": sum(r["spread_mean"] * r["n_quotes"] for r in rows) / quotes,
@@ -51,10 +57,10 @@ def _stats(label, rows) -> dict:
             "max": max(r["spread_max"] for r in rows)}
 
 
-def summarise(rows: list[dict], tz: str = "UTC") -> list[dict]:
+def summarise(rows: list[Row], tz: str = "UTC") -> list[Row]:
     """One row per hour of day that has bars, in hour order, then an "all" row."""
     zone = ZoneInfo(tz)
-    by_hour: dict[int, list[dict]] = {}
+    by_hour: dict[int, list[Row]] = {}
     for r in rows:
         h = datetime.fromisoformat(r["bar_ts"]).astimezone(zone).hour
         by_hour.setdefault(h, []).append(r)
@@ -62,7 +68,7 @@ def summarise(rows: list[dict], tz: str = "UTC") -> list[dict]:
     return out + [_stats("all", rows)] if rows else out
 
 
-def render(table: list[dict], tz: str) -> str:
+def render(table: list[Row], tz: str) -> str:
     lines = [f"| hour ({tz}) | bars | quotes | mean | median | p90 | max |",
              "|---|---:|---:|---:|---:|---:|---:|"]
     for t in table:
@@ -71,7 +77,7 @@ def render(table: list[dict], tz: str) -> str:
     return "\n".join(lines)
 
 
-def main(argv=None) -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--db", default=os.environ.get("DATAFEED_DB"),
                     help="store path (default $DATAFEED_DB)")
@@ -83,7 +89,15 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     if not args.db:
         ap.error("pass --db or set DATAFEED_DB")
-    rows = spreads(args.symbol, args.start, args.end, db=args.db)
+    if not os.path.isfile(args.db):
+        print(f"spread_by_hour: no store at {args.db}", file=sys.stderr)
+        return 2
+    try:
+        rows = spreads(args.symbol, args.start, args.end, db=args.db)
+    except sqlite3.OperationalError as e:
+        print(f"spread_by_hour: can't read spreads from {args.db} ({e}); a store from before "
+              f"migration 4 has no spread columns until the recorder restarts", file=sys.stderr)
+        return 2
     if not rows:
         print("no live bars with spread stats in the window", file=sys.stderr)
         return 1

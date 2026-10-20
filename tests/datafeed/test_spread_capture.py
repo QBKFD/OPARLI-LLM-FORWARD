@@ -221,3 +221,51 @@ def test_cli_prints_and_writes_csv(tmp_path, capsys):
     assert "| 10 | 3 | 12 | 0.300 |" in printed and "| all |" in printed
     assert out_csv.read_text().splitlines()[0] == "hour,bars,quotes,mean,median,p90,max"
     assert t.main(["--db", path, "--start", "2027-01-01T00:00:00+00:00"]) == 1   # nothing there
+
+
+def test_cli_missing_store_and_pre_migration_store_exit_2(tmp_path, capsys):
+    t = tool()
+    missing = tmp_path / "none.sqlite"
+    assert t.main(["--db", str(missing)]) == 2 and not missing.exists()
+    assert "no store at" in capsys.readouterr().err
+    old = tmp_path / "v3.sqlite"                         # a store without the spread columns (as before migration 4)
+    con = schema.connect(str(old))
+    con.execute("BEGIN")
+    for col in schema.SPREAD_FIELDS:
+        con.execute(f"ALTER TABLE bars DROP COLUMN {col}")
+    con.execute("COMMIT")
+    con.close()
+    before = old.read_bytes()
+    assert t.main(["--db", str(old)]) == 2
+    assert "before migration 4" in capsys.readouterr().err
+    assert old.read_bytes() == before                    # read-only: never migrated by the tool
+
+
+def test_scanner_stream_consumer_ignores_the_spread_fields():
+    """The scanner reads named fields only: a live bar with spread stats drives
+    on_bar exactly like one without."""
+    import importlib.util as iu
+    spec = iu.spec_from_file_location("ds_spread_t", ROOT / "backend" / "deterministic_scanner.py")
+    ds = iu.module_from_spec(spec)
+    spec.loader.exec_module(ds)
+    bus, seen = InMemoryBus(), []
+
+    class Live:
+        hist = None
+
+        def on_bar(self, ts, o, h, l, c):
+            seen.append((ts.isoformat(), o, h, l, c))
+            return []
+
+    b = BarBuilder()
+    tick(b, 1, 4300.0, 4300.4)
+    tick(b, 30, 4300.2, 4300.4)
+    (bar,) = tick(b, 1, 4301.0, 4301.2, minute=1)
+    bus.publish(STREAM, bar_message(bar, source="ibkr", history=False))
+    plain = Bar(bar.symbol, bar.bar_ts, bar.open, bar.high, bar.low, bar.close, bar.n_ticks)
+    bus.publish(STREAM, bar_message(Bar(plain.symbol, plain.bar_ts + timedelta(minutes=1), *plain.ohlc()[1:],
+                                        plain.n_ticks), source="ibkr", history=False))
+    feed = ds.StreamFeed(bus, STREAM, "t", Live(), lambda a: None, block_ms=None, log=lambda *a, **k: None)
+    feed.step()
+    assert feed.stats["live_bars"] == 2 and feed.stats["invalid_msg"] == 0
+    assert seen[0][1:] == (bar.open, bar.high, bar.low, bar.close)
