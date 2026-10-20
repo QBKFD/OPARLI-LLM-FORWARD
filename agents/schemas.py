@@ -3,8 +3,11 @@
 Every model is frozen, refuses unknown fields and refuses NaN/inf. Datetimes
 must be tz-aware and are normalised to UTC.
 
-Snapshot   what was knowable at as_of: bars strictly before as_of (+ empty
-           slots for levels, features, events). Its hash covers all content.
+Snapshot   what was knowable at as_of: bars strictly before as_of, plus the
+           slots the prompts render (alert, levels, features, metrics,
+           events, charts). A slot whose builder doesn't exist yet stays empty
+           and is named in `unavailable` with the reason. Its hash covers all
+           content.
 Vote       one round-1 ("blind") vote. An invalid or missing vote becomes an
            abstain with a reason (Vote.abstained), never a guess.
 Claim      one debate claim + the evidence_ref it rests on. `valid` is set by
@@ -120,30 +123,91 @@ class Bar(_Frozen):
 
 
 class Level(_Frozen):
-    """Placeholder until a levels/ package exists."""
+    """A scanner level active at as_of (docs/AGENTS_ARCHITECTURE.md §4.1).
+    Filled by the shared level library once it exists; empty until then."""
     id: str = Field(min_length=1)
-    price: float
-    label: str = ""
+    type: str = Field(min_length=1)      # PDH PDL PWH PWL DOPEN WOPEN ASIA_H ...
+    value: float
+    active_from: UtcDatetime
+    touched: bool = False
 
 
 class Event(_Frozen):
-    """Placeholder until datafeed/ingest/calendar.py exists."""
+    """A calendar event, point in time: actual is set only if released before
+    as_of. Filled by the calendar store once it exists; empty until then."""
     id: str = Field(min_length=1)
     ts: UtcDatetime
-    title: str = ""
+    currency: str = ""
+    tier: int | None = Field(None, ge=1)
+    name: str = ""
+    actual: str | None = None
+    forecast: str | None = None
+    previous: str | None = None
+
+
+ALERT_FIELDS = ("alert_id", "alert_ts", "session", "level_types", "level_price", "price_at_alert",
+                "confluence_count")
+
+
+class AlertFacts(_Frozen):
+    """The scanner alert's Telegram facts, the only part of the trigger an
+    agent sees (never the raw journal row)."""
+    alert_id: str = Field(min_length=1)
+    alert_ts: UtcDatetime
+    session: str
+    level_types: tuple[str, ...]
+    level_price: float
+    price_at_alert: float
+    confluence_count: int = Field(ge=1)
+
+
+class ChartRef(_Frozen):
+    """A chart PNG rendered from the snapshot's bars, by content hash."""
+    tf: str
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    width: int = Field(gt=0)
+    height: int = Field(gt=0)
+
+
+class MetricRow(_Frozen):
+    """One row of the Technical metric table (job 5). Never imputed: an
+    uncomputable metric has value None, available False and a reason."""
+    name: str = Field(min_length=1)
+    value: float | None
+    unit: str
+    available: bool
+    reason: str | None = None
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.available and (self.value is None or self.reason is not None):
+            raise ValueError(f"metric {self.name}: an available metric has a value and no reason")
+        if not self.available and (self.value is not None or not self.reason):
+            raise ValueError(f"metric {self.name}: an unavailable metric has no value and a reason")
+        return self
+
+
+# Snapshot slots that can be missing until their builder exists, and render as
+# "unavailable" in a prompt (agents/prompting/render.py).
+SLOTS = ("alert", "levels", "features", "metrics", "events", "charts")
 
 
 class Snapshot(_Frozen):
-    schema_version: Literal[2] = 2       # 2: experiment_id added
+    schema_version: Literal[3] = 3       # 2: experiment_id; 3: alert, trigger_levels, metrics, charts, unavailable
     symbol: str = Field(min_length=1)
     as_of: UtcDatetime                   # every bar has ts < as_of
     kinds: tuple[str, ...]
     known_by: UtcDatetime | None = None
     bars: dict[str, tuple[Bar, ...]]
     newest_bar_ts: UtcDatetime
+    alert: AlertFacts | None = None
     levels: tuple[Level, ...] = ()
+    trigger_levels: tuple[str, ...] = ()  # ids in levels that the alert touched
     features: dict[str, float] = Field(default_factory=dict)
+    metrics: tuple[MetricRow, ...] = ()
     events: tuple[Event, ...] = ()
+    charts: tuple[ChartRef, ...] = ()
+    unavailable: dict[str, str] = Field(default_factory=dict)   # slot -> why it is empty
     experiment_id: str | None = None     # provenance; never render it into a prompt
     hash: str = ""                       # computed; a wrong value raises
 
@@ -181,9 +245,19 @@ class Snapshot(_Frozen):
         one = self.bars["1m"]
         if not one or one[-1].ts != self.newest_bar_ts:
             raise ValueError("newest_bar_ts must be the last 1m bar")
-        for name, ids in (("level", [x.id for x in self.levels]), ("event", [x.id for x in self.events])):
+        for name, ids in (("level", [x.id for x in self.levels]), ("event", [x.id for x in self.events]),
+                          ("metric", [x.name for x in self.metrics]), ("chart", [x.tf for x in self.charts])):
             if len(ids) != len(set(ids)):
                 raise ValueError(f"duplicate {name} id")
+        if not set(self.trigger_levels) <= {x.id for x in self.levels}:
+            raise ValueError("trigger_levels must be ids in levels")
+        if any(x.active_from > self.as_of for x in self.levels):
+            raise ValueError("a level is active only from after as_of")
+        for slot, why in self.unavailable.items():
+            if slot not in SLOTS or not why:
+                raise ValueError(f"unavailable: unknown slot {slot!r} or empty reason")
+            if getattr(self, slot):
+                raise ValueError(f"slot {slot!r} is marked unavailable but has content")
         h = self.content_hash()
         if not self.hash:
             object.__setattr__(self, "hash", h)          # frozen: set once, here only
@@ -274,6 +348,9 @@ class DebateResult(_Frozen):
 # ---------------------------------------------------------------- decision
 
 class Decision(_ModelMeta):
+    """epoch_id, owner_config_sha256 and prompts_sha256 are stamped on every
+    decision by the graph (agents/epoch.py); prompts_sha256 maps each prompt
+    file to its SHA-256, or to the reason it could not be loaded."""
     run_id: str = Field(min_length=1)
     snapshot_hash: str
     arm: Arm
@@ -286,6 +363,9 @@ class Decision(_ModelMeta):
     tp: float | None = None
     size: float | None = Field(None, ge=0)
     sigma: float | None = Field(None, ge=0)
+    epoch_id: str | None = None
+    owner_config_sha256: str | None = None
+    prompts_sha256: dict[str, str] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------- trigger

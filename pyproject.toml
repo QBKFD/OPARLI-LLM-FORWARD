@@ -39,7 +39,7 @@ where = ["."]
 include = ["datafeed*", "agents*", "risk*", "scoring*"]
 
 [tool.setuptools.package-data]
-agents = ["prompts/*.md", "config.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
+agents = ["prompts/*.md", "config.example.toml", "agents.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
 # HAR sigma model files (vol_block.SIGMA_MODELS), SHA-256 checked on load.
 datafeed = ["features/models/*.json"]
 
