@@ -7,8 +7,8 @@ import pytest
 from pydantic import ValidationError
 
 from agents.hashing import canonical_json, sha256_hex
-from agents.schemas import (Bar, Claim, DebateResult, Decision, Snapshot, TriggerEvent, Turn, Vote,
-                            outcome_to_direction)
+from agents.schemas import (Bar, Decision, DiscussionResult, Evidence, RejectedChange, Snapshot, TriggerEvent,
+                            Vote)
 
 UTC = timezone.utc
 AS_OF = datetime(2025, 6, 11, 14, 30, tzinfo=UTC)
@@ -53,43 +53,56 @@ def test_vote_is_frozen():
         v.direction = "short"
 
 
-# ---- Claim / Turn / DebateResult
+# ---- evidence, discussion votes, DiscussionResult
 
-def test_claim_validity_needs_reason():
+def test_evidence_validity_needs_reason():
     with pytest.raises(ValidationError):
-        Claim(text="x", evidence_ref="feature:a", valid=False)
+        Evidence(ref="feature:a", claim="x", valid=False)
     with pytest.raises(ValidationError):
-        Claim(text="x", evidence_ref="feature:a", valid=True, invalid_reason="no")
-
-
-def test_error_turn_is_empty():
+        Evidence(ref="feature:a", claim="x", valid=True, invalid_reason="no")
     with pytest.raises(ValidationError):
-        Turn(role="bull", round=1, claims=(Claim(text="x", evidence_ref="y"),), error="timeout")
-    t = Turn(role="bear", round=2, error="timeout")
-    assert t.claims == () and t.n_valid() == 0
+        Evidence(ref="feature:a", claim="x" * 201)
 
 
-def test_debate_result_counts_and_order_are_checked():
-    ok = Claim(text="a", evidence_ref="r", valid=True)
-    turns = (Turn(role="bull", round=1, claims=(ok,)), Turn(role="bear", round=1))
-    r = DebateResult(snapshot_hash="h", max_rounds=1, turns=turns, n_valid_bull=1, n_valid_bear=0,
-                     judge_name="code_v0", outcome="hold", reason="x")
-    assert r.n_valid_bull == 1
-    with pytest.raises(ValidationError):           # wrong count
-        DebateResult(**{**r.model_dump(), "n_valid_bull": 2})
-    with pytest.raises(ValidationError):           # bear before bull
-        DebateResult(**{**r.model_dump(), "turns": turns[::-1]})
+def test_discussion_fields_only_on_discussion_votes():
+    rej = RejectedChange(direction="short", confidence=0.8)
+    with pytest.raises(ValidationError):                                   # round 1 can't carry them
+        Vote(agent="a", round=1, direction="long", confidence=0.5, changed=True)
+    with pytest.raises(ValidationError):
+        Vote(agent="a", round=2, direction="long", confidence=0.5, changed=True, change_rejected="x")
+    with pytest.raises(ValidationError):                                   # a refused vote needs its reason
+        Vote(agent="a", round=2, direction="long", confidence=0.5, rejected_proposal=rej)
+    v = Vote(agent="a", round=2, direction="long", confidence=0.5, change_rejected="no new snapshot ref",
+             rejected_proposal=rej)
+    assert v.rejected_proposal.direction == "short"
 
 
-def test_outcome_mapping():
-    assert [outcome_to_direction(o) for o in ("long", "short", "hold")] == ["long", "short", "none"]
+def test_discussion_result_is_checked():
+    v2 = Vote(agent="a", round=2, direction="long", confidence=0.5)
+    v3 = Vote(agent="a", round=3, direction="long", confidence=0.5)
+    ok = DiscussionResult(snapshot_hash="h", max_rounds=2, rounds_run=2, stopped_early=False, speakers=("a",),
+                          votes=(v2, v3), final={"a": v3})
+    assert ok.rounds_run == 2
+    bad = [
+        {"votes": (v3, v2)},                                      # out of order
+        {"votes": (v2, v3), "rounds_run": 1},                     # a vote past rounds_run
+        {"speakers": ()},                                         # a vote by a non-speaker
+        {"rounds_run": 0, "votes": ()},                           # didn't run, but no skip_reason
+        {"skip_reason": "x"},                                     # ran, but has a skip_reason
+    ]
+    for kw in bad:
+        with pytest.raises(ValidationError):
+            DiscussionResult(**{**ok.model_dump(), **kw})
 
 
 def test_decision_risk_fields_default_null():
-    d = Decision(run_id="r", snapshot_hash="h", arm="blind", direction="none", reason="x", decided_by="aggregator_v0")
+    d = Decision(run_id="r", snapshot_hash="h", arm="blind", direction="none", reason="x", decided_by="quorum_v0")
     assert (d.entry, d.sl, d.tp, d.size, d.sigma) == (None,) * 5
-    with pytest.raises(ValidationError):
-        Decision(run_id="r", snapshot_hash="h", arm="other", direction="none", reason="x", decided_by="a")
+    for arm in ("discussion", "technical_v1"):
+        Decision(run_id="r", snapshot_hash="h", arm=arm, direction="none", reason="x", decided_by="a")
+    for arm in ("other", "debate"):                                  # the debate arm is history only
+        with pytest.raises(ValidationError):
+            Decision(run_id="r", snapshot_hash="h", arm=arm, direction="none", reason="x", decided_by="a")
 
 
 # ---- Snapshot

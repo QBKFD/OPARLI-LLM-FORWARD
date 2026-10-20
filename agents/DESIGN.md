@@ -1,5 +1,9 @@
 # Agents skeleton: design
 
+> **History.** This records the skeleton as built on 2026-10-14. Its bull/bear
+> debate (§0.5, step 5) and aggregator v0 were replaced in agents v2 (job 4) by
+> the discussion and the pluggable Meta rules: see `docs/AGENTS_ARCHITECTURE.md`.
+
 Design notes for the `feat/agents-skeleton` branch (from `feat/datafeed-v1` @
 c3d25fb). Step 0 is the proposal below. Later steps append their decisions.
 

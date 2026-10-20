@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import time
 
-from agents.schemas import Vote
+from agents.schemas import Evidence, Vote
 
 
 class FixedVoter:
@@ -63,103 +63,47 @@ class MutatingVoter:
         return Vote.abstained("mutating", "mutated")
 
 
-# ---------------------------------------------------------------- debate fakes
+# ---------------------------------------------------------------- discussion fakes
 
-BAD_REFS = ("level:no-such-level",
-            "bars:1m:2099-01-01T00:00:00+00:00..2099-01-01T00:01:00+00:00",
-            "feature:made_up",
-            "vibes")
-
-
-class FakeDebater:
-    """Deterministic debater: n_valid claims citing the newest 1m bars, plus
-    n_invalid claims citing nothing in the snapshot. The text depends on the
-    view (round, opponent's previous turn), so a different view gives a
-    different turn."""
-
-    def __init__(self, role, n_valid=1, n_invalid=0, concede=False):
-        self.role, self.n_valid, self.n_invalid, self.concede = role, n_valid, n_invalid, concede
-
-    def argue(self, view):
-        bars = view.snapshot.bars["1m"]
-        opp = view.opponent_previous_turn
-        note = "opening" if opp is None else f"answers {len(opp.claims)} {opp.role} claims ({opp.n_valid()} valid)"
-        claims = []
-        for i in range(self.n_valid):
-            b = bars[-1 - i]
-            claims.append({"text": f"{self.role} r{view.round} #{i}: 1m close {b.close} ({note})",
-                           "evidence_ref": f"bars:1m:{b.ts.isoformat()}..{b.ts.isoformat()}"})
-        for i in range(self.n_invalid):
-            claims.append({"text": f"{self.role} r{view.round} unsupported #{i}",
-                           "evidence_ref": BAD_REFS[i % len(BAD_REFS)]})
-        return {"role": self.role, "round": view.round, "claims": claims, "conceded": self.concede}
+def bar_ref(snapshot, k=1, tf="1m"):
+    """A ref to the k-th newest bar of tf: resolves in the snapshot."""
+    b = snapshot.bars[tf][-k]
+    return f"bars:{tf}:{b.ts.isoformat()}..{b.ts.isoformat()}"
 
 
-def FakeBull(**kw):
-    return FakeDebater("bull", **kw)
+class FakeDiscussant:
+    """A voter that also discusses, deterministically.
+    - vote(): `direction` at `confidence`, citing the newest 1m bar.
+    - discuss(view): `script(view)` returns the proposal as a dict (direction,
+      confidence, refs) or a Vote, or raises. Default: restate the previous
+      vote. Every view is recorded."""
 
+    def __init__(self, name, direction="long", confidence=0.6, script=None, abstain=False):
+        self.name, self.direction, self.confidence = name, direction, confidence
+        self.script, self.abstain = script, abstain
+        self.views = []
+        self._lock = threading.Lock()
 
-def FakeBear(**kw):
-    return FakeDebater("bear", **kw)
+    def vote(self, snapshot):
+        if self.abstain:
+            return Vote.abstained(self.name, "fake abstain")
+        return Vote(agent=self.name, direction=self.direction, confidence=self.confidence, reason="r1",
+                    evidence=(Evidence(ref=bar_ref(snapshot), claim="newest bar", valid=True),))
 
-
-class RaisingDebater:
-    def argue(self, view):
-        raise RuntimeError("debater down")
-
-
-class SlowDebater:
-    def __init__(self, seconds):
-        self.seconds = seconds
-
-    def argue(self, view):
-        time.sleep(self.seconds)
-        return {"claims": []}
-
-
-class ReturnsDebater:
-    def __init__(self, out):
-        self.out = out
-
-    def argue(self, view):
-        return self.out
-
-
-class RecordingDebater:
-    """Records every call exactly (args and kwargs), then delegates."""
-
-    def __init__(self, inner):
-        self.inner, self.calls = inner, []
-        self.lock = threading.Lock()
-
-    def argue(self, *args, **kwargs):
-        with self.lock:
-            self.calls.append((args, kwargs))
-        return self.inner.argue(*args, **kwargs)
-
-
-class SpyJudge:
-    def __init__(self, inner):
-        self.inner, self.inputs = inner, []
-        self.name = inner.name
-
-    def judge(self, inp):
-        self.inputs.append(inp)
-        return self.inner.judge(inp)
-
-
-class RaisingJudge:
-    name = "raising"
-
-    def judge(self, inp):
-        raise RuntimeError("judge down")
-
-
-class ReturnsJudge:
-    name = "returns"
-
-    def __init__(self, out):
-        self.out = out
-
-    def judge(self, inp):
-        return self.out
+    def discuss(self, view):
+        with self._lock:
+            self.views.append(view)
+        out = self.script(view) if self.script else {"direction": view.own_previous.direction,
+                                                     "confidence": view.own_previous.confidence,
+                                                     "refs": [e.ref for e in view.own_previous.evidence]}
+        if isinstance(out, Vote):
+            return out
+        from agents.evidence import check_ref, check_vote_ref
+        shown = {(v.agent, v.round) for v in (*view.others, view.own_previous)}
+        ev = []
+        for ref in out.get("refs", ()):
+            why = check_vote_ref(ref, shown) if ref.startswith("vote:") else check_ref(ref, view.snapshot)
+            ev.append(Evidence(ref=ref, claim="c", valid=why is None, invalid_reason=why))
+        return Vote(agent=self.name, round=view.round + 1, direction=out["direction"],
+                    confidence=out["confidence"], reason=out.get("reason", f"round {view.round}"),
+                    evidence=tuple(ev), call_id=f"{self.name}-{view.round}")

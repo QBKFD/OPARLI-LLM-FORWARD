@@ -48,3 +48,24 @@ def make_replay_db(directory, rows=None):
     con.close()
     return path
 
+
+
+# A minimal discussion.md for tests, so the discussion node runs (fake
+# discussants don't read it). Test text, not the owner's prompt.
+TEST_DISCUSSION = """---
+agent: discussion
+version: test
+---
+## user
+
+Round {{round}} of {{max_rounds}}. Others: {{other_votes_json}}
+"""
+
+
+def write_test_prompts(directory):
+    """A prompt directory holding only the test discussion.md."""
+    from pathlib import Path
+    d = Path(directory)
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "discussion.md").write_text(TEST_DISCUSSION)
+    return d

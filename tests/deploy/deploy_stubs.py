@@ -37,6 +37,13 @@ def host(p):
     return p
 
 def run_in(cmd):
+    if cmd == ["python", "-"]:                         # a tools/status probe fed on stdin
+        sys.stdin.read()
+        out = state.get({"scanner": "journal_stats", "recorder": "stream_stats"}.get(SERVICE, ""))
+        if out is None:
+            return 1
+        print(out)
+        return 0
     if cmd[:2] == ["python", "/app/backup_sqlite.py"]:
         return subprocess.call([sys.executable, "BACKUP_SQLITE"] + [host(a) for a in cmd[2:]])
     if cmd[:2] == ["python", "/app/export_parquet.py"]:
@@ -67,7 +74,13 @@ if args[:1] == ["inspect"]:
     c = state.get("containers", {}).get(name)
     if c is None:
         print(f"Error: No such object: {name}", file=sys.stderr); sys.exit(1)
-    print(c["restarts"] if "RestartCount" in fmt else c.get("health", "healthy")); sys.exit(0)
+    if "RestartCount" in fmt:
+        print(c["restarts"])
+    elif "State.Status" in fmt:
+        print(c.get("state", "running"))
+    else:
+        print(c.get("health", "healthy"))
+    sys.exit(0)
 if args[:1] != ["compose"]:
     sys.exit(98)
 a = args[1:]
@@ -177,6 +190,7 @@ class Stubs:
     def env(self, **extra):
         e = {"PATH": f"{self.bin}:{os.environ['PATH']}", "STUB_ROOT": str(self.root),
              "HOME": str(self.root), "LANG": "C.UTF-8",
+             "WATCHDOG_REPO": str(DEPLOY.parents[1]), "STATUS_PYTHON": sys.executable,
              "WATCHDOG_MEMINFO": str(self.root / "meminfo"), "WATCHDOG_DISK_PATHS": str(self.root)}
         e.update({k: str(v) for k, v in extra.items()})
         return e

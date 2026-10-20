@@ -1,0 +1,5 @@
+# The agents.toml every agents test runs with, via $AGENTS_CONFIG
+# (conftest.py). Test values only: the Meta rule the graph tests expect.
+# Tests of the missing-config path unset $AGENTS_CONFIG themselves.
+[meta]
+rule = "quorum_v0"
