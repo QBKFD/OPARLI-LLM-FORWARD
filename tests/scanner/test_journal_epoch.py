@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
+from scanner_helpers import tg_msg
 
 OLD_DDL = """
   CREATE TABLE alerts(alert_id TEXT, alert_ts_utc TEXT, level_types TEXT, level_price REAL,
@@ -54,10 +55,13 @@ def _switches(con):
 def test_fresh_journal_has_the_columns_and_no_switch_yet(tmp_path):
     con = ds.open_log(tmp_path / "j.sqlite")
     assert _cols(con, "alerts")[-3:] == ["epoch", "bar_source", "status"]
-    for t in ("decisions", "outcomes", "counterfactuals"):
-        assert _cols(con, t)[-1] == "epoch"
+    assert _cols(con, "counterfactuals")[-1] == "epoch"
+    assert _cols(con, "decisions")[-3:] == ["epoch", "telegram_update_id", "received_ts_utc"]
+    assert _cols(con, "outcomes")[5:] == ["epoch", "decision_rowid", "entry_ts_utc", "entry_price",
+                                          "entry_source", "entry_ref_close", "max_hold_min", "reason",
+                                          "mae_r", "mfe_r", "bars_used", "gap"]
     assert _cols(con, "source_switches") == ["switch_ts_utc", "from_source", "to_source", "epoch"]
-    assert con.execute("PRAGMA user_version").fetchone()[0] == ds.JOURNAL_VERSION == 3
+    assert con.execute("PRAGMA user_version").fetchone()[0] == ds.JOURNAL_VERSION == 4
     assert _switches(con) == []
 
 
@@ -215,9 +219,9 @@ def test_reply_prefers_the_current_epoch(tmp_path, current):
                     bar_source="x")
     con.commit()
     tg, lock = FakeTg(), threading.Lock()
-    ds._handle_reply(con, lock, tg, "A20251014-001 SKIP chop", current)
-    ds._handle_reply(con, lock, tg, "A20251014-007 TAKE long 1 sl 0.5 tp 2 reclaim", current)
-    ds._handle_reply(con, lock, tg, "A20251014-099 SKIP nope", current)
+    ds._handle_reply(con, lock, tg, tg_msg("A20251014-001 SKIP chop", 1), current)
+    ds._handle_reply(con, lock, tg, tg_msg("A20251014-007 TAKE long 1 sl 0.5 tp 2 reclaim", 2), current)
+    ds._handle_reply(con, lock, tg, tg_msg("A20251014-099 SKIP nope", 3), current)
     assert con.execute("SELECT alert_id, epoch, decision FROM decisions ORDER BY rowid").fetchall() == \
         [("A20251014-001", current, "SKIP"), ("A20251014-007", current - 1, "TAKE")]
     assert tg.sent == ["logged SKIP for A20251014-001", "logged TAKE for A20251014-007",
@@ -229,4 +233,6 @@ def test_both_live_paths_take_their_epoch_from_start_epoch():
     for fn, src_name in ((ds.run_live, '"ibkr"'), (ds.run_live_stream, '"stream"')):
         src = inspect.getsource(fn)
         assert f"start_epoch(con, {src_name})" in src
-        assert "_handle_reply(con, lock, tg, text, epoch)" in src
+        assert "_handle_reply(con, lock, tg, msg, epoch)" in src
+        assert "offset = load_offset(con)" in src and "save_offset(con, offset)" in src
+        assert "sweep_outcomes(con, live.hist.sort_index(), now)" in src

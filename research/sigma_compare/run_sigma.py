@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Sigma forecast comparison: plug-in (vol_block.sigma_over) vs HAR on
-(L, S_hd, T) vs EWMA on deseasonalized 1-min returns.
+Sigma forecast comparison: plug-in (vol_block.sigma_plugin, named sigma_over
+when the study ran) vs HAR on (L, S_hd, T) vs EWMA on deseasonalized 1-min
+returns.
 
 Specification: PREREG.md (committed c75b24f before any result). Choices made
 while implementing: DECISIONS.md. Research only.
@@ -354,7 +355,7 @@ def run_period(name: str, cfg: dict, m: pd.DataFrame, crosscheck: int = 0,
 
 
 def check_plugin(ctx, fit, f, H, n, rng) -> int:
-    """h_a == sigma_over(state_at(t), H).sigma_ret² on non-crossing rows (rel. 1e-9).
+    """h_a == sigma_plugin(state_at(t), H).sigma_ret² on non-crossing rows (rel. 1e-9).
     Returns the number of rows checked."""
     nc = f[~f.crossing]
     done = 0
@@ -365,7 +366,7 @@ def check_plugin(ctx, fit, f, H, n, rng) -> int:
         st = vb.state_at(fit.params, sl, t)
         if st.reason is not None:
             continue
-        s = vb.sigma_over(fit.params, st, H)
+        s = vb.sigma_plugin(fit.params, st, H)
         assert not s.crosses_close and s.open_minutes == H, (t, H)
         assert math.isclose(s.sigma_ret ** 2, nc.at[t, "h_a"], rel_tol=1e-9), (t, H)
         done += 1

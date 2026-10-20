@@ -2,19 +2,21 @@
 """Calibration check of vol_block's sigma over H minutes (pre-2024 history).
 
 Not a research study and not a decision rule: sigma is an engineering decision
-(datafeed/features/vol_block.py). This only shows how predicted sigma compares
-with what price did, before sigma is trusted for bracket distances. The method
-below was fixed before the first run; it is run once.
+(datafeed/features/vol_block.py). It checks the plug-in, called sigma_over when
+this was run and renamed sigma_plugin when HAR took over sigma_over. This only
+shows how predicted sigma compares with what price did, before sigma is trusted
+for bracket distances. The method below was fixed before the first run; it is
+run once.
 
 Data    research parquet XAUUSD_1min_UTC_clean.parquet, rows < 2024-01-01 only
         (asserted). Cleaning as research load_minutes: duplicate timestamps
         dropped (first kept), rows with a price <= 0 or high < low dropped.
 Fit     vb.fit on the bars in [2021-01-01, 2022-01-01).
 Points  every hourly label t in [2022-01-02, 2024-01-01) whose state is valid
-        (L, S_hd, T finite, as sigma_over requires), for H in 15, 60, 240, 1440
+        (L, S_hd, T finite, as sigma_plugin requires), for H in 15, 60, 240, 1440
         minutes, with t + H <= 2024-01-01. Features come from one transform()
         of the whole series (equal to state_at at labels, tested); sigma is
-        computed vectorised and cross-checked against vb.sigma_over(vb.state_at)
+        computed vectorised and cross-checked against vb.sigma_plugin(vb.state_at)
         on 200 random (t, H) pairs (rel. 1e-9, else abort).
 Dropped windows with no market-open minute (sigma 0), or with bars on fewer than
         90 % of the open minutes (missing data).
@@ -162,11 +164,11 @@ def crosscheck(params, m, v: pd.DataFrame) -> None:
         row = v.iloc[k]
         t = row.t
         st = vb.state_at(params, m[(m.index >= t - vb.LOOKBACK) & (m.index < t)], t)
-        s = vb.sigma_over(params, st, int(row.H))
+        s = vb.sigma_plugin(params, st, int(row.H))
         if not (math.isclose(s.sigma_ret, row.sigma_ret, rel_tol=1e-9)
                 and s.open_minutes == row.open_minutes and st.close_ref == row.close_ref):
             raise SystemExit(f"cross-check failed at {t} H={row.H}: {s} vs {row.to_dict()}")
-    print(f"cross-check vs sigma_over(state_at): {N_CROSSCHECK} pairs agree")
+    print(f"cross-check vs sigma_plugin(state_at): {N_CROSSCHECK} pairs agree")
 
 
 if __name__ == "__main__":

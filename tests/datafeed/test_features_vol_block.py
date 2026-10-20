@@ -189,7 +189,7 @@ def flat_params(p=1e-8):
 
 
 def test_sigma_hand_computed_inside_market_hours():
-    s = vb.sigma_over(flat_params(1e-8), flat_state("2021-03-24 10:00+00:00"), 240)
+    s = vb.sigma_plugin(flat_params(1e-8), flat_state("2021-03-24 10:00+00:00"), 240)
     assert (s.H, s.open_minutes, s.crosses_close) == (240, 240, False)
     assert s.sigma_ret == pytest.approx(math.sqrt(2.0 * 1e-8 * 240), rel=1e-12)
     assert s.sigma_px == pytest.approx(2000.0 * s.sigma_ret, rel=1e-15)
@@ -200,22 +200,22 @@ def test_sigma_uses_the_profile_of_each_minute():
     prof[288 + (10 * 60) // 5] = 5e-8          # DST bucket of 10:00-10:04 UTC
     params = vb.VolParams(tuple(prof), (0.0,) * 24, datetime(2021, 1, 4, tzinfo=UTC),
                           datetime(2021, 3, 1, tzinfo=UTC))
-    s = vb.sigma_over(params, flat_state("2021-06-15 10:00+00:00", L=0.0), 10)
+    s = vb.sigma_plugin(params, flat_state("2021-06-15 10:00+00:00", L=0.0), 10)
     assert s.sigma_ret ** 2 == pytest.approx(5 * 5e-8 + 5 * 1e-8, rel=1e-12)
 
 
 def test_sigma_daily_break_and_weekend_count_zero():
     p = flat_params()
     # 2021-03-24 is EDT: the break is 17:00-18:00 NY = 21:00-22:00 UTC
-    s = vb.sigma_over(p, flat_state("2021-03-24 20:00+00:00"), 180)
+    s = vb.sigma_plugin(p, flat_state("2021-03-24 20:00+00:00"), 180)
     assert (s.open_minutes, s.crosses_close) == (120, True)
-    sat = vb.sigma_over(p, flat_state("2021-03-27 12:00+00:00"), 60)
+    sat = vb.sigma_plugin(p, flat_state("2021-03-27 12:00+00:00"), 60)
     assert (sat.open_minutes, sat.sigma_ret, sat.crosses_close) == (0, 0.0, True)
 
 
 def test_sigma_mid_minute_starts_at_next_minute():
     p = flat_params()
-    s = vb.sigma_over(p, flat_state("2021-03-24 20:58:30+00:00"), 3)
+    s = vb.sigma_plugin(p, flat_state("2021-03-24 20:58:30+00:00"), 3)
     assert s.open_minutes == 1                 # 20:59 open; 21:00, 21:01 in the break
 
 
@@ -223,16 +223,16 @@ def test_sigma_input_errors():
     p, st = flat_params(), flat_state("2021-03-24 10:00+00:00")
     for H in (0, -5, 1.5, True, None):
         with pytest.raises(ValueError):
-            vb.sigma_over(p, st, H)
+            vb.sigma_plugin(p, st, H)
     bad = vb.VolState(st.t, None, math.nan, math.nan, math.nan, 2000.0, None, "insufficient_history")
     with pytest.raises(ValueError, match="insufficient_history"):
-        vb.sigma_over(p, bad, 60)
+        vb.sigma_plugin(p, bad, 60)
 
 
 def test_sigma_from_real_state(syn):
     m, _, params = syn
     st = vb.state_at(params, m, pd.Timestamp("2021-03-24 10:00", tz="UTC"))
-    s = vb.sigma_over(params, st, 60)
+    s = vb.sigma_plugin(params, st, 60)
     assert s.sigma_ret > 0 and s.sigma_px == st.close_ref * s.sigma_ret and not s.crosses_close
 
 
@@ -256,7 +256,7 @@ def test_bars_at_or_after_t_do_not_change_state_or_sigma(syn):
                               tz="UTC"):
         a, b = vb.state_at(params, m, t), vb.state_at(params, perturb_after(m, t), t)
         assert a.reason is None and a == b
-        assert vb.sigma_over(params, a, 240) == vb.sigma_over(params, b, 240)
+        assert vb.sigma_plugin(params, a, 240) == vb.sigma_plugin(params, b, 240)
         # the perturbation has teeth: a state after t does move
         later = t + pd.Timedelta(hours=26)
         assert vb.state_at(params, m, later).L != vb.state_at(params, perturb_after(m, t), later).L
