@@ -59,6 +59,24 @@ conservative option, log it here, continue.
 | D19 | The daily Telegram heartbeat goes out on the first run at or after 07:00 UTC, **every day, weekends included**. It summarises gateway, scanner health and restarts, disk, memory and swap, last backup, and recorder lag and rejected count. | Silence on any day means the watchdog or cron is broken. | Weekdays only. |
 | D20 | In stream mode, the entrypoint's Redis wait times out after `REDIS_WAIT_TRIES` × 5 s (default 120, so 10 min, as the gateway wait). Then it sends one Telegram alert and exits 1; it doesn't start the scanner anyway. The alert is at most hourly, via a marker file on the `/data` volume, because Docker restarts it into the next 10-min wait. Sent with Python's urllib (the image has no curl); no token means no send. | One clear alert per hour instead of a crash loop without context; never one alert per restart. | Alert every time; start the scanner anyway (the old behaviour). |
 
+## feat/status-board
+
+Written 2026-10-17, ops terminal: `health.json` from the watchdog,
+`tools/status` (thresholds, writer, reader, `--once`, the Textual board).
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| S1 | The watchdog (bash) only **collects** facts and passes them as `key=value` to `python3 -m tools.status.write`, which evaluates them and writes `health.json`. The JSON and the thresholds logic are in Python, not bash. | Testable pure functions; no JSON built by hand in shell. | Build the JSON in bash. |
+| S2 | **One thresholds file**, `tools/status/thresholds.toml`. The watchdog reads its four alert thresholds from it (the `red` values) and keeps its old constants as a fallback if the file can't be read. A test pins the fallback numbers to the file. | One source of truth, and a broken file can't silence the alerts. | Separate numbers for alerts and board. |
+| S3 | A missing or malformed fact is **red** ("no data: …"), never green or yellow. | Unknown is never reported as fine. | Yellow for unknown. |
+| S4 | Components that aren't part of the deployment are status green with `deployed: false`, shown **OFF**: Redis and recorder without the stream profile, agents for now. "Expected" comes from `.env` (`SCANNER_BAR_SOURCE=stream` or `stream` in `COMPOSE_PROFILES`); an expected container that is missing is **red**. | No permanent yellow for parts that don't exist, but a vanished container is never mistaken for one that isn't deployed. | Yellow for not deployed; a fourth status. |
+| S5 | Stale (`stale_after_s` = 900 s, 3 missed runs), missing, invalid, truncated, future-dated (> 2 min, flagged only) or oversized files: every component **red**, OFF ones included, with the last known state in the reason. | A board that can't know shows red. | Grey out a stale board. |
+| S6 | Bar ages (feed, scanner, recorder) count **market-open minutes** (datafeed's `_market_open`), as the scanner's own staleness rules do. | No yellow every weekend and every daily break. | Wall-clock ages. |
+| S7 | Two probes run inside the containers, fed on stdin (`docker compose exec -T … python - < probe.py`): the journal (read-only, `mode=ro`) in the scanner container, the newest live stream bar in the recorder container. They report failures as facts (`journal_ok=0`, `feed_probe_error=…`). | No new files in the image; real, linted, tested files instead of inline `python -c` strings; a probe failure is red, never a watchdog crash. | Inline `-c` snippets; copy the probes into the image. |
+| S8 | **Textual 8.2.8** (released 2026-06-30) as the `status` extra; the main lock gains 7 packages, no existing pin moves; `platformdirs` capped at 4.12.2 (its newest is from 2026-10-16). `tools/status/requirements-status.lock` is a verbatim, test-checked subset for a host venv. `--once` and the writer are stdlib only. | Two-week rule kept; the host needs no packages for `--once`; the board installs hash-locked without the full lock. | Unhashed `pip install textual`; curses. |
+| S9 | `--once` exits 0 / 1 / 2 for green / yellow / red (OFF ignored), and colours only on a terminal without `NO_COLOR` or `TERM=dumb`; the status is always printed as a word. | Scriptable over ssh, readable without colour. | Always exit 0. |
+| S10 | The journal component counts today's **first** decisions per alert (as PR #18 does) and turns yellow when a sent alert of today has waited ≥ 60 min. The probe works on journals before and after PR #18's migration 4. | Same counting rule as the journal summary; no dependency on #18 merging first. | Count every decision row. |
+| S11 | `agents` is always reported as not deployed (`agents_deployed=0`) until an agents runner exists to report a last run; the evaluator already handles a deployed agents component. | No guessing where a future runner keeps its state. | Read `$AGENTS_DB` from the host. |
 ## feat/agents-architecture
 
 Written 2026-10-17, design only (no code): `docs/AGENTS_ARCHITECTURE.md` and
@@ -114,6 +132,31 @@ implements. Owner rule: the owner writes every prompt and every
 | P13 | **Version warnings (AA10)** are logged at graph build time against the store's last run and shown by `python -m agents.epoch --db`. They aren't a separate column: both versions and hashes are stored per run, so a warning can always be derived. | No extra schema for a derived fact. | A warnings column. |
 | P14 | **Store migrations are numbered per job:** 3 = the epoch stamps (this job), 4 = the LLM tables, 5 = the discussion. The design doc said "migration 3" for all of them; it is updated. | One migration per PR, so each can be reviewed and rolled back on its own. | One big migration in job 4. |
 | P15 | **Four mypy findings** in `agents/graph.py` and `agents/store/sqlite.py` are the same as on the base branch and are left as they are. New modules pass mypy with `--disallow-untyped-defs`. | No unrelated edits in this PR. | Fix them here. |
+## research/level-target-spec
+
+Overnight run, 2026-10-17, unattended. Rule: on any decision, take the
+conservative option, log it here, continue. This branch holds two documents,
+neither with any code:
+- `research/level_target/SPEC.md`, whose decisions are in
+  `research/level_target/DECISIONS.md` (T1–T13);
+- `docs/AGENT_LLM_SCANNER_DESIGN.md`, decided below.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| L1 | **The runner reads the scanner journal read-only** (`mode=ro`, a 5 s poll). The scanner isn't changed. | The scanner is production and another session's area; a read-only reader can't break it. | Publish alerts on the Redis bus from the scanner. |
+| L2 | **A 5-minute decision deadline and a common entry** (alert + 5 min) for both arms. The owner's later replies keep their extra information. | It measures selection and direction, not speed. The leftover bias favours the owner, so it can only make the agent look worse. | Score each arm at its own decision time (reported as a secondary). |
+| L3 | **No refusal fallbacks**, although the Claude API guidance enables them by default for Opus 5.5. A refusal is an abstention. | A fallback answers with another model, which breaks the frozen-model epoch. | Fallbacks on, with the fallback model recorded (it mixes two models in one arm). |
+| L4 | **The owner never sees the agent's decisions during an epoch**; only integrity counts are shared, weekly. | The owner's replies are the comparison arm; seeing the agent would contaminate them. | Reveal after each reply (a different question; §14 Q2). |
+| L5 | **Primary outcome: selection value with the neutral 1σ/2σ bracket at 240 min**, the same scorer for both arms. Each arm's own SL/TP is reported only. | One exit rule for both arms isolates TAKE/SKIP and direction, which is the question. | Each arm's own exits as primary (it mixes exit skill in). |
+| L6 | **Opus 5.5 is the proposed model** (the current default), with effort `medium`, pinned. Sonnet 5.5 and Haiku 5.5 are priced for comparison. | Model choice is the owner's; the doc prices all three. | Choose Sonnet on cost. |
+| L7 | **Prompt caching off.** | One call an hour or more apart; neither TTL pays. | A 1-hour cache on the system prompt. |
+| L8 | **Self-consistency repeats** on 10 % of alerts (2 extra samples after the deadline), stored and never scored. | They measure sampling noise without touching the comparison. | Majority of 3 as the decision (3× cost, a different agent). |
+| L9 | **The calendar must come from a point-in-time store** (each scrape with its fetch time). It isn't built, and is listed first in the build order. | Calendar data without `known_by` leaks revisions and actuals into the snapshot. | Use the historical calendar export (not point-in-time). |
+| L10 | **The snapshot is the only input:** no tools, no web, no news text. | Every claim must resolve to a ref; outside sources can't. | Web search (unverifiable, and not frozen). |
+| L11 | **A hard cap of 40 calls a day** (≈ $5 on Opus), then abstain `budget`. | It bounds a runaway loop's cost. | No cap. |
+| L12 | **Deploy wiring (compose, watchdog) is left to the deploy stack's owner.** The doc only sizes it (384 MB). Nothing in `deploy/` is touched. | `deploy/` is another session's area tonight. | Draft compose changes here. |
+| L13 | **The token counts are estimates**, images at ≈ w·h/750 tokens. `count_tokens` on the real prompt replaces them before the freeze. Prices are the list prices as of 2026-10-06. | The cost table is labelled as an estimate. | none |
+| L14 | **Owner decisions of 2026-10-17 applied** (design §14): Opus 5.5 at effort `medium`; blinding as designed; a 5-minute deadline; the point-in-time calendar store built first, with a launch without it if it isn't ready within 2 weeks (`events = []`, flagged; adding it later is a new epoch); the neutral bracket as the primary outcome; no agent sees the Technical vote. | They are the owner's choices, recorded where the design uses them. | none |
 
 ## feat/agents-llm-client (agents v2, job 3)
 
