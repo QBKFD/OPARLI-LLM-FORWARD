@@ -1,4 +1,5 @@
-"""Step 4: graph wiring, voter isolation, abstain on failure, skips, aggregator v0."""
+"""Graph wiring, voter isolation, abstain on failure, skips. The Meta rules are
+tested in test_meta.py, the discussion in test_discussion.py."""
 
 import threading
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,6 @@ import pytest
 
 from agents.config import AgentsConfig
 from agents.graph import build_graph, merge_disjoint, run_once
-from agents.nodes.aggregator import aggregate_v0
 from agents.schemas import Snapshot, TriggerEvent, Vote
 from agents.snapshot import SealedError
 from agents.store import MemoryStore
@@ -37,16 +37,21 @@ def test_stub_graph_runs_to_a_blind_none(replay_db):
     store = MemoryStore()
     out = run_once(build_graph(CFG, store, replay_db), ev(), run_id="r1")
     assert out["status"] == "done"
-    assert sorted(out["votes"]) == ["sentiment", "technical", "visual"]
-    assert all(v.abstain and v.abstain_reason.startswith("stub:") for v in out["votes"].values())
+    assert sorted(out["votes"]) == ["gex", "sentiment", "technical", "visual"]
+    assert all(v.abstain for v in out["votes"].values())
+    assert out["votes"]["gex"].abstain_reason == "no options data source"
     blind = out["final_decisions"]["blind"]
-    assert (blind.arm, blind.direction, blind.decided_by) == ("blind", "none", "aggregator_v0")
-    assert blind.reason == "long 0, short 0, none 0, abstain 3 of 3: no direction has 2 agreeing non-abstaining votes"
+    assert (blind.arm, blind.direction, blind.decided_by, blind.meta_rule) == ("blind", "none", "quorum_v0",
+                                                                              "quorum_v0")
+    assert blind.reason == "long 0, short 0, none 0, abstain 4 of 4: no direction has 2 agreeing non-abstaining votes"
+    disc = out["final_decisions"]["discussion"]
+    assert (disc.direction, out["discussion"].skip_reason) == ("none", "no LLM discussants in this graph")
     assert (blind.entry, blind.sl, blind.tp, blind.size, blind.sigma) == (None,) * 5     # risk stub
     rec = store.runs["r1"]
     assert rec["run"].status == "done" and rec["run"].snapshot_hash == out["snap"].hash
-    assert [v.agent for v in rec["votes"]] == ["sentiment", "technical", "visual"]
-    assert [d.arm for d in rec["decisions"]] == ["blind"] and rec["debate"] is None
+    assert [v.agent for v in rec["votes"]] == ["gex", "sentiment", "technical", "visual"]
+    assert [d.arm for d in rec["decisions"]] == ["blind", "discussion"]
+    assert rec["discussion"] == out["discussion"]
     assert rec["run"].trigger.payload == {"note": "unit"} and rec["run"].config_hash == CFG.config_hash()
 
 
@@ -191,57 +196,6 @@ def test_gate_min_bars(replay_db):
 def test_sealed_t_raises(replay_db):
     with pytest.raises(SealedError):
         run_once(build_graph(CFG, MemoryStore(), replay_db), ev(datetime(2026, 10, 1, 0, 1, tzinfo=UTC)))
-
-
-# ---- aggregator v0 (owner rule: >= 2 agreeing non-abstaining votes, else none)
-
-def _votes(*dirs):
-    return {f"a{i}": (Vote.abstained(f"a{i}", "x") if d == "abstain" else
-                      Vote(agent=f"a{i}", direction=d, confidence=0.9)) for i, d in enumerate(dirs)}
-
-
-@pytest.mark.parametrize("dirs, want", [
-    # abstain cases
-    (("long", "long", "abstain"), "long"),          # two agree, one abstains: enough
-    (("short", "short", "abstain"), "short"),
-    (("long", "abstain", "abstain"), "none"),       # one non-abstaining vote is never enough
-    (("short", "abstain", "abstain"), "none"),
-    (("abstain", "abstain", "abstain"), "none"),
-    (("long", "short", "abstain"), "none"),         # disagreement + abstain
-    (("none", "abstain", "abstain"), "none"),
-    (("long", "none", "abstain"), "none"),
-    # no abstains
-    (("long", "long", "long"), "long"),
-    (("long", "long", "short"), "long"),
-    (("short", "short", "none"), "short"),
-    (("long", "short", "none"), "none"),
-    (("long", "none", "none"), "none"),
-    (("none", "none", "none"), "none"),
-])
-def test_aggregator_v0_two_agreeing_non_abstaining(dirs, want):
-    assert aggregate_v0(_votes(*dirs), "r", "h").direction == want
-
-
-def test_aggregator_abstains_do_not_count_against():
-    # The old strict-majority rule counted abstains against. Two agreeing votes
-    # are enough however many voters abstain.
-    d = aggregate_v0(_votes("long", "long", "abstain", "abstain", "abstain"), "r", "h")
-    assert d.direction == "long"
-    assert d.reason == "long 2, short 0, none 0, abstain 3 of 5: 2 non-abstaining votes agree on long"
-
-
-def test_aggregator_both_directions_reaching_two_is_none():
-    d = aggregate_v0(_votes("long", "long", "short", "short"), "r", "h")
-    assert d.direction == "none" and d.reason.endswith("both long and short reach 2")
-
-
-def test_aggregator_ignores_confidence():
-    votes = {"a": Vote(agent="a", direction="long", confidence=0.01), "b": Vote(agent="b", direction="long", confidence=0.01),
-             "c": Vote(agent="c", direction="short", confidence=1.0)}
-    assert aggregate_v0(votes, "r", "h").direction == "long"
-    votes = {"a": Vote(agent="a", direction="long", confidence=1.0), "b": Vote.abstained("b", "x"),
-             "c": Vote.abstained("c", "y")}
-    assert aggregate_v0(votes, "r", "h").direction == "none"         # full confidence, still one vote
 
 
 # ---- misc

@@ -19,6 +19,11 @@ bars
     Writes are idempotent: the same values again are a no-op. Different values
     for an existing (symbol, bar_ts, kind) are NOT written. The incoming row
     goes to bar_conflicts and the stored row stays as first recorded.
+    Spread columns (migration 4): spread_mean, spread_median, spread_max (ask -
+    bid, price units) and n_quotes, set for live bars and NULL for history and
+    replay. They sit next to the bar values but are not bar values: they don't
+    enter the duplicate/conflict comparison (VALUE_FIELDS) and readers of bars
+    (query.bars_before) don't return them.
 
 bar_conflicts
     Append-only log of rejected different-value writes.
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import sqlite3
 from datetime import datetime, timezone
 
@@ -43,6 +49,7 @@ log = logging.getLogger(__name__)
 
 KINDS = ("live", "history", "replay")
 VALUE_FIELDS = ("open", "high", "low", "close", "n_ticks")
+SPREAD_FIELDS = ("spread_mean", "spread_median", "spread_max", "n_quotes")
 
 MIGRATIONS: list[tuple[int, str]] = [
     (1, """
@@ -111,6 +118,15 @@ MIGRATIONS: list[tuple[int, str]] = [
         PRIMARY KEY (stream, stream_id)
     );
     """),
+    (4, """
+    -- spread stats of live bars (ask - bid over the minute's quotes), NULL for
+    -- history and replay bars and for rows recorded before this migration.
+    -- (No semicolons in comments: migrate() splits scripts on them.)
+    ALTER TABLE bars ADD COLUMN spread_mean   REAL;
+    ALTER TABLE bars ADD COLUMN spread_median REAL;
+    ALTER TABLE bars ADD COLUMN spread_max    REAL;
+    ALTER TABLE bars ADD COLUMN n_quotes      INTEGER;
+    """),
 ]
 
 
@@ -175,6 +191,24 @@ def kind_of(msg: dict) -> str:
     return "history" if msg.get("history") else "live"
 
 
+def spread_values(msg: dict) -> tuple:
+    """The message's (spread_mean, spread_median, spread_max, n_quotes), all
+    None when it carries none. Raises ValueError for a partial or malformed set:
+    the four come together, finite, with n_quotes an int >= 1."""
+    present = [f for f in SPREAD_FIELDS if msg.get(f) is not None]
+    if not present:
+        return (None,) * len(SPREAD_FIELDS)
+    if len(present) != len(SPREAD_FIELDS):
+        raise ValueError(f"spread fields must come together, got only {present}")
+    *stats, n = (msg[f] for f in SPREAD_FIELDS)
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError(f"n_quotes must be an int >= 1, got {n!r}")
+    for f, x in zip(SPREAD_FIELDS, stats):
+        if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x):
+            raise ValueError(f"{f} must be a finite number, got {x!r}")
+    return (*(float(x) for x in stats), n)
+
+
 def insert_bar(con: sqlite3.Connection, msg: dict) -> str:
     """Write one bar message. Returns "inserted", "duplicate" or "conflict".
     Does not commit: the caller owns the transaction, so it can commit a batch
@@ -184,9 +218,11 @@ def insert_bar(con: sqlite3.Connection, msg: dict) -> str:
     if row is None:
         con.execute(
             "INSERT INTO bars (symbol, bar_ts, kind, open, high, low, close, n_ticks, source, "
-            "schema_version, ingest_ts, recorded_ts) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "schema_version, ingest_ts, recorded_ts, spread_mean, spread_median, spread_max, "
+            "n_quotes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (*key, msg["open"], msg["high"], msg["low"], msg["close"], msg.get("n_ticks"),
-             msg["source"], msg["schema_version"], canonical(msg["ingest_ts"]), _now()))
+             msg["source"], msg["schema_version"], canonical(msg["ingest_ts"]), _now(),
+             *spread_values(msg)))
         return "inserted"
     if all(row[f] == msg.get(f) for f in VALUE_FIELDS):
         return "duplicate"

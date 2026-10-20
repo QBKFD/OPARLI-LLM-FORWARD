@@ -27,10 +27,17 @@ dev = ["pytest==9.1.1", "pytest-timeout==2.4.0"]
 # The agents/ skeleton (LangGraph graph, pydantic schemas). Pinned to releases at
 # least two weeks old on 2026-10-14. No LLM client: agents/ makes no LLM calls yet.
 agents = ["langgraph==1.2.12", "pydantic==2.13.5"]
+# The official Claude SDK for the LLM agents (agents/llm/anthropic_client.py,
+# imported lazily: nothing else in agents/ loads it). Pinned to the newest
+# release at least two weeks old on 2026-10-17 (1.11.0, 2026-09-30).
+llm = ["anthropic==1.11.0"]
 # Everything research/ imports (numpy, pandas, scipy, matplotlib, numba, pytest),
 # plus pyarrow for pandas' parquet I/O. Pinned to the old backend venv
 # (algo_project/backend/venv, Python 3.13.1), where the research baseline of
 # 80 passed was run.
+# tools/status: the Textual TUI (python -m tools.status). --once and the
+# health.json writer are stdlib only and need no extra.
+status = ["textual==8.2.8"]
 research = ["numpy==2.2.6", "pandas==2.3.3", "pyarrow==25.0.0", "scipy==1.17.1", "matplotlib==3.10.8",
             "numba==0.61.2", "pytest==9.1.1"]
 
@@ -39,18 +46,18 @@ where = ["."]
 include = ["datafeed*", "agents*", "risk*", "scoring*"]
 
 [tool.setuptools.package-data]
-agents = ["prompts/*.md", "config.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
+agents = ["prompts/*.md", "config.example.toml", "agents.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
 # HAR sigma model files (vol_block.SIGMA_MODELS), SHA-256 checked on load.
 datafeed = ["features/models/*.json"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed,
 # tests/agents_tests, tests/risk_tests, tests/scoring_tests, tests/scanner and
-# tests/deploy only. legacy/ is never collected: it is listed in norecursedirs
+# tests/deploy and tests/status_tests only. legacy/ is never collected: it is listed in norecursedirs
 # (with pytest's own defaults), so it is skipped even when a parent directory is
 # collected.
 testpaths = ["research", "tests/datafeed", "tests/agents_tests", "tests/risk_tests",
-             "tests/scoring_tests", "tests/scanner", "tests/deploy"]
+             "tests/scoring_tests", "tests/scanner", "tests/deploy", "tests/status_tests"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).

@@ -21,6 +21,7 @@ Layout notes:
 
 import faulthandler
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -37,6 +38,16 @@ EXIT_DUMP_S = 30
 
 def pytest_unconfigure(config):
     faulthandler.dump_traceback_later(EXIT_DUMP_S, exit=False, file=sys.__stderr__)
+
+
+OWNER_CONFIG = Path(__file__).resolve().with_name("owner_config_tests.toml")
+
+
+@pytest.fixture(autouse=True)
+def owner_config_env(monkeypatch):
+    """Every agents test sees a test agents.toml (Meta rule quorum_v0) unless
+    it sets or removes $AGENTS_CONFIG itself. Code has no default rule."""
+    monkeypatch.setenv("AGENTS_CONFIG", str(OWNER_CONFIG))
 
 
 @pytest.fixture(scope="session")

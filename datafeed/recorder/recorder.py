@@ -99,6 +99,7 @@ class Recorder:
             for f in ("bar_ts", "open", "high", "low", "close"):
                 if f not in d.msg:
                     raise ValueError(f"bar message missing {f}")
+            schema.spread_values(d.msg)                    # optional, but whole and finite
             ts = schema.canonical(d.msg["bar_ts"])
         except (ValueError, TypeError) as e:
             schema.reject_message(self.con, self.stream, d.id, d.msg, repr(e), "invalid",
