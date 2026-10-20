@@ -92,7 +92,8 @@ Check:
   epoch 1`;
 - the journal migrated:
   `docker compose exec -T scanner python -c "import sqlite3; c = sqlite3.connect('/data/scanner_decisions.sqlite'); print(c.execute('PRAGMA user_version').fetchone(), c.execute('SELECT * FROM source_switches').fetchall())"`
-  prints `(3,)` and one row `(…, None, 'ibkr', 1)`;
+  prints `(4,)` and one row `(…, None, 'ibkr', 1)` (journal version 4: Telegram update ids
+  and TAKE outcomes, `backend/README.md`);
 - after ~1–2 min, `docker inspect -f '{{.State.Health.Status}}'
   scanner-scanner-1` says `healthy` (the heartbeat).
 
@@ -266,6 +267,9 @@ local IB Gateway paper on 4002. Run it on a Thursday or Friday:
 - **Telegram, from backup**: a message if the nightly backup or archive fails.
 - **Logs**: `~/scanner-watchdog.log`, `~/scanner-backup.log`,
   `docker compose logs`.
+- **Journal summary** (read-only): alerts, TAKE, SKIP, MISSED and open
+  outcomes for a UTC day, per epoch:
+  `docker compose exec -T scanner python /app/journal_summary.py [--date YYYY-MM-DD] [--json]`.
 
 ## 10. Check by hand the first time
 
@@ -293,3 +297,11 @@ Nothing below could be run where this was written (no Docker, no host access):
       `mem_limit`; the swap file is active (`swapon --show`).
 - [ ] The `archive/bars/date=.../XAUUSD.parquet` objects appear in S3 the
       morning after the stream profile's first full day.
+- [ ] Journal, after the first replies:
+      - a TAKE reply's `decision_ts_utc` is the message's time (as shown in
+        Telegram), not the time it was processed;
+      - the confirmation says `outcome not scorable: …` for a TAKE without
+        sl/tp;
+      - `journal_summary.py` lists the TAKE as open, then as tp/sl/timeout once
+        it is scored;
+      - a scanner restart re-confirms nothing.

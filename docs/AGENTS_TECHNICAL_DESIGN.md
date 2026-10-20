@@ -90,10 +90,11 @@ exists.
   **same** fetched 1-min bars as the snapshot, so there is one query and the
   same `known_by`:
   - `vb.state_at(model.params, bars_1m, t)`;
-  - `sigma_over(model, state, 60)`.
-  - Stored in `Snapshot.features`: `L`, `S_hd`, `T`, `sigma_px_60`,
-    `sigma_ret_60`, `crosses_close_60`, `sigma_model` (name), and
-    `sigma_model_sha256`.
+  - `sigma_over(model, state, 240)` (primary, owner decision 2026-10-17)
+    and `sigma_over(model, state, 60)` (secondary, PREREG §6a).
+  - Stored in `Snapshot.features`: `L`, `S_hd`, `T`, `sigma_px_240`,
+    `sigma_ret_240`, `crosses_close_240`, `sigma_px_60`, `sigma_ret_60`,
+    `crosses_close_60`, `sigma_model` (name), and `sigma_model_sha256`.
   - The builder fails (stale or invalid), rather than leaving σ out, when the
     state isn't valid.
 - **Levels.** `Snapshot.levels` holds the scanner's levels as of t: PDH, PDL,
@@ -112,10 +113,11 @@ exists.
   - With the stub, every proposal lacks its structural level, so the agent
     abstains ("no levels"), counted. This is plumbing only; no evidence run
     uses the stub.
-- **Development: a full historical backtest, 2007–2023** (dev only, never
-  evidence).
-  - It runs on unmasked history (`XAUUSD.txt`; the parquet holds the same bars
-    from 2020), with scanner touches replayed by the same level engine.
+- **Development: a historical backtest, 2007–2020** (dev only, never
+  evidence; cut from 2007–2023 on 2026-10-17 to keep the parquet 2021–2023
+  holdout unused, PREREG §10).
+  - It runs on unmasked history (`XAUUSD.txt`), with scanner touches replayed
+    by the same level engine.
   - It gives σ_d and the rates for PREREG §8.
   - Masking (no dates, rescaled prices) applies only to future LLM agents.
   - The agent may use time of day and weekday, never the date.
@@ -129,7 +131,8 @@ exists.
 - **New frozen `Proposal`,** attached to the Technical vote. `Vote` gains an
   optional `proposal`, and the agent store needs **migration 3**:
   - `ref_price`: the snapshot's last complete 1m close;
-  - `sigma_px`: `features.sigma_px_60`;
+  - `sigma_px`: `features.sigma_px_240` (the 60-minute clip of PREREG §6a is
+    computed from the raw distances at scoring time);
   - `sl_dist`, `tp_dist`: price distances > 0, **clipped to [0.5σ, 3σ]**;
   - `sl_raw_dist`, `tp_raw_dist`, and `clipped` (`low` / `high` / None for
     each side);
@@ -137,15 +140,21 @@ exists.
     `bars:<tf>:<start>..<end>`, `feature:<name>`).
   - Every ref must resolve with `agents.debate.evidence.check_ref`. An
     unresolved ref → abstain with the reason; there's no silent drop.
-- **SL/TP rule (deterministic, long; short is mirrored):**
+- **SL/TP rule (deterministic, long; short is mirrored).** Moved to the
+  H = 240 horizon by the owner on 2026-10-17, before any code or result
+  existed (PREREG §12, DECISIONS A11). σ below is σ₂₄₀ = `features.sigma_px_240`.
   - **SL.** Below the nearest support among:
     - the touched level, if it is below `ref_price`;
-    - the lowest low of the last complete 15m swing (the 20-bar window).
-    The stop goes that support − 0.1σ below it.
-  - **TP.** At the nearest resistance above: the next scanner level above, or
-    the 1h 20-bar high of complete candles, whichever is closer.
-  - **Clipping.** Each distance is clipped to [0.5σ, 3σ]. Clipped sides are
-    flagged, and the refs keep the structural source.
+    - the low of the last complete **1h** swing: the lowest low of the last
+      20 complete 1h candles. This is the same 20-bar window definition as
+      before, moved from 15m to 1h.
+
+    The stop goes 0.1σ₂₄₀ below that support.
+  - **TP.** At the nearest resistance above, whichever of these is closer:
+    - the next scanner level above;
+    - the **4h** 20-bar high of complete candles (moved from 1h to 4h).
+  - **Clipping.** Each distance is clipped to [0.5σ₂₄₀, 3σ₂₄₀]. Clipped
+    sides are flagged, and the refs keep the structural source.
   - **No structure.** If no structural level exists on a side → **abstain**
     with reason `no_structure_sl` / `no_structure_tp`, **counted** separately
     from other abstentions (owner decision: a clip-bound fallback would blur
@@ -227,7 +236,7 @@ new experiment with its own PREREG, and these are its rules:
 | Sigma model pin | An evidence experiment refuses any model but the pinned `parquet2021_2023` SHA |
 | Eligibility | A window crossing the close → excluded with its reason; stale → skipped; `NoBarsError` → excluded |
 | Integration | A pre-2024 replay week end to end: trigger → snapshot → vote → `score` and `score_neutral` → stored; skipped without the parquet |
-| Dev backtest | Over 2007–2023: each event scored once; no bar at or after as_of reaches the agent; the outputs (σ_d, DE, rates) are reproducible byte for byte; it refuses dates ≥ 2024-01-01 |
+| Dev backtest | Over 2007–2020: each event scored once; no bar at or after as_of reaches the agent; the outputs (σ_d, DE, rates) are reproducible byte for byte; it refuses dates ≥ 2021-01-01 |
 | LLM variant (only if chosen) | Cache-only rerun is byte-identical; a cache miss errors; refusal, parse failure and `max_tokens` → abstain; the prompt hash is stable |
 
 All tests go in `tests/agents_tests/` with unique basenames, and are covered by
@@ -242,7 +251,7 @@ CI's pytest and ruff (`agents` is linted).
 3. Indicators (Wilder), regime, confluence and cascade ports, each with its
    fix tests.
 4. `TechnicalAgent` with `Proposal`, and store migration 3.
-5. The dev backtest over 2007–2023, which gives σ_d, DE and the rates →
+5. The dev backtest over 2007–2020, which gives σ_d, DE and the rates →
    N in the PREREG.
 6. Bid/ask capture for the 2-week cost window after the cut-over → c in the
    PREREG.
@@ -264,5 +273,18 @@ CI's pytest and ruff (`agents` is linted).
    dev run; cap 12 months; SL/TP re-anchored at entry; σ = HAR parquet fit,
    pinned by SHA.
 8. **Development:** a full 2007–2023 backtest for the deterministic agent;
-   masking only for future LLM agents.
+   masking only for future LLM agents. *(Cut to 2007–2020 on 2026-10-17 and
+   confirmed by the owner the same day; 2021–2023 is a sanity check, PREREG
+   §10.)*
 9. **LLM:** none in v1.
+
+**2026-10-17:** the primary horizon is H = 240 minutes, H = 60 secondary;
+swing horizons are v2 (PREREG §13).
+
+**2026-10-17, later (owner):**
+- The dev period 2007–2020 is confirmed; 2021–2023 is a sanity check
+  (PREREG §10).
+- The SL/TP structure moves to the 240-minute horizon: the 1h swing low or
+  the touched level − 0.1σ₂₄₀ for the stop; the next scanner level or the 4h
+  20-bar high for the target; clipped with σ₂₄₀ (§3). This was decided
+  before any code or result existed.
