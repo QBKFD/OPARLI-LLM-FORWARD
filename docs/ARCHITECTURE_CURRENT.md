@@ -1,9 +1,9 @@
 # Current architecture
 
-Drawn from the code on `main` @ `e194cb7` (2026-10-20), not from the design
-docs. Open PRs aren't drawn: #15 (LangGraph Studio) and #22 (instrument
-config). `docs/ARCHITECTURE_MAP.md` and `docs/REPO_MAP.md` are surveys from
-before the phase 1 cleanup and use old paths.
+Drawn from the code on `main` @ `c556533` (2026-10-20), not from the design
+docs. The open PR #22 (instrument config) isn't drawn.
+`docs/ARCHITECTURE_MAP.md` and `docs/REPO_MAP.md` are surveys from before the
+phase 1 cleanup and use old paths.
 
 **What the EC2 host runs isn't recorded in git.** PR #18 (2026-10-18) states
 that the host ran branch `pipeline-fixes-and-cleanup` (last commit
@@ -95,9 +95,10 @@ flowchart TB
 - The status board reads only `health.json`, which the watchdog writes every
   run. `python3 -m tools.status --once` needs no packages; the Textual board
   needs the `status` extra.
-- Nothing calls the Anthropic API: no code outside the tests builds the
-  agents graph, and `python -m agents.llm count-tokens` is the only command
-  that makes a client.
+- Nothing calls the Anthropic API. Outside the tests, only LangGraph Studio
+  (`tools/langgraph_studio/studio.py`, a local replay-only debugging tool)
+  builds the agents graph, and it passes no LLM client. The only command
+  that makes a client is `python -m agents.llm count-tokens`.
 
 ## (b) Live data path, with files
 
@@ -268,11 +269,13 @@ erDiagram
 
 ## (d) Agents (v2)
 
-**Nothing deployed runs the agents graph.** No code outside the tests calls
-`build_graph`: there is no runner, no trigger implementation and no entry
-point. Every prompt in `agents/prompts/` is still the unfilled template
-(`version: TEMPLATE`), so even with an LLM client every LLM agent would
-abstain `prompt_invalid`. The status board reports agents as OFF.
+**Nothing deployed runs the agents graph.** There is no runner, no trigger
+implementation and no deployed entry point. Outside the tests, the only caller
+of `build_graph` is LangGraph Studio (`tools/langgraph_studio/`,
+`docs/LANGGRAPH_STUDIO.md`): a laptop tool, replay data only, an in-memory
+agent store and no LLM client. Every prompt in `agents/prompts/` is still the
+unfilled template (`version: TEMPLATE`), so even with an LLM client every LLM
+agent would abstain `prompt_invalid`. The status board reports agents as OFF.
 
 Legend for (d1) and (d4):
 
@@ -287,7 +290,7 @@ Legend for (d1) and (d4):
 
 `agents/graph.py` `build_graph`. Each node shows what it is in the default
 graph, i.e. without an `llm_client`, which is how every caller on `main`
-builds it.
+(the tests and Studio) builds it.
 
 ```mermaid
 flowchart TB
@@ -698,6 +701,7 @@ migration.
 | `agents/prompts/visual.md`, `technical.md`, `sentiment.md`, `gex.md`, `discussion.md` | git, package data | owner | `agents.prompting.files.load_all` | all `version: TEMPLATE`, so refused; `gex.md` is reserved (GEX is code and doesn't read it) |
 | kill switch | `budget.kill_switch_path` in `agents.toml`, or `AGENTS_LLM_KILL=1` | owner | `agents/llm/budget.py`, before every live call | while present, LLM agents abstain `kill_switch` |
 | `agents/experiments/<id>/PREREG.md` | git | owner | `agents.prereg.require_prereg` | none exists yet; checked on disk, not in git |
+| `langgraph.json`, `requirements-studio.lock` | git | `uv pip compile` (the lock) | `langgraph dev` in a separate `.venv-studio` (`tools/langgraph_studio/studio.py:make_graph`) | local Studio only; replay data, in-memory agent store, empty `env`; `.langgraph_api/` is gitignored. The lock holds every project pin unchanged (tested) |
 | `agents/config.example.toml` | git | | `AgentsConfig.from_toml` | snapshot (incl. `sigma_model`), gate, `node_timeout_s` |
 | `agents/prompts/bull.md`, `bear.md` | git, package data | | nothing | the old debate prompts, unused since the discussion replaced the debate |
 | `requirements.lock`, `requirements.cutoff.txt` | git | `pip-compile` | CI install, `tests/agents_tests/test_lock.py` | extras `llm` (anthropic) and `status` (textual) included; the Dockerfiles don't use the lock |

@@ -25,8 +25,9 @@ Diagrams and a map of every file and store:
   main's journal migrations, TAKE scoring, backups or stream mode.
 - **Built, not running:**
   - the datafeed `stream` profile (opt-in);
-  - the agents v2 graph and its LLM layer: nothing calls them, and the
-    prompts are still templates.
+  - the agents v2 graph and its LLM layer: nothing deployed runs them, and
+    the prompts are still templates. LangGraph Studio runs the graph
+    locally on replay data, for debugging.
 
 ## Packages
 
@@ -39,7 +40,7 @@ Diagrams and a map of every file and store:
 | `datafeed/` | built and tested, runs only in the `stream` profile: IBKR → Redis → point-in-time SQLite (`bars_before`), with the bid/ask spread of live bars; HAR σ in `features/vol_block.py` |
 | `agents/` | v2, built and tested, **not deployed** ([diagrams](docs/ARCHITECTURE_CURRENT.md#d-agents-v2)). Graph: snapshot → gate → visual, technical, sentiment, GEX → Meta → discussion → Meta → risk (stub) → store. LLM client layer (official SDK, cache, budget, kill switch, ledger) and epochs. No runner; prompts are templates. Without an LLM client the three LLM voters are stubs, and GEX always abstains. Technical v1: not built |
 | `research/` | 12 pre-registered studies, below; index in [research/README.md](research/README.md) |
-| `tools/` | **production** status board (`tools/status`, reads the watchdog's `health.json`); spread by hour; IBKR history fetch, calendar scraper, σ calibration, IBKR duration check |
+| `tools/` | **production** status board (`tools/status`, reads the watchdog's `health.json`); LangGraph Studio for the agents graph (local, replay only, [docs](docs/LANGGRAPH_STUDIO.md)); spread by hour; IBKR history fetch, calendar scraper, σ calibration, IBKR duration check |
 | `tests/` | datafeed, scanner, deploy, agents, risk, scoring, status |
 | `deploy/datafeed/` | local replay stack only |
 | `legacy/` | the old agent framework: port source, never imported ([legacy/PORT_CANDIDATES.md](legacy/PORT_CANDIDATES.md)) |
