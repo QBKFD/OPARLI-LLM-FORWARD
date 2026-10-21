@@ -32,7 +32,7 @@ open questions are marked in section 5.
 | 4. 4h candles on the NY 17:00 trading-day open, DST-safe | c6c0246 | `bucket_start` / `bucket_end` in NY wall-clock time; 11 tests across 2025-03-09 and 2025-11-02 |
 | Staleness against the last market-open minute | 8b4fc01 | the daily reopen and the Sunday open now run; the break and the weekend are skipped by the gate, not as stale |
 | Pytest timeout | b308208 | `pytest-timeout==2.4.0`, 120 s per test (2.5.0 is yanked upstream); slow-exit watchdog |
-| Lock file | 7fc166d | `requirements.lock`: 56 packages, hashed, build backend included; two-week cutoff on transitive deps |
+| Lock file | 7fc166d | `requirements/requirements.lock`: 56 packages, hashed, build backend included; two-week cutoff on transitive deps |
 | Report | (this commit) | |
 
 ### 0.2 Tests
@@ -41,7 +41,7 @@ open questions are marked in section 5.
 |---|---|
 | Committed tree (git archive of HEAD, old datafeed) | **305 passed, 7 skipped** (agents 229, datafeed 76); exited 0.7 s after pytest |
 | Working tree (with the uncommitted datafeed sync) | 313 passed, 7 skipped (agents 229, datafeed 84) |
-| **Fresh venv from `requirements.lock` only** (`--require-hashes`, `pip check` clean) | 313 passed, 7 skipped; exited ~3 s after pytest |
+| **Fresh venv from `requirements/requirements.lock` only** (`--require-hashes`, `pip check` clean) | 313 passed, 7 skipped; exited ~3 s after pytest |
 | pytest-timeout probe (sleep 10 s, `timeout=2`) | killed at 2.0 s |
 | Exit watchdog probe (a non-daemon thread holds the exit 40 s) | stacks dumped at 30 s, naming the blocking thread |
 

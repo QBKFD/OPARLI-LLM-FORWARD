@@ -1,4 +1,4 @@
-# Constraints used ONLY when generating requirements.lock (pip-compile -c).
+# Constraints used ONLY when generating requirements/requirements.lock (pip-compile -c).
 # Supply-chain rule, as for the direct pins in pyproject.toml: lock no release
 # younger than two weeks. Locked on 2026-10-14, cutoff 2026-09-30. Each cap is
 # the newest release uploaded before the cutoff. Only the packages whose latest

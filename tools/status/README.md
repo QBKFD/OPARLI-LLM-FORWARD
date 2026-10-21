@@ -105,7 +105,7 @@ python -m pytest tests/status tests/deploy/test_watchdog_health.py -q
   no crash on bad input;
 - `test_status_probes`: both probes, on real temporary SQLite journals and
   XREVRANGE-shaped data;
-- `test_status_lock`: the status-only lock matches `requirements.lock`;
+- `test_status_lock`: the status-only lock matches `requirements/requirements.lock`;
 - `tests/deploy/test_watchdog_health.py`: the watchdog with stub
   docker/curl, writing `health.json` and reading its thresholds from the
   TOML, and keeping going when the tooling is broken.

@@ -239,7 +239,7 @@ flowchart LR
   si["backend/services/__init__.py<br/>(empty)"]:::live
   tws["backend/services/tws_connector.py"]:::live
   gw["ghcr.io/gnzsnz/ib-gateway:stable<br/>(image, not in repo)"]:::ext
-  env["deploy/scanner/.env<br/>(server only; .env.example in repo)"]:::ext
+  env["deploy/scanner/.env<br/>(server only; deploy/scanner/.env.example in repo)"]:::ext
   vol[("volume scanner_data<br/>/data/scanner_decisions.sqlite")]:::ext
   tg(("Telegram API")):::ext
   ib(("IBKR")):::ext

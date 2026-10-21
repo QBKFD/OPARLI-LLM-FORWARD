@@ -15,7 +15,8 @@ env/
 # ---- Secrets / env ----
 .env
 .env.*
-!.env.example
+!deploy/.env.example
+!deploy/scanner/.env.example
 backend/.env
 
 # ---- OS / editor ----

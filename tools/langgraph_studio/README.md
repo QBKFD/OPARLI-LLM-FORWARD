@@ -1,8 +1,8 @@
 # tools/langgraph_studio
 
 `studio.py` is the LangGraph Studio entry point for the agents graph:
-`make_graph` for `langgraph dev` (via `langgraph.json` at the repo root), plus
-a small CLI.
+`make_graph` for `langgraph dev` (via
+`tools/langgraph_studio/langgraph.json`, in this folder), plus a small CLI.
 - `run`: one graph run on a replay store, printed as JSON.
 - `build-db`: writes a replay store, either the synthetic one or development
   bars from the research parquet, which must end by 2021-01-01.

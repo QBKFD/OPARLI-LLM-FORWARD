@@ -1,6 +1,6 @@
 # Hash-locked install of the status board TUI only (textual and its dependencies), for a
-# host that doesn't need the full requirements.lock. Every entry is copied verbatim from
-# requirements.lock (tests/status/test_status_lock.py checks it).
+# host that doesn't need the full requirements/requirements.lock. Every entry is copied verbatim from
+# requirements/requirements.lock (tests/status/test_status_lock.py checks it).
 #   python3 -m venv ~/status-venv
 #   ~/status-venv/bin/pip install --require-hashes -r tools/status/requirements-status.lock
 linkify-it-py==2.2.0 \
