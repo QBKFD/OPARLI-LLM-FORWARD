@@ -8,7 +8,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 
 from backend.scanner.journal import summary as js
 

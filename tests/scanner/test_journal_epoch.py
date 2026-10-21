@@ -7,7 +7,7 @@ import threading
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 from backend.scanner.sources import replay
 from tests.scanner.scanner_helpers import tg_msg
 

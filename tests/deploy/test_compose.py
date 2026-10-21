@@ -152,14 +152,14 @@ def test_entrypoint_stream_waits_for_redis_never_the_gateway(tmp_path):
     assert r.returncode == 0 and "waiting for Redis" in r.stdout
     assert "redis" in calls[0] and "ping()" in calls[0]
     assert not any("ib_insync" in c or "clientId" in c for c in calls)
-    assert calls[-1] == "/app/deterministic_scanner.py --live"
+    assert calls[-1] == "-m backend.scanner --live"
 
 
 def test_entrypoint_stream_redis_timeout_alerts_and_exits_nonzero(tmp_path):
     r, calls = _entrypoint(tmp_path, 1, SCANNER_BAR_SOURCE="stream", REDIS_URL="redis://x")
     assert r.returncode == 1
     assert sum("ping()" in c for c in calls) == 120           # 120 x 5 s, as the gateway wait
-    assert not any("deterministic_scanner.py" in c for c in calls)          # never started
+    assert not any("backend.scanner" in c for c in calls)                   # never started
     assert any("sendMessage" in c for c in calls)
     assert any(c.startswith("ALERT_TEXT=⚠️ scanner: Redis not reachable for 10 min") for c in calls)
     assert "alerting and exiting 1" in r.stderr
@@ -196,7 +196,7 @@ def test_entrypoint_ibkr_waits_for_the_gateway(tmp_path, env):
     r, calls = _entrypoint(tmp_path, 0, IB_HOST="ibgateway", IB_PORT="4004", **env)
     assert "waiting for IB Gateway API at ibgateway:4004" in r.stdout
     assert "clientId=999" in calls[0] and "redis" not in calls[0]
-    assert calls[-1] == "/app/deterministic_scanner.py --live"
+    assert calls[-1] == "-m backend.scanner --live"
 
 
 # ── Dockerfile ──────────────────────────────────────────────────────────────
@@ -206,8 +206,8 @@ def test_dockerfile_pins_and_copies():
                 "tzdata==2025.3", "redis==5.2.1"):
         assert pin in d
     assert not re.search(r"pip install[^\n]*\s(pyarrow|tzdata|redis)(\s|$)", d)   # nothing unpinned
-    for src in ("backend/deterministic_scanner.py", "backend/services/tws_connector.py", "backend/datafeed",
-                "backend/journal_summary.py", "backend/scoring", "backend/risk",
+    for src in ("backend/scanner", "backend/levels", "backend/datafeed",
+                "backend/scoring", "backend/risk",
                 "deploy/scanner/backup_sqlite.py", "deploy/scanner/entrypoint.sh"):
         assert re.search(rf"^COPY\s+{re.escape(src)}\s", d, re.M), src
         assert (DEPLOY.parents[1] / src).exists(), src

@@ -31,15 +31,8 @@ NAN = float("nan")
 UTC = timezone.utc
 
 
-def _load(name, rel):
-    spec = importlib.util.spec_from_file_location(name, ROOT / rel)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-TC = _load("_old_tws_connector", "backend/services/tws_connector.py")
-DS = _load("_old_scanner", "backend/deterministic_scanner.py")
+TC = importlib.import_module("backend.scanner.sources.ibkr")      # TWSConnector, the old path
+DS = importlib.import_module("backend.scanner")
 
 
 # ── harnesses ───────────────────────────────────────────────────────────────

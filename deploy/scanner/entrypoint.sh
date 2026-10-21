@@ -38,7 +38,7 @@ if [ "${SCANNER_BAR_SOURCE:-ibkr}" = "stream" ]; then
   for _ in $(seq 1 "$tries"); do
     if python -c "import os, redis; redis.Redis.from_url(os.environ['REDIS_URL'], socket_timeout=5).ping()" >/dev/null 2>&1; then
       echo "entrypoint: Redis up"
-      exec python /app/deterministic_scanner.py --live
+      exec python -m backend.scanner --live
     fi
     sleep 5
   done
@@ -61,4 +61,4 @@ for _ in $(seq 1 120); do
   sleep 5
 done
 
-exec python /app/deterministic_scanner.py --live
+exec python -m backend.scanner --live

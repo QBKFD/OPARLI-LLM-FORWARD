@@ -41,7 +41,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 from backend.datafeed.bus import InMemoryBus
 from backend.datafeed.ingest.xauusd_bars import STREAM, ReplaySource
 from backend.datafeed.recorder.recorder import Recorder
