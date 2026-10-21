@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Daily backup to S3, under BACKUP_S3_URI (e.g. s3://bucket/oparli/scanner).
+# Daily backup to S3, under BACKUP_S3_URI (e.g. s3://bucket/oparli).
 # Runs on the host from cron, next to docker-compose.yml.
 #
 #   journal/  the scanner journal                  journal-<host>-<UTC ts>.sqlite.gz

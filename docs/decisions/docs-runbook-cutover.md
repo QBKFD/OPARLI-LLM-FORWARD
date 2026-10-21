@@ -1,0 +1,20 @@
+# docs/runbook-cutover
+
+Decisions taken without the owner while writing the cut-over section of
+`docs/DEPLOY_RUNBOOK.md` (§11) and fixing the runbook for the first deploy of
+`main` onto c62810d. Rule: on any choice, take the conservative option, log
+it here with the alternative. Docs only, apart from two comments (`.env.example`
+and `backup.sh`). No behaviour change.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| RC1 | §11 is a new section at the end; §0–§10 keep their numbers. §11 refers to §0–§7 for commands that didn't change, and spells out what's specific to the jump: the migrations, the image tags, the split step 4, the full rollback. | Existing references to `§N` in other docs stay valid. | Renumber, with §11 as §1. |
+| RC2 | The runbook issues are fixed in the general sections too, not only in §11: §0 measures memory before the limits apply and defers `BACKUP_S3_URI`; §1 tags the old images and warns about rows written after the copy; §2 uses `up -d --no-deps scanner` and recreates the gateway separately; §6 describes the full rollback; the stale merge-order note is gone. | The general sections would otherwise still lead into the same problems on a later deploy. | Fix only §11. |
+| RC3 | **The lifecycle check runs on a machine with admin AWS credentials, not on the host.** The host's role has only `PutObject`/`GetObject`/`ListBucket` on `oparli/*` (§0), so `get-bucket-lifecycle-configuration` would be denied there. | The host's role stays minimal. | Add `s3:GetLifecycleConfiguration` on the bucket to the role and run it on the host. |
+| RC4 | The check stops when an enabled rule with `Expiration` or `NoncurrentVersionExpiration` could touch `oparli/archive/` or `oparli/pre-deploy/`: its prefix covers part of them, or it has no prefix, or only a tag or size filter. Rules without a prefix count as matching everything. Transitions don't count as expiry. If the rules can't be read (other than "no rules"), it stops too. | It errs on the side of stopping; a false STOP costs a look at the rules, a missed rule costs the archive. | Only exact prefix matches. |
+| RC5 | The check is a heredoc in the runbook, written for any Python 3 (no f-strings, no 3.11 modules). Tested on four rule sets (journal/store only, a bucket-wide rule, a tag-only rule, none) and with `aws` failing (AccessDenied), under Python 3.9 and 3.13. | No new file in `deploy/` for a one-off check; it runs wherever the admin credentials are. | A script in `deploy/scanner/`, with a test. |
+| RC6 | The lifecycle JSON in §0 holds the two rules asked for (30 days on `journal/` and `store/`, noncurrent versions 7 days), and nothing else. No `AbortIncompleteMultipartUpload` rule. | Exactly the retention the owner set. | Add an abort rule for incomplete uploads. |
+| RC7 | `BACKUP_S3_URI` becomes `s3://<bucket>/oparli` in the docs, `.env.example` and the comment in `backup.sh`. The IAM policy's resource and prefix become `oparli/*`, which also covers `oparli/pre-deploy/`. The tests keep their own fixture URI (`s3://test-bucket/oparli/scanner/`); they don't depend on the layout. | `backup.sh` appends `journal/`, `store/` and `archive/` to whatever the URI is, so no code changes. | Change the test fixtures too. |
+| RC8 | Image tags for the rollback are `rollback-<short commit>` (`rollback-c62810d` for this jump), taken from `git rev-parse --short HEAD` before the checkout moves. | The tag says which code it is. | A fixed `rollback` tag. |
+| RC9 | Step 4b (gateway recreate) says "Sunday, before 22:00 UTC" without a fixed time, and makes no claim about IBKR's weekend maintenance windows, which I couldn't check. | No unverified claim in the runbook. | Name a time. |
+| RC10 | For `python3` < 3.11, the fix is a second Python passed as `STATUS_PYTHON` on the cron line (the watchdog reads it from the environment, not from `.env`). The section only says what fails and what still works; it doesn't make the upgrade a deploy step. | The deploy doesn't depend on it: every alert still works. | Require 3.11 before deploying. |
