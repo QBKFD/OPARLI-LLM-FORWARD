@@ -43,11 +43,11 @@ from backend.levels.touch import TOL, WINDOW_MIN, Scanner  # noqa: F401
 from backend.scanner.market import _market_open, _open_minutes, _utc, _valid_bar  # noqa: F401
 from backend.scanner.config import BAR_SOURCES, DB_PATH, PARQUET, RECONNECT_BACKOFF_S, bar_source  # noqa: F401
 from backend.scanner.journal.schema import ALERT_STATUSES, JOURNAL_VERSION, PRE_MIGRATION_EPOCH, _migrate_journal, open_log, start_epoch  # noqa: F401
+from backend.scanner.journal.writes import MISSED_AFTER_H, TELEGRAM_OFFSET_KEY, _alert_epoch, _journal_new_alert, insert_alert, insert_counterfactual, last_live_bar, load_offset, record_decision, record_outcome, record_progress, save_offset, sweep_auto_missed, undecided_alerts  # noqa: F401
 
 
 # ── Calibration (2023-2025, do not retune) ─────────────────────────────────
 CF_HORIZONS = {"1h": 60, "4h": 240}   # counterfactual MFE/MAE horizons (minutes)
-MISSED_AFTER_H = 4               # auto-assign MISSED to alerts unanswered this long
 OUTCOME_MAX_HOLD_MIN = 240       # a TAKE is scored over at most this many minutes (PREREG H = 240)
 OUTCOME_SETTLE_MIN = 5           # a timeout is final this long after the holding period ends
 SILENCE_WARN_S = 1800            # connected but no bars this long (market hours) -> Telegram warn
@@ -267,114 +267,6 @@ def counterfactual(df: pd.DataFrame, ts_str: str, price: float) -> dict:
         out[f"mfe_up_{name}"] = round(hi - price, 2)     # what a long would have gained
         out[f"mfe_dn_{name}"] = round(price - lo, 2)     # what a short would have gained
     return out
-
-
-def insert_alert(con, a: dict, *, epoch: int, bar_source: str, status: str = "sent"):
-    if status not in ALERT_STATUSES:
-        raise ValueError(f"alert status {status!r}")
-    con.execute("INSERT INTO alerts (alert_id, alert_ts_utc, level_types, level_price, "
-                "price_at_alert, session, confluence_count, inserted_ts_utc, epoch, bar_source, "
-                "status) VALUES(?,?,?,?,?,?,?,datetime('now'),?,?,?)",
-                (a["alert_id"], a["alert_ts_utc"], a["level_types"], a["level_price"],
-                 a["price_at_alert"], a["session"], a["confluence_count"], epoch, bar_source,
-                 status))
-
-
-def last_live_bar(con) -> pd.Timestamp | None:
-    """Newest bar a live scanner (either bar source) processed on this journal."""
-    row = con.execute("SELECT value FROM scanner_state WHERE key = 'last_live_bar_ts'").fetchone()
-    return _utc(row[0]) if row else None
-
-
-def record_progress(con, ts) -> None:
-    con.execute("INSERT INTO scanner_state VALUES('last_live_bar_ts', ?, datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                "updated_ts_utc = excluded.updated_ts_utc", (str(_utc(ts)),))
-    con.commit()
-
-
-def insert_counterfactual(con, alert_id: str, cf: dict, *, epoch: int):
-    con.execute("INSERT INTO counterfactuals (alert_id, fwd_high_1h, fwd_low_1h, mfe_up_1h, "
-                "mfe_dn_1h, fwd_high_4h, fwd_low_4h, mfe_up_4h, mfe_dn_4h, computed_ts_utc, epoch) "
-                "VALUES(?,?,?,?,?,?,?,?,?,datetime('now'),?)",
-                (alert_id, cf["fwd_high_1h"], cf["fwd_low_1h"], cf["mfe_up_1h"], cf["mfe_dn_1h"],
-                 cf["fwd_high_4h"], cf["fwd_low_4h"], cf["mfe_up_4h"], cf["mfe_dn_4h"], epoch))
-
-
-def _alert_epoch(con, alert_id, alert_ts=None) -> int:
-    """Epoch of the alert row (newest one if the id exists in several epochs)."""
-    sql, args = "SELECT epoch FROM alerts WHERE alert_id=?", [alert_id]
-    if alert_ts is not None:
-        sql += " AND alert_ts_utc=?"
-        args.append(str(alert_ts))
-    row = con.execute(sql + " ORDER BY rowid DESC LIMIT 1", args).fetchone()
-    if row:
-        return row[0]
-    last = con.execute("SELECT epoch FROM source_switches ORDER BY rowid DESC LIMIT 1").fetchone()
-    return last[0] if last else PRE_MIGRATION_EPOCH
-
-
-def record_decision(con, alert_id, decision, decision_ts, alert_ts, direction=None,
-                    entry=None, stop=None, target=None, reasoning="", source="telegram",
-                    epoch: int | None = None, update_id: int | None = None,
-                    received_ts=None) -> bool:
-    """Append a decision. reasoning_ts == decision_ts, which is the proof that the
-    reasoning was recorded at decision time, not reconstructed with hindsight.
-    For a Telegram reply, decision_ts is the message's own date (not when the
-    scanner processed it, which is received_ts) and update_id is Telegram's
-    update id: the journal holds each update id at most once.
-    epoch: the decided alert's epoch; None looks it up from (alert_id, alert_ts).
-    Returns False, writing nothing, if update_id is already in the journal."""
-    if epoch is None:
-        epoch = _alert_epoch(con, alert_id, alert_ts)
-    mins = (_utc(decision_ts) - _utc(alert_ts)).total_seconds() / 60
-    try:
-        con.execute("INSERT INTO decisions (alert_id, decision, decision_ts_utc, minutes_from_alert, "
-                    "direction, entry, stop, target, reasoning, reasoning_ts_utc, source, epoch, "
-                    "telegram_update_id, received_ts_utc) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (alert_id, decision, str(decision_ts), round(mins, 2), direction,
-                     entry, stop, target, reasoning, str(decision_ts), source, epoch, update_id,
-                     None if received_ts is None else str(_utc(received_ts))))
-    except sqlite3.IntegrityError:
-        # only the failed statement is undone; nothing else on the connection
-        if update_id is None:
-            raise
-        return False
-    con.commit()
-    return True
-
-
-def record_outcome(con, alert_id, exit_price, r_multiple, exit_type, epoch: int | None = None):
-    if epoch is None:
-        epoch = _alert_epoch(con, alert_id)
-    con.execute("INSERT INTO outcomes (alert_id, exit_price, r_multiple, exit_type, "
-                "filled_ts_utc, epoch) VALUES(?,?,?,?,datetime('now'),?)",
-                (alert_id, exit_price, r_multiple, exit_type, epoch))
-    con.commit()
-
-
-def undecided_alerts(con):
-    """(alert_id, alert_ts, epoch) of sent alerts with no decision row in their
-    epoch. missed_while_down alerts were never shown, so they never get one."""
-    return con.execute(
-        "SELECT a.alert_id, a.alert_ts_utc, a.epoch FROM alerts a "
-        "LEFT JOIN decisions d ON a.alert_id = d.alert_id AND a.epoch = d.epoch "
-        "WHERE d.alert_id IS NULL AND a.status = 'sent'"
-    ).fetchall()
-
-
-def sweep_auto_missed(con, now_utc) -> int:
-    """MISSED = never saw it. Auto-assign to any alert with no reply after 4h, so
-    it is excluded from the TAKE-vs-SKIP comparison rather than polluting it."""
-    now = _utc(now_utc)
-    n = 0
-    for alert_id, alert_ts, epoch in undecided_alerts(con):
-        if (now - _utc(alert_ts)).total_seconds() >= MISSED_AFTER_H * 3600:
-            record_decision(con, alert_id, "MISSED", now, alert_ts,
-                            reasoning=f"auto: no reply within {MISSED_AFTER_H}h", source="auto",
-                            epoch=epoch)
-            n += 1
-    return n
 
 
 def alerts_needing_counterfactual(con, now_utc):
@@ -635,22 +527,6 @@ def parse_updates(updates, chat_id, offset: int, log=print):
         msgs.append(TelegramMessage(u["update_id"], pd.Timestamp(date, unit="s", tz="UTC"),
                                     m["text"]))
     return msgs, nxt
-
-
-TELEGRAM_OFFSET_KEY = "telegram_offset"
-
-
-def load_offset(con) -> int:
-    """The getUpdates offset the last run confirmed (0 on a fresh journal)."""
-    row = con.execute("SELECT value FROM scanner_state WHERE key = ?", (TELEGRAM_OFFSET_KEY,)).fetchone()
-    return int(row[0]) if row else 0
-
-
-def save_offset(con, offset: int) -> None:
-    con.execute("INSERT INTO scanner_state VALUES(?, ?, datetime('now')) "
-                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-                "updated_ts_utc = excluded.updated_ts_utc", (TELEGRAM_OFFSET_KEY, str(int(offset))))
-    con.commit()
 
 
 # ── Replay ──────────────────────────────────────────────────────────────────
@@ -1200,20 +1076,6 @@ class StreamFeed:
                     if kind == "conflict" else f"arrived after {self.last_bar_ts}; dropped")
             self.log(f"stream: {kind} entry {id} bar {ts} {ohlc} {what}", flush=True)
         return kind
-
-
-def _journal_new_alert(con, a: dict, *, epoch: int, bar_source: str) -> bool:
-    """Insert the alert unless this exact alert is already journaled in this
-    epoch, which happens when a bar is redelivered after a crash between the
-    journal commit and the ack. Returns True if it was inserted (and so should
-    be sent)."""
-    if con.execute("SELECT 1 FROM alerts WHERE alert_id=? AND alert_ts_utc=? AND level_types=? "
-                   "AND epoch=?", (a["alert_id"], a["alert_ts_utc"], a["level_types"],
-                                   epoch)).fetchone():
-        return False
-    insert_alert(con, a, epoch=epoch, bar_source=bar_source)
-    con.commit()
-    return True
 
 
 def _handle_reply(con, lock, tg, msg: TelegramMessage, epoch: int, log=print):
