@@ -41,21 +41,14 @@ import pandas as pd
 from backend.levels.build import MIN_BARS_FULL_DAY, SESSION_CARRY_H, SESSIONS, build_levels, session_of  # noqa: F401
 from backend.levels.touch import TOL, WINDOW_MIN, Scanner  # noqa: F401
 from backend.scanner.market import _market_open, _open_minutes, _utc, _valid_bar  # noqa: F401
+from backend.scanner.config import BAR_SOURCES, DB_PATH, PARQUET, RECONNECT_BACKOFF_S, bar_source  # noqa: F401
 
 
 # ── Calibration (2023-2025, do not retune) ─────────────────────────────────
-PARQUET = Path(__file__).resolve().parent.parent / "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
-# SCANNER_DB lets the container point the append-only journal at a mounted
-# volume so decisions survive restarts / redeploys.
-DB_PATH = Path(os.environ.get(
-    "SCANNER_DB", Path(__file__).resolve().parent.parent / "database/scanner_decisions.sqlite"))
 CF_HORIZONS = {"1h": 60, "4h": 240}   # counterfactual MFE/MAE horizons (minutes)
 MISSED_AFTER_H = 4               # auto-assign MISSED to alerts unanswered this long
 OUTCOME_MAX_HOLD_MIN = 240       # a TAKE is scored over at most this many minutes (PREREG H = 240)
 OUTCOME_SETTLE_MIN = 5           # a timeout is final this long after the holding period ends
-RECONNECT_BACKOFF_S = 20         # wait before exiting on a dropped gateway, so the
-                                 # container doesn't hammer-restart while the gateway
-                                 # is down for minutes (weekly 2FA window)
 SILENCE_WARN_S = 1800            # connected but no bars this long (market hours) -> Telegram warn
 
 
@@ -1011,7 +1004,6 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
 # only where the bars come from changes. run_live above is left as it was: it is
 # the rollback (SCANNER_BAR_SOURCE=ibkr). datafeed is imported lazily, so the
 # ibkr path doesn't need the package installed.
-BAR_SOURCES = ("ibkr", "stream")
 STREAM_GROUP = "scanner"         # own consumer group: its position is independent of the recorder's
                                  # (SCANNER_STREAM_GROUP overrides it, e.g. for a parallel dry run: consumers
                                  # of ONE group split the entries, separate groups each get all of them)
@@ -1022,14 +1014,6 @@ WARMUP_MIN_COVERAGE = 0.80       # store must hold >= this share of the window's
 WARMUP_MAX_STALE_MIN = 5         # and its newest bar must end <= this many market-open minutes before now
 STREAM_STALE_MIN = 10            # no new live bar for this many market-open minutes -> one Telegram alert
 STORE_RETRY_S = 30               # unusable store at start: check it again this often
-
-
-def bar_source(env=os.environ) -> str:
-    """SCANNER_BAR_SOURCE, default ibkr. Anything else is a startup error, never a guess."""
-    s = env.get("SCANNER_BAR_SOURCE", "ibkr")
-    if s not in BAR_SOURCES:
-        raise SystemExit(f"SCANNER_BAR_SOURCE={s!r}: must be one of {', '.join(BAR_SOURCES)}")
-    return s
 
 
 def warmup_start(now) -> pd.Timestamp:
