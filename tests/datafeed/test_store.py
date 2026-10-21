@@ -6,9 +6,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from datafeed.ingest.xauusd_bars import Bar, bar_message
-from datafeed.store import schema
-from datafeed.store.query import bars_before, compare_live_vs_history, latest_bar_ts
+from backend.datafeed.ingest.xauusd_bars import Bar, bar_message
+from backend.datafeed.store import schema
+from backend.datafeed.store.query import bars_before, compare_live_vs_history, latest_bar_ts
 
 UTC = timezone.utc
 

@@ -119,3 +119,63 @@ assert on what happens:
 - the epoch comes from `start_epoch`;
 - stream mode never imports `ib_insync`;
 - the group comes from `SCANNER_STREAM_GROUP`.
+
+## PR 1: mechanical moves (2026-10-21)
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| BL17 | **The rename is scripted, with a module check.** Import statements of the four packages become `backend.<pkg>…`. A dotted name elsewhere (strings, `python -m`, argparse `prog=`, docstrings, package READMEs) is renamed only if its first part is a real module of the moved package. That leaves filenames (`datafeed.sqlite`), owner-config keys (`agents.toml`, `f"agents.{agent}"`) and TOML tables (`[agents.technical]`) alone. `research/` gets import lines only. `legacy/`, `docs/`, the root `DECISIONS.md` and study records aren't touched (PR 3). Every renamed line was read. | Mechanical, and nothing that only looks like a module name changes. | A blanket text replace. |
+| BL18 | **Test layout:** `tests/__init__.py` plus one per test directory. pytest's default (prepend) import mode then puts the repo root on `sys.path`, not the test directories. Helpers become `tests.<dir>.<helper>`, an import-only edit in 30 lines. `research/` keeps its own layout. | Research tests insert their own paths and would break under `--import-mode=importlib`. | `--import-mode=importlib` plus a `pythonpath` setting for the helpers. |
+| BL19 | **Image layout:** the scanner stays at `/app/deterministic_scanner.py` and `/app/services/`. `datafeed`, `scoring` and `risk` move to `/app/backend/`, with `/app/backend/__init__.py`. `/app` is on `sys.path` as the script's directory, and as the working directory for `python -m` and `python -`. The entrypoint, `SCANNER_DB` and the scanner's default paths don't change. The feed and recorder run `python -m backend.datafeed.ingest` and `backend.datafeed.recorder`. The datafeed-only image copies `backend/__init__.py` and `backend/datafeed`. | The scanner's start command and paths stay as they are until PR 2 moves the scanner. | Copy all of `backend/` and start the scanner with `python -m`. |
+| BL20 | **Agents epoch ids change.** `input_code_sha256` hashes 13 files, and 12 of them change bytes (their import lines). On the same machine: `f34f7edb…` on `main`, `522b15e5…` here. No epoch is frozen yet. | Asked to log it. | none |
+| BL21 | **Logger names follow the modules.** Loggers named by `__name__` are now `backend.datafeed.…`, and the two explicit names (`datafeed.ingest`, `datafeed.recorder`) were renamed to match. The feed's and recorder's container logs (format `%(name)s`) show `backend.datafeed.…`. The scanner logs through `print`, so its output is unchanged, and the golden replay checks that. | One logger hierarchy, matching the modules. | Keep the two explicit names as they were. |
+| BL22 | **Lock files:** `requirements.lock` was compiled with `--no-index` against a package source that isn't recorded, so it can't be regenerated exactly. Its 15 `# via datafeed (pyproject.toml)` comments were edited to `oparli` instead, keeping pip-compile's alphabetical order (checked on every line). No pin or hash changed. `requirements-studio.lock` was regenerated with its own `uv` command: only its 15 `via` comments changed. | Pins and hashes are byte-identical; only comments differ. | Regenerate `requirements.lock` against PyPI, which would also change the hash lists. |
+| BL23 | `pyproject.toml`: name `oparli`, `include = ["backend*"]` (so the scanner module and `backend.services` are in the distribution too), package-data under `backend.agents` and `backend.datafeed`, testpaths renamed. | `backend/` is the one importable package, as asked. | Package only the four moved subpackages. |
+| BL24 | **Docs:** only links and commands broken by the move are fixed: 7 relative links in the moved READMEs, test paths in the current READMEs, `.env.example`'s comment and `tools/status`. Build logs and records that name old paths (`backend/agents/DESIGN.md`, `REPORT.md`, `backend/scoring/DECISIONS.md`, `docs/`) stay as written; PR 3 handles `docs/`. | Records stay records. | Rewrite every old path now. |
+| BL25 | **The agents boundary rule** used to ban the prefix `backend` (then: the scanner and services). Now `backend` also holds the four moved packages, so the rule is: nothing from `backend` except `backend.agents`, `backend.datafeed`, `backend.risk` and `backend.scoring` (datafeed only through query and constants, as before). That needs one added assert line; the other rules only change names. | The same rule under the new names. | Ban a list of named scanner modules. |
+
+### Test edits against `main`
+
+Checked by a script that diffs every test file on `main` against its renamed
+counterpart and classifies each changed line with the AST. It found 91
+import-only hunks and 5 hunks that touch assert lines:
+- `tests/agents/test_agents_package.py`: one added assert (BL25);
+- `tests/deploy/test_compose.py`: the feed's and recorder's entrypoint
+  module names;
+- `tests/risk/test_import_rules.py` (3 hunks): the package paths and module
+  names in the assertions, and the synthetic sources of
+  `test_the_checks_have_teeth`, under the new names.
+
+It also found 38 other hunks: docstrings, rule definitions, module names in
+subprocess strings, `caplog` logger names and paths, all under the new names.
+After that run, four tests failed on paths they read from disk, which are
+renamed the same way:
+- the package-data key in `test_features_sigma_har.py`;
+- `ROOT / "backend/datafeed/ingest/ibkr.py"` in `test_sources.py`;
+- the two example configs in `test_agent_store.py` and
+  `test_owner_config.py`.
+
+### Found on the way, not fixed
+
+- **F3.** `database/snapshots/` (where `tools/data/fetch_data_xauusd.py` writes
+  `XAUUSD_COMPLETE.csv`), and any parquet directly in `database/`, are not
+  git-ignored. `database/README.md` says so. Fix: one `.gitignore` line, in
+  its own PR.
+
+### Proof (PR 1)
+
+- **Tests:**
+  - `main` @ c556533: 1283 passed, 1 deselected, 0 skipped.
+  - This branch: 1283 passed, 1 deselected, 0 skipped.
+  - The same 1283 test ids are collected once the directory renames are
+    mapped (`-m "not ibkr"`, Redis, the local parquet and research caches).
+- **Golden replay:** byte-identical to `main` (104 runs, all 29 day groups).
+- **Selftest:** passes.
+- **`sigma_compare`:** rerun on the branch; `results_sigma.json` and
+  `coefs.csv` are byte-identical to the committed files.
+- **`docker compose config`** (standalone v5.6.0) validates both stacks, with
+  and without the stream profile. It differs from `main` only in the feed's
+  and recorder's entrypoints.
+- **Image:** no Docker on this Mac, so the image wasn't built. `/app` was
+  rebuilt from the COPY lines and exercised (selftest, lazy imports, the
+  entrypoints, the watchdog's and probes' imports).

@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
-from datafeed.ingest.xauusd_bars import STREAM
+from backend.datafeed.ingest.xauusd_bars import STREAM
 
-from scanner_helpers import FakeLive, Log, bar_msg, make_bus, tg_msg
+from tests.scanner.scanner_helpers import FakeLive, Log, bar_msg, make_bus, tg_msg
 
 BUSES = ["memory", pytest.param("redis", marks=pytest.mark.redis)]
 T = lambda s: pd.Timestamp(s, tz="UTC")   # noqa: E731

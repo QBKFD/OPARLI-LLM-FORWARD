@@ -7,11 +7,11 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from datafeed.bus import InMemoryBus
-from datafeed.ingest.xauusd_bars import STREAM, Bar, bar_message
-from datafeed.recorder.recorder import GROUP, MAX_BATCH_FAILURES, Recorder
-from datafeed.store import schema
-from datafeed.store.query import bars_before
+from backend.datafeed.bus import InMemoryBus
+from backend.datafeed.ingest.xauusd_bars import STREAM, Bar, bar_message
+from backend.datafeed.recorder.recorder import GROUP, MAX_BATCH_FAILURES, Recorder
+from backend.datafeed.store import schema
+from backend.datafeed.store.query import bars_before
 
 UTC = timezone.utc
 T0 = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)

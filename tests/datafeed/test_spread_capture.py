@@ -11,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
-from datafeed.bus import InMemoryBus
-from datafeed.ingest.xauusd_bars import STREAM, Bar, BarBuilder, bar_message
-from datafeed.recorder.recorder import Recorder
-from datafeed.store import schema
-from datafeed.store.query import bars_before, spreads
+from backend.datafeed.bus import InMemoryBus
+from backend.datafeed.ingest.xauusd_bars import STREAM, Bar, BarBuilder, bar_message
+from backend.datafeed.recorder.recorder import Recorder
+from backend.datafeed.store import schema
+from backend.datafeed.store.query import bars_before, spreads
 
 UTC = timezone.utc
 T0 = datetime(2026, 3, 2, 10, 0, tzinfo=UTC)          # a Monday, market open

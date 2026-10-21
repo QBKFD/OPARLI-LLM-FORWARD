@@ -17,11 +17,16 @@ COPY backend/services/__init__.py       /app/services/__init__.py
 COPY backend/services/tws_connector.py  /app/services/tws_connector.py
 COPY backend/deterministic_scanner.py   /app/deterministic_scanner.py
 COPY backend/journal_summary.py         /app/journal_summary.py
-# datafeed, scoring and risk are imported from /app (the working directory),
-# not pip-installed. scoring scores TAKE outcomes (scoring -> risk, datafeed.store).
-COPY datafeed                           /app/datafeed
-COPY scoring                            /app/scoring
-COPY risk                               /app/risk
+# backend.datafeed, backend.scoring and backend.risk are imported from
+# /app/backend, not pip-installed: /app is on sys.path as the scanner script's
+# directory, and as the working directory for `python -m` (feed, recorder) and
+# `python -` (the watchdog's probes). scoring scores TAKE outcomes
+# (scoring -> risk, backend.datafeed.store). The scanner itself stays at
+# /app/deterministic_scanner.py, so the entrypoint and its default paths are unchanged.
+COPY backend/__init__.py                /app/backend/__init__.py
+COPY backend/datafeed                   /app/backend/datafeed
+COPY backend/scoring                    /app/backend/scoring
+COPY backend/risk                       /app/backend/risk
 COPY deploy/scanner/backup_sqlite.py    /app/backup_sqlite.py
 COPY deploy/scanner/export_parquet.py   /app/export_parquet.py
 COPY deploy/scanner/entrypoint.sh       /app/entrypoint.sh

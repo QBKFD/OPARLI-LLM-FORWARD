@@ -21,7 +21,7 @@
 # entrypoint). Same build and tag on each, so whichever builds first serves all.
 x-app: &app
   build:
-    context: ../..                 # repo root, so the Dockerfile can COPY backend/ and datafeed/
+    context: ../..                 # repo root, so the Dockerfile can COPY backend/ and deploy/
     dockerfile: deploy/scanner/Dockerfile
   image: oparli-scanner:local
   networks: [scannernet]
@@ -116,7 +116,7 @@ services:
     profiles: [stream]
     restart: unless-stopped           # crash-only: exits on any gateway problem
     mem_limit: 256m                   # import ~48 MB + the 10 D history burst
-    entrypoint: ["python", "-m", "datafeed.ingest"]
+    entrypoint: ["python", "-m", "backend.datafeed.ingest"]
     depends_on:
       redis:
         condition: service_healthy
@@ -141,7 +141,7 @@ services:
     profiles: [stream]
     restart: unless-stopped
     mem_limit: 192m                   # import ~14 MB + SQLite
-    entrypoint: ["python", "-m", "datafeed.recorder"]
+    entrypoint: ["python", "-m", "backend.datafeed.recorder"]
     depends_on:
       feed:
         condition: service_healthy

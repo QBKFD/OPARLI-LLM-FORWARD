@@ -26,7 +26,7 @@ A store built from the research parquet is limited to bars before
 
 It lives in tools/, not in the agents package: it records bars through
 datafeed's bus and recorder, and the agents package reads datafeed only
-through store.query (tests/agents_tests/test_agents_package.py).
+through store.query (tests/agents/test_agents_package.py).
 """
 
 from __future__ import annotations
@@ -46,11 +46,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-import agents
-from agents.config import AgentsConfig
-from agents.graph import build_graph, run_once
-from agents.schemas import TriggerEvent
-from agents.store.memory import MemoryStore
+from backend import agents
+from backend.agents.config import AgentsConfig
+from backend.agents.graph import build_graph, run_once
+from backend.agents.schemas import TriggerEvent
+from backend.agents.store.memory import MemoryStore
 
 log = logging.getLogger(__name__)
 
@@ -88,10 +88,10 @@ def synthetic_rows(start: datetime = SYNTH_START, end: datetime = SYNTH_END, see
 
 def _record(source: Any, path: Path) -> str:
     """Run a datafeed source through an in-memory bus into a new SQLite store."""
-    from datafeed.bus import InMemoryBus
-    from datafeed.ingest.xauusd_bars import STREAM
-    from datafeed.recorder.recorder import Recorder
-    from datafeed.store import schema
+    from backend.datafeed.bus import InMemoryBus
+    from backend.datafeed.ingest.xauusd_bars import STREAM
+    from backend.datafeed.recorder.recorder import Recorder
+    from backend.datafeed.store import schema
 
     if path.exists():
         raise FileExistsError(f"{path} exists; a replay store is written once")
@@ -111,7 +111,7 @@ def make_replay_db(directory: Path, rows: Sequence[Row] | None = None) -> str:
     pyarrow (the `replay` extra)."""
     import pandas as pd
 
-    from datafeed.ingest.xauusd_bars import ReplaySource
+    from backend.datafeed.ingest.xauusd_bars import ReplaySource
 
     rows = list(rows if rows is not None else synthetic_rows())
     if not rows:
@@ -125,7 +125,7 @@ def make_replay_db(directory: Path, rows: Sequence[Row] | None = None) -> str:
 def build_parquet_db(parquet: str | Path, start: datetime, end: datetime, out: Path) -> str:
     """A replay store from the research parquet, bars in [start, end). Refuses
     an end after 2021-01-01: Studio only looks at development-period data."""
-    from datafeed.ingest.xauusd_bars import ReplaySource
+    from backend.datafeed.ingest.xauusd_bars import ReplaySource
 
     if start.tzinfo is None or end.tzinfo is None:
         raise ValueError("start and end must be tz-aware")

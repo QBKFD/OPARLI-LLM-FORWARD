@@ -8,7 +8,7 @@ import pandas as pd
 
 import deterministic_scanner as ds
 
-from scanner_helpers import Log
+from tests.scanner.scanner_helpers import Log
 
 
 def test_beat_writes_the_utc_time(tmp_path):

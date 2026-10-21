@@ -32,7 +32,7 @@ import run_r3 as r3  # noqa: E402  (load_conf)
 import run_study as r1  # noqa: E402  (load_minutes, dm_test)
 import sealing  # noqa: E402
 
-from datafeed.features import vol_block as vb  # noqa: E402
+from backend.datafeed.features import vol_block as vb  # noqa: E402
 
 OUT = HERE / "results"
 HORIZONS = (60, 240)

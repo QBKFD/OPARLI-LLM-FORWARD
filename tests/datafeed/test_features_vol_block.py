@@ -1,4 +1,4 @@
-"""datafeed.features.vol_block: same outputs as research/vol_block, as-of-t
+"""backend.datafeed.features.vol_block: same outputs as research/vol_block, as-of-t
 state, sigma over H minutes."""
 
 import importlib.util
@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datafeed.features import vol_block as vb
-from datafeed.ingest.xauusd_bars import Bar, _market_open, bar_message
-from datafeed.store import schema
+from backend.datafeed.features import vol_block as vb
+from backend.datafeed.ingest.xauusd_bars import Bar, _market_open, bar_message
+from backend.datafeed.store import schema
 
 UTC = timezone.utc
 RESEARCH = Path(__file__).resolve().parents[2] / "research"
@@ -328,8 +328,8 @@ def test_import_datafeed_core_does_not_load_pandas(tmp_path):
     import sys
     out = subprocess.run(
         [sys.executable, "-I", "-c",
-         "import sys, datafeed, datafeed.store.query, datafeed.ingest.xauusd_bars;"
-         "print(sorted(m for m in ('numpy', 'pandas', 'datafeed.features') if m in sys.modules))"],
+         "import sys, backend.datafeed, backend.datafeed.store.query, backend.datafeed.ingest.xauusd_bars;"
+         "print(sorted(m for m in ('numpy', 'pandas', 'backend.datafeed.features') if m in sys.modules))"],
         cwd=tmp_path, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "[]"

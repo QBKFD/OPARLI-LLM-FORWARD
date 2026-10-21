@@ -32,7 +32,7 @@ COLUMNS = ["symbol", "bar_ts", "kind", "open", "high", "low", "close", "n_ticks"
 
 
 def _bound(d: date) -> str:
-    # the store's canonical form (datafeed.store.schema.canonical): ISO-8601, UTC, seconds
+    # the store's canonical form (backend.datafeed.store.schema.canonical): ISO-8601, UTC, seconds
     return datetime(d.year, d.month, d.day, tzinfo=timezone.utc).isoformat()
 
 

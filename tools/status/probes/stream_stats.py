@@ -58,7 +58,7 @@ def stats(entries: Iterable[Entry], now: datetime,
 def main() -> None:
     try:
         import redis
-        from datafeed.ingest.xauusd_bars import STREAM, _market_open
+        from backend.datafeed.ingest.xauusd_bars import STREAM, _market_open
         r = redis.Redis.from_url(os.environ["REDIS_URL"], socket_timeout=10, decode_responses=True)
         entries = cast(list[Entry], r.xrevrange(STREAM, "+", "-", count=SCAN_ENTRIES))   # sync client
         facts = stats(entries, datetime.now(timezone.utc), _market_open)

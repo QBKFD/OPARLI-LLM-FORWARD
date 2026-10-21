@@ -14,8 +14,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import run_sigma as rs  # noqa: E402
 
-from datafeed.features import vol_block as vb  # noqa: E402
-from datafeed.ingest.xauusd_bars import _market_open  # noqa: E402
+from backend.datafeed.features import vol_block as vb  # noqa: E402
+from backend.datafeed.ingest.xauusd_bars import _market_open  # noqa: E402
 
 UTC = "UTC"
 CFG = {"load_start": pd.Timestamp("2021-01-04", tz=UTC),

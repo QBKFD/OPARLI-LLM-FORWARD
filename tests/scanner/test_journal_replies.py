@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
-from scanner_helpers import Log, tg_msg
+from tests.scanner.scanner_helpers import Log, tg_msg
 
 CHAT = "42"
 

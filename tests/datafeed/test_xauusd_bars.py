@@ -23,8 +23,8 @@ import pytest
 pytest.importorskip("ib_insync")
 pd = pytest.importorskip("pandas")
 
-from datafeed.ingest import xauusd_bars as xb
-from datafeed.ingest.base import validate_message
+from backend.datafeed.ingest import xauusd_bars as xb
+from backend.datafeed.ingest.base import validate_message
 
 ROOT = Path(__file__).resolve().parents[2]
 NAN = float("nan")

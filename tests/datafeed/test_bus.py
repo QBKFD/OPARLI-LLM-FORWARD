@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from datafeed.bus import InMemoryBus, RedisStreamBus
-from datafeed.ingest.base import Source, make_message, parse_utc, validate_message
+from backend.datafeed.bus import InMemoryBus, RedisStreamBus
+from backend.datafeed.ingest.base import Source, make_message, parse_utc, validate_message
 
 
 def _redis_bus(maxlen):

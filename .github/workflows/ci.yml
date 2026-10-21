@@ -68,7 +68,7 @@ jobs:
         run: ruff check --select E9,F63,F7,F82 .
       - name: ruff, default rules, maintained packages
         # E741 ignored: l is the codebase's name for an OHLC low
-        run: ruff check --extend-ignore E741 agents risk tools datafeed scoring
+        run: ruff check --extend-ignore E741 backend/agents backend/risk tools backend/datafeed backend/scoring
       - name: shellcheck (error severity; legacy/ excluded)
         run: |
           shellcheck --version

@@ -9,7 +9,7 @@ import time
 import pytest
 import yaml
 
-from deploy_stubs import DEPLOY
+from tests.deploy.deploy_stubs import DEPLOY
 
 COMPOSE = yaml.safe_load((DEPLOY / "docker-compose.yml").read_text())
 S = COMPOSE["services"]
@@ -72,8 +72,8 @@ def test_store_and_volumes_line_up():
     for n in ("scanner", "feed", "recorder"):
         assert S[n]["image"] == "oparli-scanner:local"
         assert S[n]["build"]["dockerfile"] == "deploy/scanner/Dockerfile"
-    assert S["feed"]["entrypoint"] == ["python", "-m", "datafeed.ingest"]
-    assert S["recorder"]["entrypoint"] == ["python", "-m", "datafeed.recorder"]
+    assert S["feed"]["entrypoint"] == ["python", "-m", "backend.datafeed.ingest"]
+    assert S["recorder"]["entrypoint"] == ["python", "-m", "backend.datafeed.recorder"]
     assert S["feed"]["environment"]["DATAFEED_SOURCE"] == "ibkr"
 
 
@@ -105,7 +105,7 @@ def test_recorder_healthcheck_wants_bars(tmp_path):
     db = tmp_path / "datafeed.sqlite"
     code = _hc("recorder", **{"/datafeed/datafeed.sqlite": str(db)})
     assert _run_hc(code) == 1                                  # no store
-    from datafeed.store import schema
+    from backend.datafeed.store import schema
     con = schema.connect(str(db))
     assert _run_hc(code) == 1                                  # empty store
     con.execute("INSERT INTO bars (symbol, bar_ts, kind, open, high, low, close, n_ticks, source, "
@@ -206,8 +206,8 @@ def test_dockerfile_pins_and_copies():
                 "tzdata==2025.3", "redis==5.2.1"):
         assert pin in d
     assert not re.search(r"pip install[^\n]*\s(pyarrow|tzdata|redis)(\s|$)", d)   # nothing unpinned
-    for src in ("backend/deterministic_scanner.py", "backend/services/tws_connector.py", "datafeed",
-                "backend/journal_summary.py", "scoring", "risk",
+    for src in ("backend/deterministic_scanner.py", "backend/services/tws_connector.py", "backend/datafeed",
+                "backend/journal_summary.py", "backend/scoring", "backend/risk",
                 "deploy/scanner/backup_sqlite.py", "deploy/scanner/entrypoint.sh"):
         assert re.search(rf"^COPY\s+{re.escape(src)}\s", d, re.M), src
         assert (DEPLOY.parents[1] / src).exists(), src

@@ -12,8 +12,8 @@ Replay only, no LLM, no keys. Setup, what to look at and measurements:
 
 ```
 python tools/langgraph_studio/studio.py run --t 2025-06-11T14:30:00Z
-pytest tests/agents_tests/test_studio.py
+pytest tests/agents/test_studio.py
 ```
 
-The synthetic replay data of the agents tests (`tests/agents_tests/agents_testkit.py`)
+The synthetic replay data of the agents tests (`tests/agents/agents_testkit.py`)
 comes from this module too, so there is one copy of it.

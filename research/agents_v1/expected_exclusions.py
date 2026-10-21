@@ -41,7 +41,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 import pandas as pd
 
-from datafeed.features.vol_block import open_window
+from backend.datafeed.features.vol_block import open_window
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]

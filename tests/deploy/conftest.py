@@ -2,7 +2,7 @@
 
 import pytest
 
-from deploy_stubs import Stubs
+from tests.deploy.deploy_stubs import Stubs
 
 
 @pytest.fixture

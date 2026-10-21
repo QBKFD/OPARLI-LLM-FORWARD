@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datafeed.bus import InMemoryBus, RedisStreamBus
-from datafeed.ingest.xauusd_bars import Bar, bar_message
+from backend.datafeed.bus import InMemoryBus, RedisStreamBus
+from backend.datafeed.ingest.xauusd_bars import Bar, bar_message
 
 
 def bar_msg(ts: str, o, h, l, c, *, history=False, source="ibkr", n_ticks=10):
@@ -68,7 +68,7 @@ class Log(list):
 
 def fill_store(path, minutes, *, kind="history", price=3400.0):
     """Write one bar per minute (pd.Timestamp, UTC) into a datafeed store."""
-    from datafeed.store import schema
+    from backend.datafeed.store import schema
     con = schema.connect(str(path))
     con.execute("BEGIN")
     for i, m in enumerate(minutes):
