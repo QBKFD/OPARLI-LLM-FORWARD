@@ -21,7 +21,7 @@ sys.path.insert(0, str(HERE))
 import fit_final as ff  # noqa: E402
 import run_sigma as rs  # noqa: E402
 
-from datafeed.features import vol_block as vb  # noqa: E402
+from backend.datafeed.features import vol_block as vb  # noqa: E402
 
 OUT = HERE / "results"
 TXT_START = pd.Timestamp("2007-01-01", tz="UTC")

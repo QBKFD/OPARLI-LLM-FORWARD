@@ -9,10 +9,10 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
-from datafeed.bus import InMemoryBus
-from datafeed.ingest.xauusd_bars import STREAM
+from backend.datafeed.bus import InMemoryBus
+from backend.datafeed.ingest.xauusd_bars import STREAM
 
-from scanner_helpers import FakeLive, Log, bar_msg, tg_msg
+from tests.scanner.scanner_helpers import FakeLive, Log, bar_msg, tg_msg
 
 T = lambda s: pd.Timestamp(s, tz="UTC")   # noqa: E731
 

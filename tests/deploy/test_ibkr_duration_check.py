@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from datafeed.ingest.xauusd_bars import _market_open
+from backend.datafeed.ingest.xauusd_bars import _market_open
 
 TOOL = Path(__file__).resolve().parents[2] / "tools" / "ibkr_duration_check.py"
 spec = importlib.util.spec_from_file_location("ibkr_duration_check", TOOL)

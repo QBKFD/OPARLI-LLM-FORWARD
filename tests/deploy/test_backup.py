@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from deploy_stubs import BACKUP_SQLITE
+from tests.deploy.deploy_stubs import BACKUP_SQLITE
 
 spec = importlib.util.spec_from_file_location("backup_sqlite", BACKUP_SQLITE)
 bs = importlib.util.module_from_spec(spec)
@@ -228,7 +228,7 @@ def test_restore_usage_errors(stubs, args):
 
 import importlib.util as _ilu  # noqa: E402
 
-from deploy_stubs import EXPORT_PARQUET  # noqa: E402
+from tests.deploy.deploy_stubs import EXPORT_PARQUET  # noqa: E402
 
 _spec = _ilu.spec_from_file_location("export_parquet", EXPORT_PARQUET)
 ep = _ilu.module_from_spec(_spec)
@@ -237,7 +237,7 @@ _spec.loader.exec_module(ep)
 
 def _store(path, days, kinds=("live",), per_day=3):
     """A datafeed store with `per_day` bars per kind on each given UTC day."""
-    from datafeed.store import schema
+    from backend.datafeed.store import schema
     con = schema.connect(str(path))
     con.execute("BEGIN")
     for d in days:

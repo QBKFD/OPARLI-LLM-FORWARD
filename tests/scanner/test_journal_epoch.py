@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
-from scanner_helpers import tg_msg
+from tests.scanner.scanner_helpers import tg_msg
 
 OLD_DDL = """
   CREATE TABLE alerts(alert_id TEXT, alert_ts_utc TEXT, level_types TEXT, level_price REAL,

@@ -5,7 +5,7 @@ import pytest
 
 import deterministic_scanner as ds
 
-from scanner_helpers import Log, fill_store
+from tests.scanner.scanner_helpers import Log, fill_store
 
 T = lambda s: pd.Timestamp(s, tz="UTC")   # noqa: E731
 

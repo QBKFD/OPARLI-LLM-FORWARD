@@ -42,12 +42,12 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
-from datafeed.bus import InMemoryBus
-from datafeed.ingest.xauusd_bars import STREAM, ReplaySource
-from datafeed.recorder.recorder import Recorder
-from datafeed.store import schema
+from backend.datafeed.bus import InMemoryBus
+from backend.datafeed.ingest.xauusd_bars import STREAM, ReplaySource
+from backend.datafeed.recorder.recorder import Recorder
+from backend.datafeed.store import schema
 
-from scanner_helpers import Log, redis_bus
+from tests.scanner.scanner_helpers import Log, redis_bus
 
 PARQUET = Path(ds.PARQUET)
 DAYS = ["2025-03-09", "2025-03-10", "2025-11-02", "2025-11-03", "2025-07-04", "2025-06-16",

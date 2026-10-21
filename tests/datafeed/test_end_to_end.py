@@ -13,11 +13,11 @@ import pytest
 
 pd = pytest.importorskip("pandas")
 
-from datafeed.bus import InMemoryBus, RedisStreamBus
-from datafeed.ingest.xauusd_bars import STREAM, ReplaySource, _valid_bar
-from datafeed.recorder.recorder import Recorder
-from datafeed.store import schema
-from datafeed.store.query import bars_before
+from backend.datafeed.bus import InMemoryBus, RedisStreamBus
+from backend.datafeed.ingest.xauusd_bars import STREAM, ReplaySource, _valid_bar
+from backend.datafeed.recorder.recorder import Recorder
+from backend.datafeed.store import schema
+from backend.datafeed.store.query import bars_before
 
 PARQUET = Path(__file__).resolve().parents[2] / "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
 DAY = "2025-06-11"

@@ -1,4 +1,4 @@
-"""datafeed.features.vol_block.sigma_over: HAR sigma from a shipped,
+"""backend.datafeed.features.vol_block.sigma_over: HAR sigma from a shipped,
 SHA-256-checked model (research/sigma_compare)."""
 
 import json
@@ -13,8 +13,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datafeed.features import vol_block as vb
-from datafeed.ingest.xauusd_bars import _market_open
+from backend.datafeed.features import vol_block as vb
+from backend.datafeed.ingest.xauusd_bars import _market_open
 
 ROOT = Path(__file__).resolve().parents[2]
 UTC = "UTC"
@@ -68,11 +68,11 @@ def test_sha256_check_rejects_edited_files(tmp_path):
 
 def test_models_ship_as_package_data(tmp_path):
     cfg = tomllib.loads((ROOT / "pyproject.toml").read_text())
-    patterns = cfg["tool"]["setuptools"]["package-data"]["datafeed"]
-    shipped = {p.name for pat in patterns for p in (ROOT / "datafeed").glob(pat)}
+    patterns = cfg["tool"]["setuptools"]["package-data"]["backend.datafeed"]
+    shipped = {p.name for pat in patterns for p in (ROOT / "backend" / "datafeed").glob(pat)}
     assert {f for f, _ in vb.SIGMA_MODELS.values()} <= shipped
     out = subprocess.run([sys.executable, "-I", "-c",
-                          "from datafeed.features import vol_block as vb;"
+                          "from backend.datafeed.features import vol_block as vb;"
                           "print(sorted(vb.load_sigma_model(n).sha256[:8] for n in vb.SIGMA_MODELS))"],
                          cwd=tmp_path, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr

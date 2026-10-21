@@ -4,6 +4,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY pyproject.toml ./
-COPY datafeed ./datafeed
+COPY backend/__init__.py ./backend/__init__.py
+COPY backend/datafeed ./backend/datafeed
 RUN pip install --no-cache-dir '.[feed,replay]'
 ENV PYTHONUNBUFFERED=1

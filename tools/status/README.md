@@ -91,7 +91,7 @@ Every fact is listed in `evaluate.py`'s docstring.
 ## Tests
 
 ```bash
-python -m pytest tests/status_tests tests/deploy/test_watchdog_health.py -q
+python -m pytest tests/status tests/deploy/test_watchdog_health.py -q
 ```
 
 - `test_status_config`: the file and its validation, and that the

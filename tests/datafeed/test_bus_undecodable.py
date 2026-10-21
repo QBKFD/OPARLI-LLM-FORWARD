@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 import pytest
 
-from datafeed.bus import UNDECODABLE, Delivery, RedisStreamBus
-from datafeed.ingest.base import validate_message
-from datafeed.ingest.xauusd_bars import STREAM, Bar, bar_message
-from datafeed.recorder.recorder import Recorder
-from datafeed.store import schema
+from backend.datafeed.bus import UNDECODABLE, Delivery, RedisStreamBus
+from backend.datafeed.ingest.base import validate_message
+from backend.datafeed.ingest.xauusd_bars import STREAM, Bar, bar_message
+from backend.datafeed.recorder.recorder import Recorder
+from backend.datafeed.store import schema
 
 
 def _bar(minute=0):

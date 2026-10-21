@@ -9,7 +9,7 @@ def test_bars_before_imports_from_any_folder(tmp_path):
     # root nor tests/ is on sys.path; only the installed package can satisfy it.
     out = subprocess.run(
         [sys.executable, "-I", "-c",
-         "from datafeed.store.query import bars_before; import datafeed; print(datafeed.__file__)"],
+         "from backend.datafeed.store.query import bars_before; import backend.datafeed as datafeed; print(datafeed.__file__)"],
         cwd=tmp_path, capture_output=True, text=True,
     )
     assert out.returncode == 0, out.stderr

@@ -78,7 +78,7 @@ def stats(con: sqlite3.Connection, now: datetime, market_open: MarketOpen) -> di
 def main() -> None:
     path = os.environ.get("SCANNER_DB", "/data/scanner_decisions.sqlite")
     try:
-        from datafeed.ingest.xauusd_bars import _market_open
+        from backend.datafeed.ingest.xauusd_bars import _market_open
         if not os.path.isfile(path):
             raise FileNotFoundError(f"no journal at {path}")
         con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)

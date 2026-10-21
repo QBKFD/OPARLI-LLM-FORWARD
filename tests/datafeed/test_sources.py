@@ -18,9 +18,9 @@ import pytest
 pd = pytest.importorskip("pandas")
 pytest.importorskip("ib_insync")
 
-from datafeed.ingest import xauusd_bars as xb
-from datafeed.ingest.base import validate_message
-from datafeed.ingest.ibkr import IbkrConfig, IbkrConnection
+from backend.datafeed.ingest import xauusd_bars as xb
+from backend.datafeed.ingest.base import validate_message
+from backend.datafeed.ingest.ibkr import IbkrConfig, IbkrConnection
 
 UTC = timezone.utc
 ROOT = Path(__file__).resolve().parents[2]
@@ -161,7 +161,7 @@ def test_ibkr_config_requires_env():
 
 
 def test_ibkr_reads_only_ib_port():
-    src = (ROOT / "datafeed/ingest/ibkr.py").read_text()
+    src = (ROOT / "backend/datafeed/ingest/ibkr.py").read_text()
     for other in ("7497", "4001", "4002", "4003", "4004", "TWS_PORT", "IBKR_PORT"):
         assert other not in src
 
@@ -229,7 +229,7 @@ def test_entry_point_stdout(tmp_path):
     env = {**os.environ, "DATAFEED_SOURCE": "replay", "DATAFEED_REPLAY_PARQUET": str(p),
            "DATAFEED_REPLAY_START": "2025-06-11", "DATAFEED_REPLAY_END": "2025-06-12"}
     env.pop("REDIS_URL", None)
-    r = subprocess.run([sys.executable, "-m", "datafeed.ingest", "--stdout"], env=env,
+    r = subprocess.run([sys.executable, "-m", "backend.datafeed.ingest", "--stdout"], env=env,
                        capture_output=True, text=True, cwd=ROOT / "tests")
     assert r.returncode == 0, r.stderr
     lines = [json.loads(x) for x in r.stdout.splitlines()]
@@ -238,7 +238,7 @@ def test_entry_point_stdout(tmp_path):
 
 def test_entry_point_unknown_source():
     env = {**os.environ, "DATAFEED_SOURCE": "nope"}
-    r = subprocess.run([sys.executable, "-m", "datafeed.ingest", "--stdout"], env=env,
+    r = subprocess.run([sys.executable, "-m", "backend.datafeed.ingest", "--stdout"], env=env,
                        capture_output=True, text=True)
     assert r.returncode != 0
 

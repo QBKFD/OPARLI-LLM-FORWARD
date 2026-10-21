@@ -140,7 +140,7 @@ meminfo() {           # MemAvailable % and swap used MB, or "-1 -1"
 # bar yet) and the rejected_messages count, read inside the recorder container
 STORE_STATS_PY="import sqlite3
 from datetime import datetime, timedelta, timezone
-from datafeed.ingest.xauusd_bars import _market_open
+from backend.datafeed.ingest.xauusd_bars import _market_open
 c = sqlite3.connect('file:/datafeed/datafeed.sqlite?mode=ro', uri=True)
 last = c.execute(\"SELECT MAX(bar_ts) FROM bars WHERE kind = 'live'\").fetchone()[0]
 rej = c.execute('SELECT COUNT(*) FROM rejected_messages').fetchone()[0]

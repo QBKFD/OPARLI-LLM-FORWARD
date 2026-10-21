@@ -50,8 +50,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from datafeed.features import vol_block as vb
-from datafeed.ingest.xauusd_bars import _market_open
+from backend.datafeed.features import vol_block as vb
+from backend.datafeed.ingest.xauusd_bars import _market_open
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]

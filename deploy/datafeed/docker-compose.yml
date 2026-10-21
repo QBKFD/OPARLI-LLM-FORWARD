@@ -24,7 +24,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/datafeed/Dockerfile
-    command: ["python", "-m", "datafeed.ingest"]
+    command: ["python", "-m", "backend.datafeed.ingest"]
     depends_on:
       redis:
         condition: service_healthy
@@ -46,7 +46,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/datafeed/Dockerfile
-    command: ["python", "-m", "datafeed.recorder"]
+    command: ["python", "-m", "backend.datafeed.recorder"]
     depends_on:
       redis:
         condition: service_healthy

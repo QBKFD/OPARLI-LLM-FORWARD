@@ -23,7 +23,7 @@ Live:     python backend/deterministic_scanner.py --live | --dry-live
 Live bar source: SCANNER_BAR_SOURCE=ibkr (default) | stream.
   ibkr    this process's own IBKR connection (run_live). Unchanged; it is the
           rollback.
-  stream  the datafeed stream bars.xauusd.1m via datafeed.bus, consumer group
+  stream  the datafeed stream bars.xauusd.1m via backend.datafeed.bus, consumer group
           "scanner" (run_live_stream). Needs REDIS_URL and DATAFEED_DB. Never
           connects to IBKR: the datafeed feed is the only gateway client.
 """
@@ -743,7 +743,7 @@ def score_take(direction, entry, stop, target, decision_ts, bars: pd.DataFrame, 
     hit is final at once; a timeout only OUTCOME_SETTLE_MIN after the holding
     period. A TAKE that can't be scored is final with exit_type 'unscorable'
     and the reason."""
-    from scoring.outcome import NoBarsError, bars_from_frame, score
+    from backend.scoring.outcome import NoBarsError, bars_from_frame, score
 
     t0, now = _utc(decision_ts), _utc(now)
     end = t0 + pd.Timedelta(minutes=max_hold_min)
@@ -1255,7 +1255,7 @@ def _only_valid(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _store_bars(now, start, db, symbol, kinds) -> pd.DataFrame:
-    from datafeed.store.query import bars_before
+    from backend.datafeed.store.query import bars_before
     rows = bars_before(symbol, now.to_pydatetime(), (now - start).to_pytimedelta(), db=db, kinds=kinds)
     df = pd.DataFrame(rows, columns=["bar_ts", "kind", "open", "high", "low", "close"])
     df.index = pd.DatetimeIndex(pd.to_datetime(df.pop("bar_ts"), utc=True), name="timestamp")
@@ -1272,7 +1272,7 @@ def stream_warmup(now, *, db=None, symbol: str = "XAUUSD", kinds=("live", "histo
     store only: stream mode never opens an IBKR connection. Returns
     (hist, detail); hist has open/high/low/close, only _valid_bar rows.
 
-    Reads datafeed.store.query.bars_before over [warmup_start(now), now) (one bar
+    Reads backend.datafeed.store.query.bars_before over [warmup_start(now), now) (one bar
     per minute: live preferred, history as fallback). Raises StoreNotReady unless
     it holds >= WARMUP_MIN_COVERAGE of that window's market-open minutes and its
     newest bar ended <= WARMUP_MAX_STALE_MIN market-open minutes ago."""
@@ -1401,7 +1401,7 @@ class StreamFeed:
     An entry is acked only after it has been handled: its bar fed to the level
     engine and any alerts it produced passed to on_alert (journaled and sent).
     An exception propagates without the ack, so on restart the same consumer
-    name gets the entry back first (datafeed.bus: own pending entries first)
+    name gets the entry back first (backend.datafeed.bus: own pending entries first)
     and the new warm-up decides whether it is a duplicate or still new."""
 
     def __init__(self, bus, stream: str, consumer: str, live, on_alert, *, lock=None,
@@ -1611,8 +1611,8 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
     backs off and exits so Docker restarts a clean cold start."""
     import threading
     import time as _time
-    from datafeed.bus import RedisStreamBus
-    from datafeed.ingest.xauusd_bars import STREAM
+    from backend.datafeed.bus import RedisStreamBus
+    from backend.datafeed.ingest.xauusd_bars import STREAM
 
     consumer = env.get("SCANNER_STREAM_CONSUMER", "scanner-1")   # stable across restarts
     group = env.get("SCANNER_STREAM_GROUP", STREAM_GROUP)         # a dry run alongside: its own group

@@ -206,8 +206,8 @@ def test_store_stats_snippet_against_a_real_store(tmp_path):
     import sys
     from datetime import datetime, timedelta, timezone
 
-    from datafeed.store import schema
-    src = (stubs_dir := __import__("deploy_stubs").DEPLOY / "watchdog.sh").read_text()
+    from backend.datafeed.store import schema
+    src = (stubs_dir := __import__("tests.deploy.deploy_stubs", fromlist=["DEPLOY"]).DEPLOY / "watchdog.sh").read_text()
     code = re.search(r'STORE_STATS_PY="(.*?)"\n', src, re.S).group(1).replace('\\"', '"')
     db = tmp_path / "datafeed.sqlite"
     con = schema.connect(str(db))
@@ -223,7 +223,7 @@ def test_store_stats_snippet_against_a_real_store(tmp_path):
     out = subprocess.run([sys.executable, "-c", code.replace("/datafeed/datafeed.sqlite", str(db))],
                          capture_output=True, text=True, timeout=60)
     lag, rej = map(int, out.stdout.split())
-    from datafeed.ingest.xauusd_bars import _market_open
+    from backend.datafeed.ingest.xauusd_bars import _market_open
     want = sum(_market_open(last + timedelta(minutes=k)) for k in range(1, 9))   # complete minutes since its end
     assert rej == 1 and lag in (want, want + 1), (lag, want)
     assert stubs_dir.exists()
