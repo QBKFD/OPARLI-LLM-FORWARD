@@ -1,23 +1,16 @@
-"""backend/journal_summary.py: the daily summary, read-only, on current and
+"""backend/scanner/journal/summary.py: the daily summary, read-only, on current and
 old journals."""
 
-import importlib.util
 import json
 import sqlite3
-import sys
 from datetime import date
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
 
-_PATH = Path(__file__).resolve().parents[2] / "backend" / "journal_summary.py"
-_spec = importlib.util.spec_from_file_location("journal_summary", _PATH)
-js = importlib.util.module_from_spec(_spec)
-sys.modules["journal_summary"] = js
-_spec.loader.exec_module(js)
+from backend.scanner.journal import summary as js
 
 DAY = date(2025, 10, 14)
 T = lambda s: pd.Timestamp(s, tz="UTC")          # noqa: E731
