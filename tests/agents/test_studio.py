@@ -1,5 +1,5 @@
-"""tools/langgraph_studio/studio.py (LangGraph Studio entry point), langgraph.json and
-requirements-studio.lock. No server, no network, no LLM: the graph runs
+"""tools/langgraph_studio/studio.py (LangGraph Studio entry point), tools/langgraph_studio/langgraph.json and
+requirements/requirements-studio.lock. No server, no network, no LLM: the graph runs
 in-process on the session's synthetic replay store."""
 
 import asyncio
@@ -226,10 +226,10 @@ def test_cli_build_db_refuses_holdout_data(tmp_path, caplog):
     assert rc == 1 and "development-period" in caplog.text
 
 
-# --- langgraph.json and the Studio lock --------------------------------------
+# --- tools/langgraph_studio/langgraph.json and the Studio lock --------------------------------------
 
 def test_langgraph_json_points_at_the_factory():
-    cfg = json.loads((ROOT / "langgraph.json").read_text())
+    cfg = json.loads((ROOT / "tools/langgraph_studio/langgraph.json").read_text())
     assert cfg["dependencies"] == ["."]
     assert cfg["graphs"] == {"agents": "./tools/langgraph_studio/studio.py:make_graph"}
     path, attr = cfg["graphs"]["agents"].split(":")
@@ -256,8 +256,8 @@ def _pins(path):
 
 
 def test_studio_lock_extends_the_project_lock_unchanged():
-    base, _ = _pins(ROOT / "requirements.lock")
-    studio_pins, hashed = _pins(ROOT / "requirements-studio.lock")
+    base, _ = _pins(ROOT / "requirements/requirements.lock")
+    studio_pins, hashed = _pins(ROOT / "requirements/requirements-studio.lock")
     assert all(n > 0 for n in hashed.values())
     assert {k: studio_pins.get(k) for k in base} == base       # every project pin, same version
     assert studio_pins["langgraph-cli"] == "0.4.32"

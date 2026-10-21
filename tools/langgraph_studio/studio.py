@@ -1,7 +1,7 @@
 """LangGraph Studio entry point: the agents graph on a replay datafeed store.
 
-`langgraph dev` loads `make_graph` through langgraph.json at the repo root
-(docs/LANGGRAPH_STUDIO.md). Nothing here calls an LLM, needs an API key or
+`langgraph dev --config tools/langgraph_studio/langgraph.json` loads
+`make_graph` (docs/LANGGRAPH_STUDIO.md). Nothing here calls an LLM, needs an API key or
 opens a network connection, and nothing is written outside a temp directory:
 - **Datafeed store.** $STUDIO_DATAFEED_DB if set (a replay store, for example
   one written by `build-db` below). Otherwise a synthetic
@@ -194,7 +194,7 @@ def studio_graph() -> Any:
 
 
 async def make_graph(config: Any = None) -> Any:
-    """Graph factory for `langgraph dev` (langgraph.json). The server calls it
+    """Graph factory for `langgraph dev` (tools/langgraph_studio/langgraph.json). The server calls it
     on its event loop for every run, where blocking I/O is an error
     (blockbuster), so the first build runs in a worker thread. The
     RunnableConfig argument is accepted and ignored: everything comes from the

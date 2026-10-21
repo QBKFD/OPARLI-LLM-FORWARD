@@ -5,7 +5,7 @@ built, nothing calls an LLM, and no PREREG exists yet.**
 - The experiment it describes needs its own PREREG under
   `agents/experiments/<id>/` before the first evidence decision, like agents
   v1.
-- Choices made without the owner are in the root `DECISIONS.md`, section
+- Choices made without the owner are in `docs/DECISIONS.md`, section
   `research/level-target-spec` (L1–L13). The owner's answers of 2026-10-17
   are in §14 (L14).
 - The multi-agent flow agreed later that day (`docs/AGENTS_ARCHITECTURE.md`,
@@ -298,7 +298,7 @@ none crashes the runner.
   chart files.
 - **Memory:** about 200–300 MB (Python, pandas, matplotlib, the SDK). Charts
   are rendered one at a time and closed. A container limit of 384 MB fits
-  the 3.8 GB host next to today's 2.88 GB of limits (root DECISIONS.md, D14).
+  the 3.8 GB host next to today's 2.88 GB of limits (docs/DECISIONS.md, D14).
   This is to be measured before it is deployed.
 - **Network:** egress to the Anthropic API only.
 - **The key:** `ANTHROPIC_API_KEY` lives in the host's `.env`, never in the

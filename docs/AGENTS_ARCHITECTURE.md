@@ -2,7 +2,7 @@
 
 **Status: design, approved by the owner on 2026-10-17.** This is the flow
 agreed with the owner that day, and the contract for jobs 2–5 (§11).
-- Choices made while writing it are logged in the root `DECISIONS.md`,
+- Choices made while writing it are logged in `docs/DECISIONS.md`,
   section `feat/agents-architecture` (AA1–AA16).
 - The owner confirmed AA2, AA5/AA6 (with every refused vote change logged
   with its reason, §5.3) and AA11.

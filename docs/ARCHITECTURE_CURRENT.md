@@ -486,14 +486,14 @@ migration.
 | datafeed store `datafeed.sqlite` | volume `datafeed_store` at `/datafeed/`; locally `DATAFEED_DB` | `datafeed.recorder`, the only writer | scanner warm-up, `export_parquet.py`, `backup_sqlite.py`, watchdog store stats, `agents.snapshot`, `vol_block.read_state`, `scoring.read_bars` | WAL; tables `bars`, `bar_conflicts`, `rejected_messages` |
 | S3 `journal/`, `store/` | S3 under `BACKUP_S3_URI` | `deploy/scanner/backup.sh` | `deploy/scanner/restore.sh` (by hand) | never deleted by scripts; retention by lifecycle rule |
 | S3 `archive/bars/date=YYYY-MM-DD/XAUUSD.parquet` | S3 | `backup.sh` via `export_parquet.py` | nothing | post-seal data |
-| `deploy/scanner/.env` | EC2 host only | owner | docker compose, `watchdog.sh` and `backup.sh` (`val()`) | never in git; `.env.example` is the template |
+| `deploy/scanner/.env` | EC2 host only | owner | docker compose, `watchdog.sh` and `backup.sh` (`val()`) | never in git; `deploy/scanner/.env.example` is the template |
 | `~/.scanner-watchdog`, `~/.scanner-backup` | EC2 host | `watchdog.sh`; `backup.sh` (`last_ok`) | `watchdog.sh` | state files |
 | `~/scanner-watchdog.log`, `~/scanner-backup.log` | EC2 host | cron | owner | |
 | agent store (`AGENTS_DB`) | wherever it's set; nothing deployed | `agents.store.sqlite` (snapshot and store nodes) | tests | append-only |
 | `agents/experiments/<id>/PREREG.md` | git | owner | `agents.prereg.require_prereg` | none exists yet; checked on disk, not in git |
 | `agents/config.example.toml` | git | | `AgentsConfig.from_toml` | |
 | `agents/prompts/bull.md`, `bear.md` | git, package data | | nothing | templates for future debaters |
-| `requirements.lock`, `requirements.cutoff.txt` | git | `pip-compile` | CI install, `tests/agents_tests/test_lock.py` | the Dockerfiles don't use the lock |
+| `requirements/requirements.lock`, `requirements/requirements.cutoff.txt` | git | `pip-compile` | CI install, `tests/agents_tests/test_lock.py` | the Dockerfiles don't use the lock |
 | `database/historical_news/*` | developer machine, untracked (`DATA_NOTES_events.md` in git) | `tools/scraper_fxfac/` | `legacy/` only | the LLM scanner design calls for a point-in-time calendar store; not built |
 | `XAUUSD_COMPLETE.csv` | developer machine | `tools/data/fetch_data_xauusd.py` | nothing in the repo | IBKR MIDPOINT history |
 | `GC_FUTURES_1MIN.csv`, `touch_events.parquet`, `tsmom_daily.parquet` | developer machine, untracked | `legacy/` | `legacy/` only | |

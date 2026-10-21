@@ -5,7 +5,7 @@ restore. **The first deploy of `main` onto a host still running
 `pipeline-fixes-and-cleanup` @ c62810d has its own step-by-step: §11.** Use
 it instead of §0–§5 for that jump. Background is in
 `docs/SCANNER_SWITCH_NOTES.md`, the build plan in `docs/DEPLOY_PLAN.md`, and
-the choices made without the owner in `DECISIONS.md` and `docs/decisions/`.
+the choices made without the owner in `docs/DECISIONS.md` and `docs/decisions/`.
 
 Commands run on the host, in `~/oparli/deploy/scanner` (the directory of
 `docker-compose.yml`), as the user that owns the stack. Nothing here was run
@@ -84,7 +84,7 @@ what has to be checked by hand the first time.
 - **Host `python3`.** The watchdog writes `~/scanner-health.json` with the
   host's `python3`, and it needs >= 3.11 (`tomllib`). See §11 step 0 for what
   an older one breaks.
-- **`.env` additions** (see `.env.example`). Leave the bar source at `ibkr`:
+- **`.env` additions** (see `deploy/scanner/.env.example`). Leave the bar source at `ibkr`:
 
   ```
   SCANNER_BAR_SOURCE=ibkr
@@ -447,7 +447,7 @@ to go back to. The Redis volume (`scanner_redis_data`) is new and empty too.
 **Telegram offset:** c62810d keeps it in memory, starting at 0. `main` saves
 it in `scanner_state`, and its first start also begins at 0. Nothing to do.
 
-**New `.env` variables** (names; values per `.env.example`):
+**New `.env` variables** (names; values per `deploy/scanner/.env.example`):
 
 | Variable | When |
 |---|---|
@@ -790,4 +790,37 @@ docker image tag oparli-scanner:rollback-$OLD oparli-scanner:local
 cd ~/oparli && git switch --detach $OLD && cd deploy/scanner
 docker compose up -d --no-build --no-deps scanner      # and feed recorder in the stream profile
 ```
+
+## 13. Repo root tidy (new paths)
+
+`chore/repo-root-tidy` moved seven files out of the repo root:
+
+| Old path | New path |
+|---|---|
+| `requirements.lock` | `requirements/requirements.lock` |
+| `requirements.cutoff.txt` | `requirements/requirements.cutoff.txt` |
+| `requirements-studio.in` | `requirements/requirements-studio.in` |
+| `requirements-studio.lock` | `requirements/requirements-studio.lock` |
+| `.env.example` (the local development template) | `deploy/.env.example` |
+| `DECISIONS.md` | `docs/DECISIONS.md` |
+| `langgraph.json` | `tools/langgraph_studio/langgraph.json` |
+
+**On EC2, no command changes.**
+- The compose build context, both Dockerfiles, `deploy/scanner/.env` and
+  its template `deploy/scanner/.env.example` are where they were. The
+  Dockerfiles don't read the lock.
+- The status board installs from `tools/status/requirements-status.lock`,
+  which also didn't move.
+- `git pull --ff-only` moves the files in the checkout, and the next
+  `docker compose build` gives the same image.
+- Don't confuse the two templates:
+  - `deploy/.env.example` is for local development (datafeed replay, a local
+    paper gateway);
+  - the host's `.env` comes from `deploy/scanner/.env.example`.
+
+**Commands that do change** (run from the repo root):
+- a hash-locked install: `pip install --require-hashes -r requirements/requirements.lock`;
+- LangGraph Studio (local only): `langgraph dev --config tools/langgraph_studio/langgraph.json`,
+  see `docs/LANGGRAPH_STUDIO.md`;
+- a local `.env`: `cp deploy/.env.example .env`.
 

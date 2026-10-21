@@ -33,15 +33,14 @@ trigger → snapshot ─(stale)────────────────�
 
 ## Install and test
 
-All dependencies are pinned, with hashes, in `requirements.lock` at the repo
-root:
+All dependencies are pinned, with hashes, in `requirements/requirements.lock`:
 - every extra (feed, replay, dev, agents, research);
 - every transitive dependency;
 - the build backend.
 
 ```
 python3.13 -m venv .venv
-.venv/bin/pip install --require-hashes -r requirements.lock
+.venv/bin/pip install --require-hashes -r requirements/requirements.lock
 .venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest tests/agents tests/datafeed
 .venv/bin/pytest                     # everything: research + datafeed + agents
@@ -60,11 +59,11 @@ venv):
 
 ```
 pip-compile --all-extras --all-build-deps --generate-hashes --allow-unsafe --strip-extras \
-    --annotation-style=line --constraint requirements.cutoff.txt \
-    --output-file requirements.lock pyproject.toml
+    --annotation-style=line --constraint requirements/requirements.cutoff.txt \
+    --output-file requirements/requirements.lock pyproject.toml
 ```
 
-`requirements.cutoff.txt` caps the packages whose newest release was under two
+`requirements/requirements.cutoff.txt` caps the packages whose newest release was under two
 weeks old at lock time. `tests/agents/test_lock.py` checks that the lock
 matches the pyproject pins and the caps.
 

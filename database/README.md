@@ -10,19 +10,19 @@ instead (`/data`, `/datafeed`, see `deploy/scanner/docker-compose.yml`).
 | `ohlcv_data/XAUUSD_1min_UTC_clean.parquet` | 1-min XAUUSD bars, 2020-01-01 to 2026-01-30 | a one-off export | the scanner's `--date` replay and `--selftest`, the datafeed's replay source, tests, research |
 | `ohlcv_data/XAUUSD.txt` | 1-min bars from 2007 | a one-off download | research (`sigma_compare`, `vol_features`) |
 | `scanner_decisions.sqlite` | the scanner's decision journal, when run locally | the scanner (default of `$SCANNER_DB`) | the journal summary (`python -m backend.scanner.journal.summary`) |
-| `datafeed.sqlite` | a local datafeed store | the recorder (`$DATAFEED_DB` in `.env.example`) | the stream scanner, agents |
+| `datafeed.sqlite` | a local datafeed store | the recorder (`$DATAFEED_DB` in `deploy/.env.example`) | the stream scanner, agents |
 | `historical_news/` | economic event calendars (`events_utc.parquet`, from the Forex Factory CSVs that `tools/scraper_fxfac` scrapes); `DATA_NOTES_events.md` describes them | by hand | nothing in the current code |
 
 **Git:** the data files are ignored by `.gitignore`:
 - `ohlcv_data/*.parquet`, `*.csv`, `*.txt` and `*.zip`;
 - `historical_news/*.csv`, `*.parquet` and `*.txt`;
-- every `*.sqlite` directly in `database/`.
+- every `*.sqlite` and `*.parquet` directly in `database/`;
+- all of `snapshots/` (written by `tools/data/fetch_data_xauusd.py`).
 
 Only this README and `historical_news/DATA_NOTES_events.md` are tracked.
 
-**Not ignored:** a file in another folder or of another type, e.g.
-`database/snapshots/` (which `tools/data/fetch_data_xauusd.py` writes to) or a
-parquet directly in `database/`. Check `git status` before committing.
+**Not ignored:** a file in another folder or of another type (e.g. a CSV
+directly in `database/`). Check `git status` before committing.
 
 The sealed period (`research/SEALING.md`) applies to these files: data from
 2026-10-01 on may not be read by any study before the final strategy test.
