@@ -4,7 +4,6 @@
 1 error: Incompatible types in assignment (expression has type "None", target has type "datetime")  [assignment]
 1 error: Incompatible types in assignment (expression has type "float", target has type "None")  [assignment]
 3 error: Incompatible types in assignment (expression has type "float", target has type "str | None")  [assignment]
-2 error: Item "None" of "Telegram | None" has no attribute "poll"  [union-attr]
 1 error: Item "None" of "Telegram | None" has no attribute "send"  [union-attr]
 1 error: any? has no attribute "exchange"  [attr-defined]
 4 note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
