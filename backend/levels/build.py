@@ -6,7 +6,11 @@ Calibrated on 2023-2025 (notebooks/backtest.ipynb); do not retune.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
+
+Level = dict[str, Any]           # type, value, active_from, active_to, arm, created_day, id
 
 SESSIONS = {"ASIA": (0, 7), "LONDON": (7, 12), "NY": (12, 21)}  # UTC hours [start,end)
 MIN_BARS_FULL_DAY = 300          # a full trading day needs >= this many bars
@@ -14,14 +18,14 @@ SESSION_CARRY_H = 24             # session H/L stay active +24h after close
 
 
 # ── Level engine (from notebooks/backtest.ipynb, active_from construction) ──
-def session_of(ts) -> str:
+def session_of(ts: pd.Timestamp) -> str:
     for s, (a, b) in SESSIONS.items():
         if a <= ts.hour < b:
             return s
     return "ROLLOVER"
 
 
-def build_levels(df: pd.DataFrame) -> list[dict]:
+def build_levels(df: pd.DataFrame) -> list[Level]:
     """Precompute daily/weekly/session aggregates once, emit level instances.
 
     Each instance carries active_from (source-period close) and active_to, so it
@@ -43,14 +47,14 @@ def build_levels(df: pd.DataFrame) -> list[dict]:
     wkkey = pd.Series(ic["year"].astype(str) + "-" + ic["week"].astype(str).str.zfill(2), index=df.index)
     wk = df.groupby(wkkey).agg(high=("high", "max"), low=("low", "min"), open=("open", "first"))
 
-    def wkkey_of(day):
+    def wkkey_of(day: pd.Timestamp) -> str:
         c = (day - pd.Timedelta(days=day.weekday())).isocalendar()
         return f"{c[0]}-{c[1]:02d}"
 
-    levels: list[dict] = []
+    levels: list[Level] = []
     for day in daily.index:
         de = day + pd.Timedelta(days=1)
-        today = []
+        today: list[Level] = []
         i = full_days.searchsorted(day)                      # prior FULL trading day
         if i > 0:
             p = full_days[i - 1]

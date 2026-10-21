@@ -35,16 +35,22 @@ def parse_reply(text: str) -> dict | None:
                  entry=None, stop=None, target=None, reasoning="")
         rest = tok[2:]
         if rest and rest[0].lower() in ("long", "short"):
-            d["direction"] = rest[0].lower(); rest = rest[1:]
+            d["direction"] = rest[0].lower()
+            rest = rest[1:]
         if rest and _isnum(rest[0]):
-            d["entry"] = float(rest[0]); rest = rest[1:]
+            d["entry"] = float(rest[0])
+            rest = rest[1:]
         i = 0
         while i < len(rest):
             w = rest[i].lower()
             if w == "sl" and i + 1 < len(rest) and _isnum(rest[i + 1]):
-                d["stop"] = float(rest[i + 1]); i += 2; continue
+                d["stop"] = float(rest[i + 1])
+                i += 2
+                continue
             if w == "tp" and i + 1 < len(rest) and _isnum(rest[i + 1]):
-                d["target"] = float(rest[i + 1]); i += 2; continue
+                d["target"] = float(rest[i + 1])
+                i += 2
+                continue
             break
         d["reasoning"] = " ".join(rest[i:])
         return d
@@ -53,7 +59,8 @@ def parse_reply(text: str) -> dict | None:
 
 def _isnum(s: str) -> bool:
     try:
-        float(s); return True
+        float(s)
+        return True
     except ValueError:
         return False
 

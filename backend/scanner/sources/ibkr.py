@@ -10,13 +10,12 @@ live loop (run_live). Importing this module imports ib_insync, so the CLI
 imports it only in ibkr live mode.
 """
 
-from ib_insync import IB, Stock, Future, Commodity, CFD, util
-from typing import Callable, Dict, Optional, List
+from ib_insync import IB, Stock, Future, Commodity, CFD
+from typing import Callable, Dict, List
 import logging
 import time
 import asyncio
 import threading
-from concurrent.futures import Future as ThreadFuture
 from datetime import datetime
 from queue import Queue
 
@@ -126,7 +125,7 @@ class TWSConnector:
         try:
             result = self._result_queue.get(timeout=30)
             return result
-        except:
+        except:  # noqa: E722 - kept as is: it also catches KeyboardInterrupt here
             logger.error("Connection timeout")
             return False
 
@@ -189,7 +188,7 @@ class TWSConnector:
             if sec_type == 'CMDTY':
                 logger.info(f"Using tick-by-tick data for commodity {symbol}")
                 # Request STREAMING market data (not snapshot)
-                ticker = self.ib.reqMktData(contract, genericTickList='', snapshot=False)
+                ticker = self.ib.reqMktData(contract, genericTickList='', snapshot=False)  # noqa: F841 - kept as is
 
                 # Initialize bar builder for this symbol
                 self.current_bars[symbol] = {
@@ -776,7 +775,8 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
     def on_bar(_sym, bar):
         if not bar.get("is_final"):
             return
-        ts = pd.Timestamp(bar["timestamp"]); ts = ts.tz_convert("UTC") if ts.tz else ts.tz_localize("UTC")
+        ts = pd.Timestamp(bar["timestamp"])
+        ts = ts.tz_convert("UTC") if ts.tz else ts.tz_localize("UTC")
         o, h, l, c = bar["open"], bar["high"], bar["low"], bar["close"]
         if not _valid_bar(ts, o, h, l, c):
             return
@@ -818,8 +818,10 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
             # gateway is down for minutes.
             if not tws.connected:
                 print("gateway connection lost — backing off then exiting so Docker reconnects clean", flush=True)
-                try: tws.disconnect()
-                except Exception: pass
+                try:
+                    tws.disconnect()
+                except Exception:
+                    pass
                 _time.sleep(RECONNECT_BACKOFF_S)
                 raise SystemExit(1)
 
@@ -869,4 +871,5 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                     sweep_outcomes(con, live.hist.sort_index(), now)
                 last_sweep = _time.time()
     except KeyboardInterrupt:
-        print("\nstopping."); tws.disconnect()
+        print("\nstopping.")
+        tws.disconnect()

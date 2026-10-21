@@ -28,7 +28,8 @@ def selftest():
     full = days[days >= MIN_BARS_FULL_DAY].index
     d0 = [d for d in full if d >= pd.Timestamp("2023-06-15", tz="UTC")][0]
     before = {L["type"]: L["value"] for L in build_levels(df) if L["created_day"] == d0}
-    df2 = df.copy(); df2.loc[df2.index >= d0, "high"] += 10000
+    df2 = df.copy()
+    df2.loc[df2.index >= d0, "high"] += 10000
     after = {L["type"]: L["value"] for L in build_levels(df2) if L["created_day"] == d0}
     for t in ("PDH", "PDL", "PWH", "PWL"):
         if t in before and abs(before[t] - after.get(t, -1)) > 1e-6:

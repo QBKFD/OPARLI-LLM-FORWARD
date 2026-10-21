@@ -58,7 +58,7 @@ include = ["backend*"]
 # collected: it is listed in norecursedirs (with pytest's own defaults), so it is
 # skipped even when a parent directory is collected.
 testpaths = ["research", "tests/datafeed", "tests/agents", "tests/risk",
-             "tests/scoring", "tests/scanner", "tests/deploy", "tests/status"]
+             "tests/scoring", "tests/scanner", "tests/deploy", "tests/status", "tests/levels"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).
@@ -83,3 +83,10 @@ target-version = "py312"
 # The study's code is left as it was run.
 "research/levels/run_levels.py" = ["F821"]
 
+
+[tool.mypy]
+# CI: mypy --strict on backend/levels; mypy on backend/scanner, where no
+# finding may be added to tools/mypy_scanner_baseline.txt. pandas ships no
+# type information, so it (and the scanner's other untyped dependencies) is Any.
+python_version = "3.12"
+ignore_missing_imports = true

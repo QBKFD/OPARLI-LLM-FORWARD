@@ -22,7 +22,7 @@ def load_data() -> pd.DataFrame:
 def replay_day(date: str, con=None) -> pd.DataFrame:
     df = load_data()
     levels = build_levels(df)
-    day = pd.Timestamp(date, tz="UTC")
+    day = pd.Timestamp(date, tz="UTC")  # noqa: F841 - unused, but it rejects a bad --date first
     day_bars = df.loc[date:date]
     if day_bars.empty:
         print(f"No data for {date} (range {df.index[0].date()}..{df.index[-1].date()})")

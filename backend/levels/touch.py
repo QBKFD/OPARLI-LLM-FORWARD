@@ -6,10 +6,13 @@ Calibrated on 2023-2025 (notebooks/backtest.ipynb); do not retune.
 from __future__ import annotations
 
 from collections import defaultdict
+from typing import Any
 
 import pandas as pd
 
-from backend.levels.build import session_of
+from backend.levels.build import Level, session_of
+
+Alert = dict[str, Any]           # alert_id, alert_ts_utc, level_types, level_price, price_at_alert, session, confluence_count
 
 TOL = 1.00                       # touch tolerance ($)
 WINDOW_MIN = 15                  # collapse alerts within the same 15-min bucket
@@ -23,10 +26,10 @@ class Scanner:
     15-min bucket and at the same price (within TOL) collapse into one alert
     carrying a confluence_count and every contributing level type."""
 
-    def __init__(self, levels: list[dict], tol: float = TOL, window_min: int = WINDOW_MIN):
+    def __init__(self, levels: list[Level], tol: float = TOL, window_min: int = WINDOW_MIN) -> None:
         self.tol = tol
         self.window = pd.Timedelta(minutes=window_min)
-        self.by_day = defaultdict(list)
+        self.by_day: defaultdict[pd.Timestamp, list[Level]] = defaultdict(list)
         for L in levels:
             d, d1 = L["active_from"].normalize(), L["active_to"].normalize()
             while d <= d1:
@@ -34,17 +37,17 @@ class Scanner:
                 d += pd.Timedelta(days=1)
         # per-level runtime state: 'open' levels start UNARMED (price sits at the
         # open at creation); static levels are armed from birth.
-        self.state = {L["id"]: {"armed": L["arm"] != "open", "alerted": False} for L in levels}
-        self._cur_day = None
-        self._active = []
-        self._bucket_start = None
-        self._bucket_touches: list[dict] = []
+        self.state: dict[int, dict[str, bool]] = {L["id"]: {"armed": L["arm"] != "open", "alerted": False} for L in levels}
+        self._cur_day: pd.Timestamp | None = None
+        self._active: list[Level] = []
+        self._bucket_start: pd.Timestamp | None = None
+        self._bucket_touches: list[dict[str, Any]] = []
         # per-day counter, so an alert's id depends only on that day's alerts, not
         # on how far back the history (and a live warm-up) starts
-        self._seq = defaultdict(int)
+        self._seq: defaultdict[str, int] = defaultdict(int)
 
-    def on_bar(self, ts, o, h, l, c) -> list[dict]:
-        finalized = []
+    def on_bar(self, ts: pd.Timestamp, o: float, h: float, l: float, c: float) -> list[Alert]:
+        finalized: list[Alert] = []
         # flush the previous 15-min bucket once we cross into a new one
         if self._bucket_start is not None and ts - self._bucket_start >= self.window:
             finalized += self._flush()
@@ -74,22 +77,24 @@ class Scanner:
                 s["alerted"] = True     # first-touch-only: dead forever
         return finalized
 
-    def close(self) -> list[dict]:
+    def close(self) -> list[Alert]:
         return self._flush()
 
-    def _flush(self) -> list[dict]:
+    def _flush(self) -> list[Alert]:
         touches, self._bucket_touches = self._bucket_touches, []
         if not touches:
             return []
         touches.sort(key=lambda t: t["value"])
-        clusters, cur = [], [touches[0]]
+        clusters: list[list[dict[str, Any]]] = []
+        cur = [touches[0]]
         for t in touches[1:]:
             if abs(t["value"] - cur[-1]["value"]) <= self.tol:
                 cur.append(t)
             else:
-                clusters.append(cur); cur = [t]
+                clusters.append(cur)
+                cur = [t]
         clusters.append(cur)
-        alerts = []
+        alerts: list[Alert] = []
         for cl in clusters:
             ts0 = min(t["ts"] for t in cl)
             day = ts0.strftime("%Y%m%d")
@@ -104,3 +109,16 @@ class Scanner:
                 confluence_count=len({t["type"] for t in cl}),
             ))
         return alerts
+
+
+def touches(bars: pd.DataFrame, levels: list[Level], *, tol: float = TOL,
+            window_min: int = WINDOW_MIN) -> list[Alert]:
+    """Every alert one Scanner emits over `bars` (UTC index; open, high, low,
+    close), including the last bucket's: what the --date replay, the selftest
+    and a continuous replay do bar by bar."""
+    sc = Scanner(levels, tol=tol, window_min=window_min)
+    out: list[Alert] = []
+    for ts, o, h, l, c in bars[["open", "high", "low", "close"]].itertuples(name=None):
+        out += sc.on_bar(ts, o, h, l, c)
+    return out + sc.close()
+
