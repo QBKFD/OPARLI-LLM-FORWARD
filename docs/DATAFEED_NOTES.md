@@ -14,7 +14,7 @@ production. That rule still holds for development and tests.
 - The scanner in stream mode never connects to IBKR. It has no warm-up
   fallback, and waits for the store instead. The ibkr-mode scanner, the
   rollback, keeps clientIds 11 and 21.
-- Details and client ids: `datafeed/README.md` and
+- Details and client ids: `backend/datafeed/README.md` and
   `docs/SCANNER_SWITCH_NOTES.md`.
 
 ## 0. Baseline (2026-10-13, branch point `research/levels-diag` @ 29dec96)
@@ -278,7 +278,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     `REDIS_TEST_URL` is set. I tried fakeredis and dropped it: it returned
     never-delivered entries for `XREADGROUP ... 0`, which real Redis doesn't do.
 - **Step 3: bar contract decisions** (owner, 2026-10-13). Code:
-  `datafeed/ingest/xauusd_bars.py`. Each counter is exposed in
+  `backend/datafeed/ingest/xauusd_bars.py`. Each counter is exposed in
   `BarBuilder.health()`.
 
   | # | Old behaviour | Decision | Reason | Counter |
@@ -351,7 +351,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
   - **Replay.** Bars are published in timestamp order, optionally inside
     `[START, END)`, at `BARS_PER_S` (0 = unthrottled). Vendor volume is not
     published.
-  - **Entry point.** `python -m datafeed.ingest [--stdout]`;
+  - **Entry point.** `python -m backend.datafeed.ingest [--stdout]`;
     `DATAFEED_SOURCE=replay` is the default. `--stdout` prints JSON lines
     instead of publishing to Redis.
 - **Open question for step 5 (store conflicts on every restart).** Each
@@ -432,7 +432,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     i.e. measured from when that bar completed (Fix G: per kind, and from the
     newest live bar only); `error_count` / `last_error`;
     counts of inserted / duplicate / conflict / rejected / batches.
-    `python -m datafeed.recorder` logs it every 60 s.
+    `python -m backend.datafeed.recorder` logs it every 60 s.
   - **Not covered.** A message the store keeps failing on (not a validation
     error) is retried forever and shows up only in `error_count`. No
     dead-letter stream in v1. (Fixed later by Fix E.)
@@ -453,7 +453,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
     `bars_before` equals the parquet rows after `_valid_bar` (exact float
     equality, >1,000 bars). It runs over `InMemoryBus` (passes) and over
     Redis when `REDIS_TEST_URL` is set (skipped here: no Redis).
-  - `datafeed/README.md`: full usage, env table, message schema, store tables,
+  - `backend/datafeed/README.md`: full usage, env table, message schema, store tables,
     the "as of t" rule, and planned modules.
 
 - **Fix A: kind `replay`** (owner decision, 2026-10-13). Before this, v1
@@ -575,7 +575,7 @@ exact equivalence for that case and must be called out in the scanner-switch PR.
 - **Fix H: autocommit connections, now tested** (owner request, 2026-10-14).
   - **Confirmed.** `schema.connect()` opens both the writer and the
     read-only connection with `isolation_level=None`; the recorder and
-    `python -m datafeed.recorder` get their connection from it. No code
+    `python -m backend.datafeed.recorder` get their connection from it. No code
     change.
   - **Why it matters.** Under sqlite3's default, a write outside an explicit
     `BEGIN` silently opens a transaction. It holds the write lock until

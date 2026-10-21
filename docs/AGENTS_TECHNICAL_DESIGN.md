@@ -20,13 +20,13 @@ Code gives:
 
 | Legacy (`legacy/backend_v0/`) | Becomes | Fixes applied, then frozen |
 |---|---|---|
-| `services/technical_indicators.py` | `agents/technical/indicators.py` | RSI 14, Bollinger 20/2, ATR 14, EMA 9/21, S/R. **VWAP and every volume input removed** (technical fix 1). **NaN raises** → abstain, never $10 ATR or RSI 50 (fix 4). **S/R uses complete candles only** (fix 5). RSI and ATR use **Wilder smoothing** (fix 6; owner decision: old results aren't evidence, so comparability with them doesn't matter). No wall clock (fix 7) |
-| `services/regime_detector.py` | `agents/technical/regime.py` | **Relative regime** (fix 2): volatility state = the VolBlock **L tercile**, cut-offs fixed from the sigma model's training window. This follows `research/regime_v2`, where L terciles beat the jump model. **`atr_trend` dropped** (fix 3: it was "decreasing" on 100 % of bars). Trend uses the EMA 9/21 spread in σ units |
-| `services/confluence_checker.py` | `agents/technical/confluence.py` | **4 voters:** RSI, Bollinger, EMA, S/R (VWAP gone). Ladder: 3 of 4 agree → 0.60, 4 of 4 → 0.80. Comparisons inclusive (`>=`), as the legacy note requires. Thresholds stay relative: RSI 30/70; BB tolerance as a fraction of band width (legacy 0.01 VOLATILE / 0.02 RANGING / 0.10 TRENDING, default 0.05); EMA spread ≥ 0.001. The per-regime values are re-mapped onto the new regime states (L tercile × trend) and written down before the freeze |
-| `services/timeframe_cascade.py` | `agents/technical/cascade.py` | Cases A–D kept: 4h/1h lead, 15m/5m confirm or veto. Not remapped: 5m comes from the snapshot (§2). **Complete candles only.** Lead gate 0.60, opposition 0.70, mid-TF 0.75, all inclusive. No `datetime.now()` (fix 7) |
-| `services/technical_service.py` | `agents/voters/technical.py` (`TechnicalAgent.vote(snapshot)`) | Entry point. Takes the Snapshot only, with no data provider |
-| `services/market_data_provider.py`, `clock.py` | — | Already superseded by `agents/snapshot.py` + `agents/resample.py`: one `<` rule, `complete` flags, injected clock (provider fixes 1–7 are covered there) |
-| `services/analysis/meta_decision.py` (deterministic half) | `agents/nodes/aggregator.py` **v1 option** (below) | The two bugs fixed, plus fixes 4–7 |
+| `services/technical_indicators.py` | `backend/agents/technical/indicators.py` | RSI 14, Bollinger 20/2, ATR 14, EMA 9/21, S/R. **VWAP and every volume input removed** (technical fix 1). **NaN raises** → abstain, never $10 ATR or RSI 50 (fix 4). **S/R uses complete candles only** (fix 5). RSI and ATR use **Wilder smoothing** (fix 6; owner decision: old results aren't evidence, so comparability with them doesn't matter). No wall clock (fix 7) |
+| `services/regime_detector.py` | `backend/agents/technical/regime.py` | **Relative regime** (fix 2): volatility state = the VolBlock **L tercile**, cut-offs fixed from the sigma model's training window. This follows `research/regime_v2`, where L terciles beat the jump model. **`atr_trend` dropped** (fix 3: it was "decreasing" on 100 % of bars). Trend uses the EMA 9/21 spread in σ units |
+| `services/confluence_checker.py` | `backend/agents/technical/confluence.py` | **4 voters:** RSI, Bollinger, EMA, S/R (VWAP gone). Ladder: 3 of 4 agree → 0.60, 4 of 4 → 0.80. Comparisons inclusive (`>=`), as the legacy note requires. Thresholds stay relative: RSI 30/70; BB tolerance as a fraction of band width (legacy 0.01 VOLATILE / 0.02 RANGING / 0.10 TRENDING, default 0.05); EMA spread ≥ 0.001. The per-regime values are re-mapped onto the new regime states (L tercile × trend) and written down before the freeze |
+| `services/timeframe_cascade.py` | `backend/agents/technical/cascade.py` | Cases A–D kept: 4h/1h lead, 15m/5m confirm or veto. Not remapped: 5m comes from the snapshot (§2). **Complete candles only.** Lead gate 0.60, opposition 0.70, mid-TF 0.75, all inclusive. No `datetime.now()` (fix 7) |
+| `services/technical_service.py` | `backend/agents/voters/technical.py` (`TechnicalAgent.vote(snapshot)`) | Entry point. Takes the Snapshot only, with no data provider |
+| `services/market_data_provider.py`, `clock.py` | — | Already superseded by `backend/agents/snapshot.py` + `backend/agents/resample.py`: one `<` rule, `complete` flags, injected clock (provider fixes 1–7 are covered there) |
+| `services/analysis/meta_decision.py` (deterministic half) | `backend/agents/nodes/aggregator.py` **v1 option** (below) | The two bugs fixed, plus fixes 4–7 |
 | SL/TP calculators, `position_sizing.py`, `risk_service.py` | **not ported** | Replaced by the agent's own clipped proposal (§3) and by `risk/` |
 
 ### `meta_decision`: the two bugs, fixed (reading confirmed by the owner)
@@ -77,7 +77,7 @@ exists.
 - **Bars.**
   - Timeframes are 1m, 5m, 15m, 1h and 4h (4h on the NY trading day, D4).
   - **5m is new** (owner decision): resampled from 1m by
-    `agents/resample.py`, with only complete candles used. The cascade keeps
+    `backend/agents/resample.py`, with only complete candles used. The cascade keeps
     its 5m role.
   - Indicators use only `complete=True` candles. The forming candle is
     visible to the agent but never feeds an indicator or S/R.
@@ -216,7 +216,7 @@ new experiment with its own PREREG, and these are its rules:
 - **The vote is a pure function of the Snapshot.** The same snapshot gives
   byte-identical vote JSON, across processes.
 - **Recorded per decision:**
-  - the agent code commit and a source hash of `agents/technical/`;
+  - the agent code commit and a source hash of `backend/agents/technical/`;
   - the config hash;
   - the sigma model name and SHA-256;
   - the snapshot hash.
@@ -239,7 +239,7 @@ new experiment with its own PREREG, and these are its rules:
 | Dev backtest | Over 2007–2020: each event scored once; no bar at or after as_of reaches the agent; the outputs (σ_d, DE, rates) are reproducible byte for byte; it refuses dates ≥ 2021-01-01 |
 | LLM variant (only if chosen) | Cache-only rerun is byte-identical; a cache miss errors; refusal, parse failure and `max_tokens` → abstain; the prompt hash is stable |
 
-All tests go in `tests/agents_tests/` with unique basenames, and are covered by
+All tests go in `tests/agents/` with unique basenames, and are covered by
 CI's pytest and ruff (`agents` is linted).
 
 ## 7. Build order (later steps, for reference)

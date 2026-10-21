@@ -1,6 +1,6 @@
 # LangGraph Studio: debugging the agents graph locally
 
-Studio shows the agents graph (`agents/graph.py`) as a picture, runs it on a
+Studio shows the agents graph (`backend/agents/graph.py`) as a picture, runs it on a
 trigger you type in, and lets you step through the state after every node.
 It's a laptop tool for debugging only:
 - no LLM calls and no API keys;
@@ -22,7 +22,7 @@ It's a laptop tool for debugging only:
     unset, a synthetic store is built in a temp dir: a seeded random walk,
     Mon 2025-06-09 to Wed 2025-06-11 UTC. The same data the agents tests use,
     so it is **not market data**;
-  - **the config** `agents/config.example.toml` (replay), or
+  - **the config** `backend/agents/config.example.toml` (replay), or
     `$STUDIO_AGENTS_CONFIG`. Live mode is refused;
   - **the Meta rule** from the owner's `agents.toml` (`$AGENTS_CONFIG`).
     Without it, both decisions are `none` with the reason "no rule
@@ -150,7 +150,7 @@ The server is for a laptop session, not for the 3.8 GB EC2 host.
 
 ## Tests
 
-`tests/agents_tests/test_studio.py` covers:
+`tests/agents/test_studio.py` covers:
 - the factory: async, built once;
 - the three paths above and the seal;
 - the CLI and its failure paths;
@@ -163,5 +163,5 @@ The tests run in the normal project venv and need neither the dev server nor
 the network:
 
 ```
-.venv/bin/pytest tests/agents_tests/test_studio.py
+.venv/bin/pytest tests/agents/test_studio.py
 ```

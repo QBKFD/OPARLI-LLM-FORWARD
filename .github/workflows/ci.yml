@@ -73,6 +73,8 @@ jobs:
         run: mypy --strict backend/levels
       - name: mypy, the scanner (no new findings against tools/mypy_scanner_baseline.txt)
         run: python tools/mypy_baseline.py
+      - name: Markdown links (relative links must resolve; legacy/ excluded)
+        run: python tools/check_links.py
       - name: shellcheck (error severity; legacy/ excluded)
         run: |
           shellcheck --version

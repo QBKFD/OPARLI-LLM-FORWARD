@@ -2,7 +2,7 @@
 
 Decisions taken without the owner while building this branch. Rule: on any
 choice, take the conservative option, log it here with the alternative. The
-plan is [docs/RESTRUCTURE_PLAN.md](../RESTRUCTURE_PLAN.md).
+plan is [docs/RESTRUCTURE_PLAN.md](../history/RESTRUCTURE_PLAN.md).
 
 From this branch on, decisions go to `docs/decisions/<branch>.md`, one file
 per branch, not to `docs/DECISIONS.md` (then at the root). The file name is the branch name

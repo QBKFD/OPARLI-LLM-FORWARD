@@ -1,6 +1,6 @@
 # refactor/scanner-package
 
-PR 2 of [docs/RESTRUCTURE_PLAN.md](../RESTRUCTURE_PLAN.md): the scanner split
+PR 2 of [docs/RESTRUCTURE_PLAN.md](../history/RESTRUCTURE_PLAN.md): the scanner split
 into `backend/levels/` (pure) and `backend/scanner/`, with no behaviour
 change. Decisions taken without the owner, each with its alternative.
 Phase 0 and PR 1 decisions are in

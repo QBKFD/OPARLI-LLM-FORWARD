@@ -8,7 +8,7 @@ part needs the untracked parquet and skips without it.
 
 A change here is a behaviour change: never re-pin a digest to make this pass.
 The full golden replay (Telegram, journal, both live bar sources) is described in
-docs/RESTRUCTURE_PLAN.md, section 2.
+docs/history/RESTRUCTURE_PLAN.md, section 2.
 """
 from pathlib import Path
 

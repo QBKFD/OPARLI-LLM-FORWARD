@@ -2,8 +2,8 @@
 
 **Status: design, approved by the owner on 2026-10-17.** This is the flow
 agreed with the owner that day, and the contract for jobs 2–5 (§11).
-- Choices made while writing it are logged in `docs/DECISIONS.md`,
-  section `feat/agents-architecture` (AA1–AA16).
+- Choices made while writing it are logged in
+  `docs/decisions/feat-agents-architecture.md` (AA1–AA16).
 - The owner confirmed AA2, AA5/AA6 (with every refused vote change logged
   with its reason, §5.3) and AA11.
 - The config gives each agent its own model, effort and `max_tokens` for
@@ -11,7 +11,7 @@ agreed with the owner that day, and the contract for jobs 2–5 (§11).
 - Open questions are in §12.
 
 This document replaces nothing that exists. It builds on:
-- the skeleton (`agents/DESIGN.md`, `agents/README.md`): snapshot, graph,
+- the skeleton (`backend/agents/DESIGN.md`, `backend/agents/README.md`): snapshot, graph,
   store, the abstain-on-failure rule;
 - the Technical agent design (`docs/AGENTS_TECHNICAL_DESIGN.md`): agents v1,
   the deterministic benchmark arm;
@@ -29,7 +29,7 @@ behaviour of its own.
 
 | Owner-owned (never written or edited by Claude) | Infrastructure (built by Claude, reviewed by the owner) |
 |---|---|
-| Prompt content: `agents/prompts/visual.md`, `technical.md`, `sentiment.md`, `gex.md`, `discussion.md` | The loader, the front-matter and section parser, placeholder rendering, and the prompt templates' **skeleton** (front-matter keys, section markers, placeholder names, no instructions) |
+| Prompt content: `backend/agents/prompts/visual.md`, `technical.md`, `sentiment.md`, `gex.md`, `discussion.md` | The loader, the front-matter and section parser, placeholder rendering, and the prompt templates' **skeleton** (front-matter keys, section markers, placeholder names, no instructions) |
 | `agents.toml` values: models, effort, `max_tokens`, discussion rounds, the Meta rule, budget, risk parameters | The config schema and its validation, and `agents.example.toml` (a template with placeholders and comments, never the owner's values) |
 | The choice of Meta rule (a name in config) | The Meta rule implementations as pluggable code, each named and versioned (§5.6) |
 | What each agent sees, through which placeholders a prompt uses | Which placeholders exist and what they render (§4, `PROMPT_GUIDE.md` §3) |
@@ -99,7 +99,7 @@ makes it a benchmark on exactly the same alerts.
 
 ## 3. Graph state and nodes
 
-The run graph keeps the existing skeleton (`agents/graph.py`). The changes:
+The run graph keeps the existing skeleton (`backend/agents/graph.py`). The changes:
 - Round 1 is the four agents above, plus `technical_v1` as a separate branch.
 - `aggregator` becomes `meta`, which runs one configured rule.
 - The bull/bear `debate` subgraph is replaced by `discussion` (job 4).
@@ -129,7 +129,7 @@ gate, Meta, risk or store node raises out of `run_once`, crash-only, as today.
 ### 4.1 The frozen snapshot (schema version 3)
 
 Built once per alert, hashed, and stored **before any agent runs** (the
-existing `agents/snapshot.py` rules: `as_of = floor(t, 1 min)`,
+existing `backend/agents/snapshot.py` rules: `as_of = floor(t, 1 min)`,
 `bars_before(..., known_by=t)` in live mode, the seal in replay mode). New
 fields relative to version 2:
 
@@ -138,8 +138,8 @@ fields relative to version 2:
 | `alert` | the Telegram facts only: `alert_id`, `alert_ts`, `session`, `level_types`, `level_price`, `price_at_alert`, `confluence_count` | the trigger (scanner journal row) |
 | `trigger_levels` | ids of the levels the alert touched | the shared level library (`LevelSource`, agents v1 design §2) |
 | `levels` | every level active at `as_of`: `id`, `type`, `value`, `active_from`, `touched` | same |
-| `features` | σ and the vol state: `sigma_px_60`, `sigma_px_240`, `sigma_ret_60`, `sigma_ret_240`, `crosses_close_60`, `crosses_close_240` (0/1), `L`, `S_hd`, `T`. `L_tercile` is not built yet (its cut-offs aren't fixed). The model name and SHA-256 are the snapshot fields `sigma_model` / `sigma_model_sha256` | `agents/features.py`: `vol_block` with the HAR model named in `snapshot.sigma_model` (job 5) |
-| `metrics` | the Technical metric table (§4.3) | `agents/technical/metrics.py` (job 5; always built) |
+| `features` | σ and the vol state: `sigma_px_60`, `sigma_px_240`, `sigma_ret_60`, `sigma_ret_240`, `crosses_close_60`, `crosses_close_240` (0/1), `L`, `S_hd`, `T`. `L_tercile` is not built yet (its cut-offs aren't fixed). The model name and SHA-256 are the snapshot fields `sigma_model` / `sigma_model_sha256` | `backend/agents/features.py`: `vol_block` with the HAR model named in `snapshot.sigma_model` (job 5) |
+| `metrics` | the Technical metric table (§4.3) | `backend/agents/technical/metrics.py` (job 5; always built) |
 | `events` | calendar events in [as_of − 6 h, as_of + 24 h]; actual values only if released before `as_of` | a point-in-time calendar store (not built; empty until it exists) |
 | `charts` | `(tf, sha256, width, height)` for the 15m, 1h and 4h PNGs | the chart renderer, from the snapshot's bars only |
 
@@ -443,7 +443,7 @@ All tables stay append-only (the existing triggers).
     vote.
 - **Tests** use a `FakeLLMClient` with scripted responses. No unit test calls
   the API.
-- *Built (job 3, `agents/llm/`), with these specifics:*
+- *Built (job 3, `backend/agents/llm/`), with these specifics:*
   - **Retries:** the SDK's own retries are off, and `call.py` retries with a
     capped backoff, so every attempt is a ledger row.
   - **Live mode reuses a cached response** for an identical request instead
@@ -534,7 +534,7 @@ answer. `epoch_id` = SHA-256 of the canonical JSON of:
 - The front-matter `version` is for humans. If a prompt's bytes change but
   its `version` doesn't, a warning is logged and stored. The epoch changes
   either way (AA10).
-- `python -m agents.epoch` (job 2) prints the current epoch id and what
+- `python -m backend.agents.epoch` (job 2) prints the current epoch id and what
   differs from the last stored run.
 - **The epoch is the same in any checkout.** No input holds a file path; a
   missing file enters as "not found", not as where it was looked for.
@@ -621,9 +621,9 @@ Every abstain reason is stored and counted. None of them crashes the run.
    - placeholder rendering;
    - config validation (`agents.toml` schema, `agents.example.toml`);
    - the SHA-256 of both recorded on every decision;
-   - `epoch_id` and `python -m agents.epoch`;
-   - *built:* `agents/prompting/`, `agents/owner_config.py`,
-     `agents/epoch.py`, snapshot schema 3 (alert facts from the trigger;
+   - `epoch_id` and `python -m backend.agents.epoch`;
+   - *built:* `backend/agents/prompting/`, `backend/agents/owner_config.py`,
+     `backend/agents/epoch.py`, snapshot schema 3 (alert facts from the trigger;
      the other slots empty and marked unavailable), migration 3;
    - template skeletons (front-matter, section markers, placeholders, no
      instructions) for visual, technical, sentiment, gex and discussion.
@@ -631,7 +631,7 @@ Every abstain reason is stored and counted. None of them crashes the run.
    `llm_responses`.
 4. **The discussion subgraph** replacing bull/bear (§5.2–5.4), plus the Meta
    rules as pluggable code (§5.5).
-   - *Built (job 4):* `agents/discussion/` and `agents/meta/`
+   - *Built (job 4):* `backend/agents/discussion/` and `backend/agents/meta/`
      (`quorum_v0`, `fixed_meta_v1`); GEX as a code agent that abstains; the
      debate code removed; store migration 5 (`discussions`, the vote change
      columns, the `decisions` rebuild for the new arms).
@@ -648,9 +648,9 @@ Every abstain reason is stored and counted. None of them crashes the run.
 5. **The Technical metric table** (§4.3), shared by Technical v1 and the
    Technical-LLM.
    - *Built (job 5):*
-     - `agents/technical/metrics.py`: Wilder ATR/RSI, EMA spread, σ, L/S_hd/T,
+     - `backend/agents/technical/metrics.py`: Wilder ATR/RSI, EMA spread, σ, L/S_hd/T,
        distances to levels, and volume/VWAP unavailable;
-     - `agents/features.py`: HAR σ and the vol state, from the snapshot's own
+     - `backend/agents/features.py`: HAR σ and the vol state, from the snapshot's own
        fetch.
    - The snapshot builder fills both, every time; unavailable rows carry
      their reasons.
