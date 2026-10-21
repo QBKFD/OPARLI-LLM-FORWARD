@@ -47,45 +47,10 @@ from backend.scanner.journal.writes import MISSED_AFTER_H, TELEGRAM_OFFSET_KEY, 
 from backend.scanner.journal.outcomes import CF_HORIZONS, OUTCOME_EXIT_TYPES, OUTCOME_MAX_HOLD_MIN, OUTCOME_SETTLE_MIN, alerts_needing_counterfactual, counterfactual, insert_outcome, score_take, sweep_counterfactuals, sweep_outcomes, take_problem, takes_needing_outcome  # noqa: F401
 from backend.scanner.telegram import Telegram, TelegramMessage, _handle_reply, _isnum, _send_quietly, format_alert, parse_reply, parse_updates  # noqa: F401
 from backend.scanner.engine import AlertSink, LiveLevels, _alert_sender, beat  # noqa: F401
+from backend.scanner.sources.replay import load_data, replay_day  # noqa: F401
 
 
 SILENCE_WARN_S = 1800            # connected but no bars this long (market hours) -> Telegram warn
-
-
-# ── Replay ──────────────────────────────────────────────────────────────────
-def load_data() -> pd.DataFrame:
-    df = pd.read_parquet(PARQUET).set_index("timestamp")[["open", "high", "low", "close"]].astype(float).sort_index()
-    if df.index.tz is None:
-        df.index = df.index.tz_localize("UTC")
-    return df
-
-
-def replay_day(date: str, con=None) -> pd.DataFrame:
-    df = load_data()
-    levels = build_levels(df)
-    day = pd.Timestamp(date, tz="UTC")
-    day_bars = df.loc[date:date]
-    if day_bars.empty:
-        print(f"No data for {date} (range {df.index[0].date()}..{df.index[-1].date()})")
-        return pd.DataFrame()
-
-    scanner = Scanner(levels)
-    alerts = []
-    for ts, o, h, l, c in day_bars.itertuples(name=None):
-        alerts += scanner.on_bar(ts, o, h, l, c)
-    alerts += scanner.close()
-
-    rows = []
-    epoch = start_epoch(con, "parquet") if con is not None else None
-    for a in alerts:
-        cf = counterfactual(df, a["alert_ts_utc"], a["price_at_alert"])
-        if con is not None:
-            insert_alert(con, a, epoch=epoch, bar_source="parquet")
-            insert_counterfactual(con, a["alert_id"], cf, epoch=epoch)
-        rows.append({**a, **{k: v for k, v in cf.items() if k != "alert_id"}})
-    if con is not None:
-        con.commit()
-    return pd.DataFrame(rows)
 
 
 # ── Live loop (reuses tws_connector for the feed, Postgres for level history) ─

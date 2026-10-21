@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import deterministic_scanner as ds
+from backend.scanner.sources import replay
 from tests.scanner.scanner_helpers import tg_msg
 
 OLD_DDL = """
@@ -165,7 +166,7 @@ def test_replay_into_a_journal_is_its_own_epoch(tmp_path, monkeypatch):
     day3 = idx >= pd.Timestamp("2025-06-13", tz="UTC")
     price[day3 & (idx.hour == 1)] = 105.0           # leave the day open, then return -> DOPEN
     df = pd.DataFrame({"open": price, "high": price + 0.1, "low": price - 0.1, "close": price})
-    monkeypatch.setattr(ds, "load_data", lambda: df)
+    monkeypatch.setattr(replay, "load_data", lambda: df)        # replay_day looks it up there
     con = ds.open_log(tmp_path / "j.sqlite")
     assert ds.start_epoch(con, "ibkr") == 1
     out = ds.replay_day("2025-06-13", con)
