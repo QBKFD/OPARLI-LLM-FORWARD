@@ -1,7 +1,7 @@
 # Deployment PR: plan
 
 Branch `feat/deploy-stack`. Written 2026-10-15, unattended, before building.
-Decisions taken without the owner are in `DECISIONS.md` at the repo root.
+Decisions taken without the owner are in `docs/DECISIONS.md`.
 
 **Base.** `main` doesn't contain `45c674c` (the stream-mode work), so this branch
 is cut from `feat/scanner-stream-source` @ 45c674c, not from `main`. Merge

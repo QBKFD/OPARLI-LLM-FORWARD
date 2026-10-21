@@ -627,7 +627,7 @@ Baseline is `research/levels-diag` @ 29dec96 (step 0). Branch
 | Scanner image build | **not run** (no Docker locally; nothing is built on EC2, per owner). Replaced by the proof below |
 | Image inputs unchanged | every file the scanner image or compose uses has the same git blob at baseline and HEAD (table below), and the working tree is clean in those paths |
 | Equivalence (step 3) | **identical** bars (bar_ts, O, H, L, C, n_ticks) between the new builder and the real scanner path on all 11 sequences; `_market_open` identical at 75k timestamps across 2026; `_valid_bar` identical on 5,000 random bars. Deviations #1, #2, #3 (timer close + after-grace tick), #4 and #7 each pass their explicit difference test |
-| Secrets | no IPs, hostnames, key paths or secrets in new files (grep). `<host>` placeholders in `.env.example` only |
+| Secrets | no IPs, hostnames, key paths or secrets in new files (grep). `<host>` placeholders in `deploy/.env.example` only |
 
 Image inputs (git blob at baseline = HEAD, first 16 hex of SHA-256 of the
 working file):

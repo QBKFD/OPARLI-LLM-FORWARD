@@ -40,7 +40,7 @@ id, usage, latency and cost.
 ## Run
 
 ```
-pip install --require-hashes -r requirements.lock       # includes the llm extra
+pip install --require-hashes -r requirements/requirements.lock       # includes the llm extra
 export ANTHROPIC_API_KEY=...                            # or `ant auth login`
 python -m backend.agents.llm count-tokens --db replay.sqlite --t 2025-06-11T14:30:00Z --config agents.toml
 ```

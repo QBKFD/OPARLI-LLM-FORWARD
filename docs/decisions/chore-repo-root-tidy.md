@@ -1,0 +1,15 @@
+# chore/repo-root-tidy
+
+The root keeps only `.github/`, `.gitignore`, `README.md`, `pyproject.toml`
+and folders (owner, 2026-10-21). Seven files moved with `git mv`. The new
+paths are listed in `docs/DEPLOY_RUNBOOK.md` §13.
+
+| # | Decision | Conservative because | Alternative |
+|---|---|---|---|
+| RT1 | `langgraph.json` goes to **`tools/langgraph_studio/`**, next to `studio.py` (owner's choice). The owner's message said `tools/studio/`, which doesn't exist. | No new folder and no rename. | A new `tools/studio/` holding only the JSON; or rename the folder to `tools/studio/`. |
+| RT2 | **The JSON's contents don't change.** langgraph-cli 0.4.32 `dev` resolves `dependencies` and the graph path against the working directory, not the config file's folder (checked in `langgraph_cli/cli.py`), so `./tools/langgraph_studio/studio.py:make_graph` stays. The start command becomes `langgraph dev --config tools/langgraph_studio/langgraph.json`, run from the repo root. | Verified by starting the server with the new command. | Paths relative to the config file, which this CLI version doesn't use. |
+| RT3 | **The lock files' generated header and `# via` comments are edited by hand** to the new paths. Their pins and hashes are unchanged. `requirements.lock` can't be regenerated exactly (BL22). | pip reads only the pins and hashes. Hand-edited comments show the command a regeneration from the repo root would use. | Regenerate both locks, which would change pins too. |
+| RT4 | **The root `.env.example` is the local development template**, not the EC2 one. It moves to `deploy/.env.example` as asked. The EC2 template `deploy/scanner/.env.example` doesn't move. Docs that meant the EC2 file now name `deploy/scanner/.env.example` in full, so the two can't be confused. | It keeps the EC2 template where the host expects it. | Merge the two templates. |
+| RT5 | `.gitignore` `!.env.example` becomes `!deploy/.env.example` and `!deploy/scanner/.env.example`. Checked: both templates are still tracked, and `.env` and `deploy/scanner/.env` are still ignored (`git check-ignore`). | It whitelists only the two real templates. | Keep the generic pattern. |
+| RT6 | **Records keep their content; only their path references change.** In `docs/DECISIONS.md`, `docs/decisions/*`, `RESTRUCTURE_PLAN`, `CLEANUP_NOTES` and `DATAFEED_NOTES`, a mention of a moved file now uses the new path, with "(then at the root)" where the sentence describes the past. The superseded "Root keeps …" line in `RESTRUCTURE_PLAN` now states the new layout. | A path in a record still leads to the file. | Leave records verbatim, keeping dead paths. |
+| RT7 | **Untouched:** mentions of study and package `DECISIONS.md` files (`research/*/`, `backend/scoring/`, `backend/datafeed/features/`). Also untouched are three `.env.example` names relative to `deploy/scanner/`: the compose file's `cp .env.example .env` comment, `test_compose.py`'s `DEPLOY / ".env.example"`, and the `deploy/scanner/` row of `ARCHITECTURE_MAP`. | They name other files, or the EC2 template in its own folder. | — |

@@ -88,9 +88,9 @@ Step 7 must show the same git blob and SHA-256 for each.
   changed. `bash -n` passes.
 - **Rest of the repo.** A repo-wide grep finds no other real address or key
   path: the remaining `~/.ssh/id_rsa` strings are generic defaults in
-  `.env.example`, `scripts/connect.sh` and
+  `deploy/.env.example`, `scripts/connect.sh` and
   `scripts/backfill/export_backtest_data.py`.
-- **`.env.example` not touched**, per the owner's no-`.env`-changes rule.
+- **`deploy/.env.example` (then at the root) not touched**, per the owner's no-`.env`-changes rule.
   `deploy.sh` moves to `legacy/` in step 4.
 - **The old values remain in git history** and in the tag `legacy-agents-v0`.
   No history rewrite (owner decision). If that key is still valid, rotating

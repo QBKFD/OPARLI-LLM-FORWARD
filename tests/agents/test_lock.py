@@ -1,4 +1,4 @@
-"""requirements.lock pins every dependency (with hashes) and agrees with pyproject.toml."""
+"""requirements/requirements.lock pins every dependency (with hashes) and agrees with pyproject.toml."""
 
 import re
 import tomllib
@@ -14,7 +14,7 @@ PIN = re.compile(r"^([A-Za-z0-9_.-]+)==(\S+)")
 
 def _lock():
     pins, hashed, current = {}, {}, None
-    for line in (ROOT / "requirements.lock").read_text().splitlines():
+    for line in (ROOT / "requirements/requirements.lock").read_text().splitlines():
         m = PIN.match(line)
         if m:
             current = canonicalize_name(m.group(1))
@@ -23,7 +23,7 @@ def _lock():
         elif line.strip().startswith("--hash=sha256:") and current:
             hashed[current] += 1
         elif line.strip() and not line.lstrip().startswith("#") and not line.startswith("    "):
-            raise AssertionError(f"unexpected line in requirements.lock: {line!r}")
+            raise AssertionError(f"unexpected line in requirements/requirements.lock: {line!r}")
     return pins, hashed
 
 
@@ -56,7 +56,7 @@ def test_build_backend_is_locked():
 
 def test_cutoff_caps_hold():
     pins, _ = _lock()
-    for line in (ROOT / "requirements.cutoff.txt").read_text().splitlines():
+    for line in (ROOT / "requirements/requirements.cutoff.txt").read_text().splitlines():
         line = line.split("#")[0].strip()
         if line:
             r = Requirement(line)

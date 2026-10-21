@@ -16,7 +16,7 @@ the one importable package and splits the scanner into modules, in three PRs:
 |---|---|---|
 | 1 | `refactor/backend-layout` | Mechanical moves: `datafeed`, `agents`, `risk`, `scoring` into `backend/`; tests into `tests/<package>/`; every reference updated. The scanner files don't move. |
 | 2 | `refactor/scanner-package` (off PR 1) | Split the scanner into `backend/levels/` (pure) and `backend/scanner/`; remove `deterministic_scanner.py` and `services/`. |
-| 3 | `docs/tidy` (off `main` after PR 1 and PR 2) | Current docs only in `docs/`; the rest to `docs/history/`; root `DECISIONS.md` split into `docs/decisions/`. |
+| 3 | `docs/tidy` (off `main` after PR 1 and PR 2) | Current docs only in `docs/`; the rest to `docs/history/`; `docs/DECISIONS.md` (the root decision log until chore/repo-root-tidy) split into `docs/decisions/`. |
 
 **Rules for all three.**
 - No behaviour change. A bug found on the way is listed in the branch's
@@ -409,7 +409,7 @@ So `--date` and `--selftest` keep needing only pandas.
    - packages `backend*`;
    - package-data keys `backend.agents` and `backend.datafeed`;
    - testpaths renamed.
-   - `requirements.lock` and `requirements-studio.lock` are regenerated with
+   - `requirements/requirements.lock` and `requirements/requirements-studio.lock` are regenerated with
      the same commands and cutoffs. Only the
      `# via datafeed (pyproject.toml)` annotations may change; a diff of the
      non-comment lines must be empty.
@@ -434,7 +434,7 @@ So `--date` and `--selftest` keep needing only pandas.
    - `tools/langgraph_studio`;
    - `tools/sigma_calibration`;
    - `tools/spread_by_hour.py`.
-   - `langgraph.json` keeps `./tools/langgraph_studio/studio.py:make_graph`;
+   - `tools/langgraph_studio/langgraph.json` keeps `./tools/langgraph_studio/studio.py:make_graph`;
      `dependencies: ["."]` installs `oparli`.
 8. **research:** import lines only, in `sigma_compare` (4 files) and
    `agents_v1/expected_exclusions.py`. Proof: rerun `sigma_compare`'s
@@ -524,11 +524,14 @@ Proof as PR 1, plus the line count of every scanner module (limit 1,000).
   RESTRUCTURE_PLAN.
 - **SCANNER_SWITCH_NOTES** moves only after the runbook covers everything still
   operational in it.
-- **Root `DECISIONS.md`** is split into `docs/decisions/<branch>.md`, content
+- **`docs/DECISIONS.md`** (at the root until chore/repo-root-tidy) is split into `docs/decisions/<branch>.md`, content
   unchanged, plus `docs/decisions/README.md` as an index. Package and study
   `DECISIONS.md` files stay where they are.
-- **Root** keeps README, pyproject, the lock files, `langgraph.json`,
-  `.env.example` and `.gitignore` only.
+- **Root** keeps `.github/`, `.gitignore`, `README.md`, `pyproject.toml` and
+  folders only (changed by `chore/repo-root-tidy`: the lock files are in
+  `requirements/`, the Studio config is `tools/langgraph_studio/langgraph.json`,
+  the local env template is `deploy/.env.example`, and the root decision log
+  is `docs/DECISIONS.md`).
 - **Links:** every link to a moved file is fixed, checked with a link checker.
 
 PR 1 and PR 2 fix only the links and commands that break inside the files
@@ -581,12 +584,12 @@ Generated from `main` @ c556533. Kinds:
 
 #### `(root)` (6)
 
-- `.env.example`: path ×1. PR 1: comment only.
-- `DECISIONS.md`: dotted name ×12, path ×9, scanner ×3, test dir ×2. PR 3: split into docs/decisions/, content unchanged.
+- `deploy/.env.example` (at the root until chore/repo-root-tidy): path ×1. PR 1: comment only.
+- `docs/DECISIONS.md` (at the root until chore/repo-root-tidy): dotted name ×12, path ×9, scanner ×3, test dir ×2. PR 3: split into docs/decisions/, content unchanged.
 - `README.md`: path ×5, scanner ×3. PR 1 and PR 2: commands; PR 3: tree.
 - `pyproject.toml`: dotted name ×1, path ×5, project name ×1, test dir ×4. PR 1: name, packages, package-data, testpaths, ruff comment.
-- `requirements-studio.lock`: project name ×15. PR 1: regenerated; only the `via datafeed (pyproject.toml)` annotations change.
-- `requirements.lock`: project name ×15. PR 1: regenerated; only the `via datafeed (pyproject.toml)` annotations change.
+- `requirements/requirements-studio.lock`: project name ×15. PR 1: regenerated; only the `via datafeed (pyproject.toml)` annotations change.
+- `requirements/requirements.lock`: project name ×15. PR 1: regenerated; only the `via datafeed (pyproject.toml)` annotations change.
 
 #### `.github` (1)
 

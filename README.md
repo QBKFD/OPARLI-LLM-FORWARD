@@ -68,7 +68,7 @@ is sealed.
 
 ```
 python3.13 -m venv .venv
-.venv/bin/pip install --require-hashes -r requirements.lock
+.venv/bin/pip install --require-hashes -r requirements/requirements.lock
 .venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest -m "not ibkr"
 .venv/bin/python -m backend.scanner --selftest

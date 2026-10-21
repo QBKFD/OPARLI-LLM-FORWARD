@@ -1,4 +1,4 @@
-"""tools/status/requirements-status.lock is a verbatim subset of requirements.lock
+"""tools/status/requirements-status.lock is a verbatim subset of requirements/requirements.lock
 (same versions, same hashes) and pins textual at the `status` extra's version."""
 
 import re
@@ -14,7 +14,7 @@ def _entries(path):
 
 
 def test_status_lock_is_a_verbatim_subset_of_the_main_lock():
-    sub, full = _entries(ROOT / "tools/status/requirements-status.lock"), _entries(ROOT / "requirements.lock")
+    sub, full = _entries(ROOT / "tools/status/requirements-status.lock"), _entries(ROOT / "requirements/requirements.lock")
     assert sub and set(sub) <= set(full)
     assert {k: v for k, v in full.items() if k in sub} == sub
 

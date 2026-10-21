@@ -26,7 +26,7 @@ def test_start_order_through_healthchecks():
     assert S["feed"]["depends_on"]["redis"] == {"condition": "service_healthy"}
     assert S["recorder"]["depends_on"]["feed"] == {"condition": "service_healthy"}
     # the scanner never waits on the datafeed: an ibkr-mode scanner must start
-    # whatever the stream services do (DECISIONS.md D3)
+    # whatever the stream services do (docs/DECISIONS.md D3)
     assert S["scanner"]["depends_on"] == ["ibgateway"]
     for n in ("redis", "feed", "recorder", "scanner"):
         assert S[n]["healthcheck"]["test"][0] == "CMD", n
@@ -211,7 +211,7 @@ def test_dockerfile_pins_and_copies():
                 "deploy/scanner/backup_sqlite.py", "deploy/scanner/entrypoint.sh"):
         assert re.search(rf"^COPY\s+{re.escape(src)}\s", d, re.M), src
         assert (DEPLOY.parents[1] / src).exists(), src
-    lock = (DEPLOY.parents[1] / "requirements.lock").read_text()
+    lock = (DEPLOY.parents[1] / "requirements/requirements.lock").read_text()
     for pin in ("pandas==2.3.3", "numpy==2.2.6", "pyarrow==25.0.0", "tzdata==2025.3", "redis==5.2.1",
                 "ib-insync==0.9.86"):
         assert pin in lock or pin.replace("-", "_") in lock, pin       # same versions as the tested lock

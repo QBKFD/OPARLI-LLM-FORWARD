@@ -12,8 +12,11 @@ It's a laptop tool for debugging only:
 
 ## What runs
 
-- **`langgraph.json`** (repo root) points `langgraph dev` at
-  `tools/langgraph_studio/studio.py:make_graph`.
+- **`tools/langgraph_studio/langgraph.json`** points `langgraph dev` at
+  `tools/langgraph_studio/studio.py:make_graph`. Start the server from the
+  repo root with `--config tools/langgraph_studio/langgraph.json`:
+  langgraph-cli resolves `dependencies` and the graph path against the
+  working directory, not the config file's folder.
 - **`make_graph`** builds the normal graph once per server process, with:
   - **the replay datafeed store** from `$STUDIO_DATAFEED_DB`. If that is
     unset, a synthetic store is built in a temp dir: a seeded random walk,
@@ -33,20 +36,20 @@ It's a laptop tool for debugging only:
 ## Install (once)
 
 The dev server needs `langgraph-cli[inmem]`: 35 packages on top of
-`requirements.lock`. They are pinned with hashes in **`requirements-studio.lock`**: every pin of
-`requirements.lock`, unchanged, plus the Studio tooling, all released at
+`requirements/requirements.lock`. They are pinned with hashes in **`requirements/requirements-studio.lock`**: every pin of
+`requirements/requirements.lock`, unchanged, plus the Studio tooling, all released at
 least two weeks before 2026-10-17. Use a separate venv, so the project
-`.venv` keeps matching `requirements.lock`:
+`.venv` keeps matching `requirements/requirements.lock`:
 
 ```
 python3.13 -m venv .venv-studio
-.venv-studio/bin/pip install --require-hashes -r requirements-studio.lock
+.venv-studio/bin/pip install --require-hashes -r requirements/requirements-studio.lock
 .venv-studio/bin/pip install --no-deps --no-build-isolation -e .
 ```
 
 `.venv-studio/` and the server's `.langgraph_api/` state are gitignored. To
 regenerate the lock after a pin change, run the `uv pip compile` command in
-its header (inputs: `pyproject.toml`, `requirements-studio.in`).
+its header (inputs: `pyproject.toml`, `requirements/requirements-studio.in`).
 
 ## Start it
 
@@ -56,10 +59,10 @@ its header (inputs: `pyproject.toml`, `requirements-studio.in`).
 #    "Slow graph load" error.
 .venv-studio/bin/python tools/langgraph_studio/studio.py build-db --synthetic --out /tmp/studio-datafeed.sqlite
 
-# 2. Start the server: no browser tab, no analytics, no tracing
+# 2. Start the server from the repo root: no browser tab, no analytics, no tracing
 STUDIO_DATAFEED_DB=/tmp/studio-datafeed.sqlite \
 LANGGRAPH_CLI_NO_ANALYTICS=1 LANGSMITH_TRACING=false \
-  .venv-studio/bin/langgraph dev --no-browser
+  .venv-studio/bin/langgraph dev --config tools/langgraph_studio/langgraph.json --no-browser
 ```
 
 It prints:
@@ -152,8 +155,8 @@ The server is for a laptop session, not for the 3.8 GB EC2 host.
 - the three paths above and the seal;
 - the CLI and its failure paths;
 - the store builders, including the refusal of post-2020 parquet windows;
-- `langgraph.json`, which must point at the factory and hold no env values;
-- `requirements-studio.lock`, which must contain every project pin
+- `tools/langgraph_studio/langgraph.json`, which must point at the factory and hold no env values;
+- `requirements/requirements-studio.lock`, which must contain every project pin
   unchanged.
 
 The tests run in the normal project venv and need neither the dev server nor
