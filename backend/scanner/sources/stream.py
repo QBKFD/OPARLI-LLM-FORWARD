@@ -14,7 +14,7 @@ from backend.scanner.journal.outcomes import sweep_counterfactuals, sweep_outcom
 from backend.scanner.journal.schema import open_log, start_epoch
 from backend.scanner.journal.writes import last_live_bar, load_offset, save_offset, sweep_auto_missed
 from backend.scanner.market import _open_minutes, _utc, _valid_bar
-from backend.scanner.telegram import Telegram, _handle_reply, _send_quietly
+from backend.scanner.telegram import Telegram, _handle_reply, _send_quietly, poll_replies
 
 # ── Stream bar source (SCANNER_BAR_SOURCE=stream) ──────────────────────────
 # Bars come from the datafeed stream instead of this process's own IBKR
@@ -417,12 +417,7 @@ def run_live_stream(symbol: str = "XAUUSD", dry: bool = False, env=os.environ):
                 _time.sleep(2)
                 continue
             polled_from = offset
-            try:
-                msgs, offset = tg.poll(offset)
-            except Exception as e:
-                print(f"telegram poll failed ({e!r}); retrying", flush=True)
-                _time.sleep(5)
-                msgs = []
+            msgs, offset = poll_replies(tg, offset)
             for msg in msgs:
                 _handle_reply(con, lock, tg, msg, epoch)
             if msgs or offset != polled_from:
