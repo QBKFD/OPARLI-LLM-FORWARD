@@ -16,13 +16,13 @@ instead (`/data`, `/datafeed`, see `deploy/scanner/docker-compose.yml`).
 **Git:** the data files are ignored by `.gitignore`:
 - `ohlcv_data/*.parquet`, `*.csv`, `*.txt` and `*.zip`;
 - `historical_news/*.csv`, `*.parquet` and `*.txt`;
-- every `*.sqlite` directly in `database/`.
+- every `*.sqlite` and `*.parquet` directly in `database/`;
+- all of `snapshots/` (written by `tools/data/fetch_data_xauusd.py`).
 
 Only this README and `historical_news/DATA_NOTES_events.md` are tracked.
 
-**Not ignored:** a file in another folder or of another type, e.g.
-`database/snapshots/` (which `tools/data/fetch_data_xauusd.py` writes to) or a
-parquet directly in `database/`. Check `git status` before committing.
+**Not ignored:** a file in another folder or of another type (e.g. a CSV
+directly in `database/`). Check `git status` before committing.
 
 The sealed period (`research/SEALING.md`) applies to these files: data from
 2026-10-01 on may not be read by any study before the final strategy test.

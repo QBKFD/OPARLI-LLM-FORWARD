@@ -35,6 +35,8 @@ database/historical_news/*.parquet
 database/ohlcv_data/*.txt
 database/ohlcv_data/*.zip
 database/historical_news/*.txt
+database/snapshots/
+database/*.parquet
 
 # Deterministic scanner decision log (personal trading journal — never commit)
 database/scanner_decisions.sqlite
