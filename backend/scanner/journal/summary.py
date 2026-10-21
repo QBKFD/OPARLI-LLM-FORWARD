@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Daily summary of the scanner's decision journal. Read-only, stdlib only.
 
-    python backend/journal_summary.py [--db PATH] [--date YYYY-MM-DD] [--json]
+    python -m backend.scanner.journal.summary [--db PATH] [--date YYYY-MM-DD] [--json]
 
 For one UTC day (default: today), by journal epoch:
   alerts     by status: sent, missed_while_down, missed_history
@@ -14,7 +14,7 @@ outcome row yet.
 
 The journal is opened read-only (sqlite URI mode=ro): the command never
 creates, migrates or writes it, so it is safe on the production journal
-(docker compose exec scanner python /app/journal_summary.py). Journals from
+(docker compose exec scanner python -m backend.scanner.journal.summary). Journals from
 before migration 3 (no alerts.status) or 4 (no outcome detail) still work.
 Exit codes: 0 ok, 2 no journal or bad arguments.
 """
@@ -30,7 +30,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-DEFAULT_DB = Path(__file__).resolve().parent.parent / "database/scanner_decisions.sqlite"
+DEFAULT_DB = Path(__file__).resolve().parents[3] / "database/scanner_decisions.sqlite"   # the repo root
 ALERT_STATUSES = ("sent", "missed_while_down", "missed_history")
 DECISIONS = ("TAKE", "SKIP", "MISSED")
 EXIT_TYPES = ("tp", "sl", "timeout", "unscorable")

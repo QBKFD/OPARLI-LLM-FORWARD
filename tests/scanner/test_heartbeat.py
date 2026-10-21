@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 
 from tests.scanner.scanner_helpers import Log
 

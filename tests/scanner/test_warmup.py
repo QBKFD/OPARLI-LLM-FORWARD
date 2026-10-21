@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 
 from tests.scanner.scanner_helpers import Log, fill_store
 

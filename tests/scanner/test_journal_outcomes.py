@@ -7,7 +7,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 
 T = lambda s: pd.Timestamp(s, tz="UTC")          # noqa: E731
 

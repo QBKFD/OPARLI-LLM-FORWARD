@@ -45,7 +45,7 @@ from backend.datafeed.features.vol_block import open_window
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-SCANNER_PATH = ROOT / "backend" / "deterministic_scanner.py"
+SCANNER_PATH = ROOT / "backend" / "scanner" / "__init__.py"     # the production scanner (was backend/deterministic_scanner.py)
 OUT = HERE / "results" / "expected_exclusions.json"
 
 DEV_START = pd.Timestamp("2007-01-01", tz="UTC")
@@ -56,18 +56,8 @@ ENTRY_DELAY = timedelta(minutes=2)                   # flush bar final (+1 min),
 
 
 def load_scanner() -> ModuleType:
-    """The production scanner module, loaded by file path as
-    `deterministic_scanner` (as tests/scanner/conftest.py does), never edited."""
-    mod = sys.modules.get("deterministic_scanner")
-    if mod is not None:
-        return mod
-    spec = importlib.util.spec_from_file_location("deterministic_scanner", SCANNER_PATH)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load the scanner from {SCANNER_PATH}")
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["deterministic_scanner"] = mod
-    spec.loader.exec_module(mod)
-    return mod
+    """The production scanner package (backend.scanner), never edited."""
+    return importlib.import_module("backend.scanner")
 
 
 @dataclass(frozen=True)

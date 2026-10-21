@@ -1,4 +1,4 @@
-# One image for the scanner stack: the scanner (deterministic_scanner.py, either
+# One image for the scanner stack: the scanner (python -m backend.scanner, either
 # bar source) and, in the "stream" profile, the datafeed feed and recorder, which
 # override the entrypoint. ib_insync + pandas + redis + the source files; no DB
 # server, no psycopg2.
@@ -12,18 +12,15 @@ RUN pip install --no-cache-dir ib_insync==0.9.86 pandas==2.3.3 numpy==2.2.6 \
         pyarrow==25.0.0 tzdata==2025.3 redis==5.2.1
 
 WORKDIR /app
-# services/ is a package with only tws_connector (imports ib_insync + stdlib)
-COPY backend/services/__init__.py       /app/services/__init__.py
-COPY backend/services/tws_connector.py  /app/services/tws_connector.py
-COPY backend/deterministic_scanner.py   /app/deterministic_scanner.py
-COPY backend/journal_summary.py         /app/journal_summary.py
-# backend.datafeed, backend.scoring and backend.risk are imported from
-# /app/backend, not pip-installed: /app is on sys.path as the scanner script's
-# directory, and as the working directory for `python -m` (feed, recorder) and
-# `python -` (the watchdog's probes). scoring scores TAKE outcomes
-# (scoring -> risk, backend.datafeed.store). The scanner itself stays at
-# /app/deterministic_scanner.py, so the entrypoint and its default paths are unchanged.
+# The scanner runs as `python -m backend.scanner` from /app (the working
+# directory, so /app is on sys.path; also for `python -m` in the feed and
+# recorder and `python -` in the watchdog's probes). Everything is imported
+# from /app/backend, not pip-installed: backend.scanner and backend.levels (the
+# scanner), backend.datafeed (stream mode, feed, recorder), backend.scoring
+# (TAKE outcomes; scoring -> risk, backend.datafeed.store) and backend.risk.
 COPY backend/__init__.py                /app/backend/__init__.py
+COPY backend/scanner                    /app/backend/scanner
+COPY backend/levels                     /app/backend/levels
 COPY backend/datafeed                   /app/backend/datafeed
 COPY backend/scoring                    /app/backend/scoring
 COPY backend/risk                       /app/backend/risk

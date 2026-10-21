@@ -244,10 +244,7 @@ def test_cli_missing_store_and_pre_migration_store_exit_2(tmp_path, capsys):
 def test_scanner_stream_consumer_ignores_the_spread_fields():
     """The scanner reads named fields only: a live bar with spread stats drives
     on_bar exactly like one without."""
-    import importlib.util as iu
-    spec = iu.spec_from_file_location("ds_spread_t", ROOT / "backend" / "deterministic_scanner.py")
-    ds = iu.module_from_spec(spec)
-    spec.loader.exec_module(ds)
+    import backend.scanner as ds
     bus, seen = InMemoryBus(), []
 
     class Live:

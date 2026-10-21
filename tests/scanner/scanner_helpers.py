@@ -37,7 +37,7 @@ def make_bus(kind):
 def tg_msg(text: str, update_id: int = 1, date: str = "2025-10-14 01:30:00"):
     """A Telegram reply as the scanner receives it: update id, message date (UTC), text."""
     import pandas as pd
-    import deterministic_scanner as ds
+    import backend.scanner as ds
     return ds.TelegramMessage(update_id, pd.Timestamp(date, tz="UTC"), text)
 
 

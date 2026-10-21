@@ -1,11 +1,22 @@
-# backend/: the deterministic scanner and its decision journal
+# backend/scanner/: the deterministic scanner and its decision journal
 
-- `deterministic_scanner.py`: the level scanner (replay, selftest, live in
-  ibkr or stream mode) and the journal it writes.
-- `journal_summary.py`: a read-only daily summary of the journal.
-- `services/tws_connector.py`: the IBKR feed used by the ibkr bar source.
+`python -m backend.scanner` (replay `--date`, `--selftest`, `--live`, `--dry-live`).
 
-The scanner's design notes are in the module docstring,
+- `__main__.py`: the CLI. `config.py`: paths and the bar-source switch.
+  `market.py`: UTC and market hours. `engine.py`: LiveLevels, AlertSink, the
+  heartbeat. `telegram.py`: alert text, replies, the bot API.
+- `journal/`: `schema.py` (tables, migrations, epochs), `writes.py`,
+  `outcomes.py` (counterfactuals, TAKE scoring), `summary.py` (read-only daily
+  summary).
+- `sources/`: `replay.py` (the parquet replay), `stream.py` (the datafeed
+  stream), `ibkr.py` (the scanner's own IBKR connection, `TWSConnector`).
+- `selftest.py`.
+- The level engine itself is `backend/levels/` (pure: build, touch).
+
+This file lives at `backend/README.md` for now; docs/RESTRUCTURE_PLAN.md
+describes the layout.
+
+The scanner's design notes are in the docstring of `backend/scanner/__init__.py`,
 `docs/SCANNER_SWITCH_NOTES.md` and `docs/DEPLOY_RUNBOOK.md`. This README
 covers the journal.
 
@@ -82,11 +93,11 @@ outcome row is never auto-scored.
 ## Daily summary
 
 ```bash
-python backend/journal_summary.py                         # today (UTC), $SCANNER_DB or the default path
-python backend/journal_summary.py --date 2026-10-19 --db database/scanner_decisions.sqlite
-python backend/journal_summary.py --json                  # machine-readable
+python -m backend.scanner.journal.summary                   # today (UTC), $SCANNER_DB or the default path
+python -m backend.scanner.journal.summary --date 2026-10-19 --db database/scanner_decisions.sqlite
+python -m backend.scanner.journal.summary --json            # machine-readable
 # on the host, against the production journal (read-only):
-docker compose exec -T scanner python /app/journal_summary.py
+docker compose exec -T scanner python -m backend.scanner.journal.summary
 ```
 
 Example output:
@@ -112,7 +123,7 @@ journal 2026-10-19 (UTC), journal version 4
 
 ```bash
 REDIS_TEST_URL=redis://localhost:6379/15 python -m pytest tests/scanner -q
-python backend/deterministic_scanner.py --selftest       # needs the historical parquet
+python -m backend.scanner --selftest                       # needs the historical parquet
 ```
 
 `tests/scanner/test_journal_replies.py`, `test_journal_outcomes.py` and

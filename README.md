@@ -10,7 +10,8 @@ Diagrams and a map of every file and store:
 ## What runs
 
 - **Production: the level scanner**
-  - **Code:** `backend/deterministic_scanner.py`.
+  - **Code:** `backend/scanner/` (`python -m backend.scanner`), on the level
+    engine in `backend/levels/`.
   - **Deployment:** the `deploy/scanner/` Docker stack (IB Gateway + scanner)
     on one EC2 host, plus host crons `watchdog.sh` (every 5 min) and
     `backup.sh` (daily, to S3).
@@ -31,7 +32,7 @@ Diagrams and a map of every file and store:
 
 | Path | Status |
 |---|---|
-| `backend/` | **production**: the scanner, `journal_summary.py` (read-only daily summary), `services/tws_connector.py` (IBKR) |
+| `backend/scanner/`, `backend/levels/` | **production**: the scanner (CLI, live loops, bar sources incl. IBKR, journal, read-only daily summary) and the pure level engine |
 | `deploy/scanner/` | **production** stack: compose, entrypoint, watchdog, backup/restore; the `stream` profile is opt-in |
 | `scoring/` | **production** inside the scanner image: TAKE outcomes. `score_neutral` (k·σ bracket) has no caller yet |
 | `risk/` | `bracket` is used through `scoring`; `sizing` has no caller |
@@ -70,7 +71,7 @@ python3.13 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements.lock
 .venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest -m "not ibkr"
-.venv/bin/python backend/deterministic_scanner.py --selftest
+.venv/bin/python -m backend.scanner --selftest
 ```
 
 - **Redis tests** run when `REDIS_TEST_URL` points at a throwaway database,

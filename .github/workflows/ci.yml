@@ -49,9 +49,9 @@ jobs:
         # (database/ohlcv_data is untracked). Run it when present, else warn.
         run: |
           if [ -f database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet ]; then
-            python backend/deterministic_scanner.py --selftest
+            python -m backend.scanner --selftest
           else
-            echo "::warning title=selftest skipped::database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet is not in the repository; run 'python backend/deterministic_scanner.py --selftest' locally"
+            echo "::warning title=selftest skipped::database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet is not in the repository; run 'python -m backend.scanner --selftest' locally"
           fi
 
   lint:
@@ -62,13 +62,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.13"
-      - name: Install ruff
-        run: python -m pip install ruff==0.12.10
+      - name: Install ruff and mypy
+        run: python -m pip install ruff==0.12.10 mypy==2.4.0
       - name: ruff, errors only (syntax errors, undefined names), whole repo
         run: ruff check --select E9,F63,F7,F82 .
       - name: ruff, default rules, maintained packages
         # E741 ignored: l is the codebase's name for an OHLC low
-        run: ruff check --extend-ignore E741 backend/agents backend/risk tools backend/datafeed backend/scoring
+        run: ruff check --extend-ignore E741 backend/agents backend/risk tools backend/datafeed backend/scoring backend/scanner backend/levels
+      - name: mypy --strict, the level engine
+        run: mypy --strict backend/levels
+      - name: mypy, the scanner (no new findings against tools/mypy_scanner_baseline.txt)
+        run: python tools/mypy_baseline.py
       - name: shellcheck (error severity; legacy/ excluded)
         run: |
           shellcheck --version

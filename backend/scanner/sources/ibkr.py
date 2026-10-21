@@ -1,19 +1,34 @@
-# backend/services/tws_connector.py
+# backend/scanner/sources/ibkr.py
 """
 TWS (Interactive Brokers) Connection Service using ib_insync
 
 Handles connection to TWS/IB Gateway and subscribes to real-time market data.
+
+Bar source "ibkr" (SCANNER_BAR_SOURCE=ibkr, the default): TWSConnector (from
+backend/services/tws_connector.py, unchanged), the history load and the ibkr
+live loop (run_live). Importing this module imports ib_insync, so the CLI
+imports it only in ibkr live mode.
 """
 
-from ib_insync import IB, Stock, Future, Commodity, CFD, util
-from typing import Callable, Dict, Optional, List
+from ib_insync import IB, Stock, Future, Commodity, CFD
+from typing import Callable, Dict, List
 import logging
 import time
 import asyncio
 import threading
-from concurrent.futures import Future as ThreadFuture
 from datetime import datetime
 from queue import Queue
+
+import pandas as pd
+
+from backend.levels.build import build_levels
+from backend.scanner.config import RECONNECT_BACKOFF_S
+from backend.scanner.engine import AlertSink, LiveLevels, _alert_sender, beat
+from backend.scanner.journal.outcomes import sweep_counterfactuals, sweep_outcomes
+from backend.scanner.journal.schema import open_log, start_epoch
+from backend.scanner.journal.writes import last_live_bar, load_offset, save_offset, sweep_auto_missed
+from backend.scanner.market import _market_open, _valid_bar
+from backend.scanner.telegram import Telegram, _handle_reply
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +125,7 @@ class TWSConnector:
         try:
             result = self._result_queue.get(timeout=30)
             return result
-        except:
+        except:  # noqa: E722 - kept as is: it also catches KeyboardInterrupt here
             logger.error("Connection timeout")
             return False
 
@@ -173,7 +188,7 @@ class TWSConnector:
             if sec_type == 'CMDTY':
                 logger.info(f"Using tick-by-tick data for commodity {symbol}")
                 # Request STREAMING market data (not snapshot)
-                ticker = self.ib.reqMktData(contract, genericTickList='', snapshot=False)
+                ticker = self.ib.reqMktData(contract, genericTickList='', snapshot=False)  # noqa: F841 - kept as is
 
                 # Initialize bar builder for this symbol
                 self.current_bars[symbol] = {
@@ -692,3 +707,169 @@ class TWSConnector:
         except Exception as e:
             logger.error(f"Error fetching historical data for {symbol}: {e}")
             return []
+
+
+SILENCE_WARN_S = 1800            # connected but no bars this long (market hours) -> Telegram warn
+
+
+# ── Live loop (reuses tws_connector for the feed, Postgres for level history) ─
+def _load_recent_history(symbol: str, days: int, host: str, port: int, client_id: int) -> pd.DataFrame:
+    """Recent 1-min bars straight from IBKR (MIDPOINT, same pricing the live feed
+    builds from) so the level engine has yesterday's / last week's / today's
+    session data to build from. Deliberately NOT the Postgres ohlcv_1min view —
+    that stops at the last backfill and would leave the scanner with no levels."""
+    from ib_insync import IB, Contract
+    ib = IB()
+    ib.connect(host, port, clientId=client_id, timeout=10, readonly=True)
+    try:
+        c = ib.qualifyContracts(Contract(symbol=symbol, secType="CMDTY", exchange="SMART", currency="USD"))[0]
+        bars = ib.reqHistoricalData(c, endDateTime="", durationStr=f"{days} D",
+                                    barSizeSetting="1 min", whatToShow="MIDPOINT",
+                                    useRTH=False, formatDate=2)
+    finally:
+        ib.disconnect()
+    df = pd.DataFrame([(b.date, b.open, b.high, b.low, b.close) for b in bars],
+                      columns=["timestamp", "open", "high", "low", "close"]).set_index("timestamp")
+    df.index = pd.DatetimeIndex(df.index)
+    df.index = df.index.tz_localize("UTC") if df.index.tz is None else df.index.tz_convert("UTC")
+    return df[["open", "high", "low", "close"]].astype(float).sort_index()
+
+
+def run_live(symbol: str = "XAUUSD", dry: bool = False):
+    """Live path: identical scanner code, fed by real IBKR bars.
+
+    dry=False: alerts go to Telegram, TAKE/SKIP replies are logged, MISSED swept.
+    dry=True : alerts print to the terminal, no Telegram at all — for watching the
+               live feed + scanner without spending messages or needing creds."""
+    import os
+    import threading
+    import time as _time
+
+    host = os.environ.get("IB_HOST", "127.0.0.1")
+    port = int(os.environ.get("IB_PORT", "7497"))
+    client_id = int(os.environ.get("IB_CLIENT_ID", "11"))
+
+    tg = None if dry else Telegram()
+    con = open_log(check_same_thread=False)
+    epoch = start_epoch(con, "ibkr")
+    lock = threading.Lock()
+
+    # history first (separate short-lived connection, distinct clientId). A failure
+    # here takes the same crash-only path as a failed tws.connect(): back off, exit,
+    # let Docker restart us clean.
+    try:
+        hist = _load_recent_history(symbol, days=10, host=host, port=port, client_id=client_id + 10)
+    except Exception as e:
+        print(f"history load failed ({e!r}); backing off then exiting for restart", flush=True)
+        _time.sleep(RECONNECT_BACKOFF_S)
+        raise SystemExit(1)
+    hist = hist[[_valid_bar(*r) for r in hist.itertuples(name=None)]]
+    down_from = last_live_bar(con)            # before this process records any progress
+    live = LiveLevels(hist, pd.Timestamp.now(tz="UTC"))
+    sink = AlertSink(con, epoch, "ibkr", _alert_sender(tg, dry), down_from=down_from,
+                     warm_end=hist.index.max() if len(hist) else None)
+    sink.startup(live.warmup_alerts)
+
+    hb = {"last": _time.time(), "warned": False}   # last final bar (wall clock)
+
+    def on_bar(_sym, bar):
+        if not bar.get("is_final"):
+            return
+        ts = pd.Timestamp(bar["timestamp"])
+        ts = ts.tz_convert("UTC") if ts.tz else ts.tz_localize("UTC")
+        o, h, l, c = bar["open"], bar["high"], bar["low"], bar["close"]
+        if not _valid_bar(ts, o, h, l, c):
+            return
+        hb["last"] = _time.time()
+        with lock:
+            for a in live.on_bar(ts, o, h, l, c):
+                sink(a)
+            sink.progress(ts)
+
+    tws = TWSConnector(host=host, port=port, client_id=client_id, readonly=True)
+    # Crash-only design: surface disconnects instead of relying on the connector's
+    # in-place reconnect, whose market-data resubscribe is a stub (a silent
+    # reconnect would leave us connected with NO bars). On any drop we back off
+    # and exit; Docker's restart policy + the entrypoint port-wait do a clean full
+    # reconnect + resubscribe via run_live's cold start. One code path to get
+    # right (cold start), not two.
+    tws.max_retries = 0
+    tws.on_bar_update(on_bar)
+    if not tws.connect():
+        print("could not connect to gateway; backing off then exiting for restart", flush=True)
+        _time.sleep(RECONNECT_BACKOFF_S)
+        raise SystemExit(1)
+    tws.subscribe_bars(symbol, exchange="SMART", sec_type="CMDTY", currency="USD")
+    active = sum(1 for L in build_levels(live.hist)
+                 if L["active_from"] <= pd.Timestamp.now(tz="UTC") < L["active_to"])
+    mode = "DRY (terminal)" if dry else "LIVE (Telegram)"
+    print(f"{mode}: scanning {symbol}, {active} levels active, journal epoch {epoch}. "
+          f"Ctrl-C to stop.", flush=True)
+
+    offset = load_offset(con)
+    last_sweep = 0.0
+    heartbeat = os.environ.get("SCANNER_HEARTBEAT")
+    try:
+        while True:
+            beat(heartbeat)
+            # Crash-only: a dropped gateway (daily restart / weekly 2FA) surfaces
+            # as not-connected. Back off, then exit so Docker restarts us into a
+            # clean full reconnect. The backoff stops a fast restart-loop while the
+            # gateway is down for minutes.
+            if not tws.connected:
+                print("gateway connection lost — backing off then exiting so Docker reconnects clean", flush=True)
+                try:
+                    tws.disconnect()
+                except Exception:
+                    pass
+                _time.sleep(RECONNECT_BACKOFF_S)
+                raise SystemExit(1)
+
+            # Heartbeat: connected but no bars for a while during market hours is a
+            # silent stall the self-heal won't catch -> warn once via Telegram.
+            now = pd.Timestamp.now(tz="UTC")
+            if not _market_open(now):
+                # silence only counts while the market is open, so the first
+                # minutes after a reopen don't read as a 30-min stall
+                hb["last"] = _time.time()
+            if not dry and _market_open(now) and _time.time() - hb["last"] > SILENCE_WARN_S:
+                if not hb["warned"]:
+                    try:
+                        tg.send(f"scanner: no XAUUSD bars for >{SILENCE_WARN_S // 60} min "
+                                f"during market hours — check the feed")
+                    except Exception:
+                        pass
+                    hb["warned"] = True
+            else:
+                hb["warned"] = False
+
+            if dry:
+                _time.sleep(2)
+                continue
+            polled_from = offset
+            try:
+                msgs, offset = tg.poll(offset)
+            except Exception as e:
+                # a Telegram/network hiccup must not kill the feed (it used to:
+                # "connection reset by peer" -> crash -> restart gap). offset is
+                # unchanged, so unread replies are fetched again next round.
+                print(f"telegram poll failed ({e!r}); retrying", flush=True)
+                _time.sleep(5)
+                msgs = []
+            for msg in msgs:
+                _handle_reply(con, lock, tg, msg, epoch)
+            if msgs or offset != polled_from:
+                with lock:
+                    save_offset(con, offset)
+            if _time.time() - last_sweep > 300:      # every 5 min
+                with lock:
+                    now = pd.Timestamp.now(tz="UTC")
+                    sweep_auto_missed(con, now)
+                    # counterfactuals need the future bars, so fill from the
+                    # accumulated live frame once each alert's 4h window elapses
+                    sweep_counterfactuals(con, live.hist.sort_index(), now)
+                    sweep_outcomes(con, live.hist.sort_index(), now)
+                last_sweep = _time.time()
+    except KeyboardInterrupt:
+        print("\nstopping.")
+        tws.disconnect()

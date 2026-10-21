@@ -1,6 +1,6 @@
 # Always-on deterministic scanner (any Docker host; deployed on one EC2 instance).
 #   ibgateway : IB Gateway + IBC (headless, auto-login, auto-daily-restart)
-#   scanner   : deterministic_scanner.py --live
+#   scanner   : python -m backend.scanner --live
 #
 # Profile "stream" (COMPOSE_PROFILES=stream in .env, or --profile stream) adds
 # the datafeed, started in this order through healthchecks:

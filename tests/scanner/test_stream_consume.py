@@ -4,7 +4,7 @@ ordering, gaps), ack-after-processing, and resuming after a restart."""
 import pandas as pd
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 from backend.datafeed.ingest.xauusd_bars import STREAM
 
 from tests.scanner.scanner_helpers import FakeLive, Log, bar_msg, make_bus

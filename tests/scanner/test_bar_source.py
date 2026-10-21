@@ -2,7 +2,7 @@
 
 import pytest
 
-import deterministic_scanner as ds
+import backend.scanner as ds
 from backend.datafeed.ingest.xauusd_bars import STREAM
 
 from tests.scanner.scanner_helpers import FakeLive, bar_msg, make_bus
@@ -28,8 +28,10 @@ def test_switch_rejects_anything_else(bad):
 @pytest.mark.parametrize("flag", ["--live", "--dry-live"])
 def test_main_dispatches_on_the_switch(monkeypatch, env, want, flag):
     called = []
-    monkeypatch.setattr(ds, "run_live", lambda dry=False: called.append(("run_live", dry)))
-    monkeypatch.setattr(ds, "run_live_stream", lambda dry=False: called.append(("run_live_stream", dry)))
+    # main() imports the live loop it dispatches to from its source module: patch it there
+    monkeypatch.setattr("backend.scanner.sources.ibkr.run_live", lambda dry=False: called.append(("run_live", dry)))
+    monkeypatch.setattr("backend.scanner.sources.stream.run_live_stream",
+                        lambda dry=False: called.append(("run_live_stream", dry)))
     monkeypatch.delenv("SCANNER_BAR_SOURCE", raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)

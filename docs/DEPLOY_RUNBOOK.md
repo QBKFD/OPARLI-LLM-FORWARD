@@ -230,7 +230,7 @@ docker compose logs --tail 30 feed recorder
   docker compose run --rm --no-deps \
     -e SCANNER_BAR_SOURCE=stream -e SCANNER_STREAM_GROUP=scanner-dry \
     -e SCANNER_STREAM_CONSUMER=scanner-dry -e SCANNER_DB=/data/dryrun.sqlite \
-    -e SCANNER_HEARTBEAT= --entrypoint python scanner /app/deterministic_scanner.py --dry-live
+    -e SCANNER_HEARTBEAT= --entrypoint python scanner -m backend.scanner --dry-live
   ```
 
   It prints alerts to the terminal, sends no Telegram, and touches nothing in
@@ -354,7 +354,7 @@ local IB Gateway paper on 4002. Run it on a Thursday or Friday:
   `docker compose logs`.
 - **Journal summary** (read-only): alerts, TAKE, SKIP, MISSED and open
   outcomes for a UTC day, per epoch:
-  `docker compose exec -T scanner python /app/journal_summary.py [--date YYYY-MM-DD] [--json]`.
+  `docker compose exec -T scanner python -m backend.scanner.journal.summary [--date YYYY-MM-DD] [--json]`.
 
 ## 10. Check by hand the first time
 
@@ -391,7 +391,7 @@ Nothing below could be run where this was written (no Docker, no host access):
         Telegram), not the time it was processed;
       - the confirmation says `outcome not scorable: …` for a TAKE without
         sl/tp;
-      - `journal_summary.py` lists the TAKE as open, then as tp/sl/timeout once
+      - the journal summary lists the TAKE as open, then as tp/sl/timeout once
         it is scored;
       - a scanner restart re-confirms nothing.
 
@@ -402,6 +402,11 @@ ibgateway, built about three weeks earlier); nothing from `main` was deployed.
 This is the step-by-step for that jump, planned for **Sat 24 Oct 2026**. It
 uses §0–§7 and adds what they don't cover. Nothing here has been run on the
 host.
+
+**The scanner's commands** below are for `main` from the scanner restructure on
+(`python -m backend.scanner`, `python -m backend.scanner.journal.summary`). On
+a `main` from before it, they are `python /app/deterministic_scanner.py` and
+`python /app/journal_summary.py`; nothing else in this section differs.
 
 **Assumptions:**
 - The checkout is `~/oparli`, and commands run in `~/oparli/deploy/scanner`.
@@ -431,7 +436,7 @@ tables.
 `INSERT INTO alerts VALUES(?,?,?,?,?,?,?,datetime('now'))`, 8 values). After
 step 1 the tables have more columns, so the old code fails on its first
 insert. Going back means restoring the pre-deploy copy (step 4a, "Rollback"),
-which loses every row written since. `journal_summary.py`, `backup_sqlite.py`
+which loses every row written since. The journal summary, `backup_sqlite.py`
 and the status probes open the journal read-only and never migrate it.
 
 **Datafeed store** (`/datafeed/datafeed.sqlite`, volume
@@ -636,8 +641,8 @@ The old gateway container keeps running untouched.
   alert count;
 - health is `healthy`, with 0 restarts;
 - no Telegram message from the scanner: the market is closed;
-- `journal_summary.py` runs:
-  `docker compose exec -T scanner python /app/journal_summary.py`.
+- the journal summary runs:
+  `docker compose exec -T scanner python -m backend.scanner.journal.summary`.
 
 **Rollback** (the journal is migrated, so the old code can't write it):
 
@@ -680,7 +685,7 @@ docker stats --no-stream
 - health `healthy`;
 - the gateway well under 1536m.
 - **After 22:00 UTC:** alerts arrive as before, a reply gets
-  `logged TAKE/SKIP for …`, and `journal_summary.py` lists it.
+  `logged TAKE/SKIP for …`, and the journal summary lists it.
 
 **Rollback:** `docker image tag ib-gateway:rollback-c62810d
 ghcr.io/gnzsnz/ib-gateway:stable && docker compose up -d ibgateway` brings
@@ -739,3 +744,50 @@ store needs about two weeks of bars before a Thursday-to-Sunday warm-up is
 - `source_switches` gains `(…, 'ibkr', 'stream', 2)`.
 
 **Rollback:** §6 (a new epoch 3; no restore).
+
+## 12. Deploying the restructure
+
+For a host that already runs `main` from **before** the scanner restructure
+(PR 2 of `docs/RESTRUCTURE_PLAN.md`). On a host still on c62810d, use §11:
+deploying `main` from §11 includes the restructure.
+
+**What changes.** Code layout only:
+- the scanner runs as `python -m backend.scanner` (the entrypoint does this);
+- the journal summary is `python -m backend.scanner.journal.summary`.
+
+**What stays:**
+- the flags and env vars;
+- the Telegram texts;
+- the journal (`PRAGMA user_version` 4, no migration) and the datafeed store;
+- the volumes and the S3 layout.
+
+```bash
+cd ~/oparli
+OLD=$(git rev-parse --short HEAD)
+docker image tag oparli-scanner:local oparli-scanner:rollback-$OLD     # the image you run now
+git fetch && git switch main && git pull --ff-only
+cd deploy/scanner
+docker compose config >/dev/null && echo "compose file ok"
+docker compose build
+docker compose up -d --no-deps scanner                 # stream profile: also `docker compose up -d feed recorder`
+docker compose logs --tail 30 scanner
+docker compose exec -T scanner python -m backend.scanner.journal.summary
+```
+
+**Healthy:**
+- the same start-up lines as before the deploy (`LIVE (Telegram): scanning
+  XAUUSD …, journal epoch N` with the **same** epoch N, because the bar source
+  didn't change);
+- health `healthy` after about 2 min;
+- the journal summary prints;
+- `PRAGMA user_version` is still `(4,)`.
+
+**Rollback:** the journal wasn't migrated, so the previous image can still
+write it.
+
+```bash
+docker image tag oparli-scanner:rollback-$OLD oparli-scanner:local
+cd ~/oparli && git switch --detach $OLD && cd deploy/scanner
+docker compose up -d --no-build --no-deps scanner      # and feed recorder in the stream profile
+```
+
