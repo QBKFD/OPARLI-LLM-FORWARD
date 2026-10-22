@@ -17,6 +17,7 @@ env/
 .env.*
 !deploy/.env.example
 !deploy/scanner/.env.example
+!deploy/options/.env.example
 backend/.env
 
 # ---- OS / editor ----

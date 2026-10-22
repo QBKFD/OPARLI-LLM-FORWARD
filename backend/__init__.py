@@ -5,5 +5,6 @@ backend.levels    the level engine, pure (build, touch)
 backend.datafeed  IBKR -> Redis stream -> point-in-time SQLite store
 backend.scoring   TAKE outcomes; backend.risk: brackets and sizing
 backend.agents    agents v2 (LangGraph), not deployed
+backend.options   the daily OG options snapshot (IBKR -> its own SQLite store)
 
 Nothing is imported here, so importing one subpackage loads no other."""

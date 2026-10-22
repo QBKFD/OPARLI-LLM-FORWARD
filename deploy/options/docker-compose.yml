@@ -1,0 +1,35 @@
+# The daily OG options snapshot: its own compose project, next to the scanner
+# stack (deploy/scanner), never started by `up`. It joins the scanner
+# project's network to reach the gateway as `ibgateway`, and keeps its data in
+# its own volume. Run by host cron through run_snapshot.sh:
+#
+#   docker compose run --rm -T options-snapshot          # one snapshot
+#   ./backup.sh                                          # its store to S3
+#
+# Deploy steps: deploy/options/README.md.
+name: oparli-options
+
+services:
+  options-snapshot:
+    build:
+      context: ../..                 # repo root, so the Dockerfile can COPY backend/ and deploy/
+      dockerfile: deploy/options/Dockerfile
+    image: oparli-options:local
+    profiles: [snapshot]             # `docker compose up` starts nothing; `run` still works
+    mem_limit: 384m
+    environment:
+      IB_HOST: ${IB_HOST:-ibgateway}
+      IB_PORT: ${IB_PORT:-4004}      # 4004 paper / 4003 live, as the scanner's
+      OPTIONS_IB_CLIENT_ID: ${OPTIONS_IB_CLIENT_ID:-62}   # 61 probe, 11/21 scanner, 31 feed, 996/999 watchdog/entrypoint
+      OPTIONS_DB: /data/options.sqlite
+    volumes:
+      - options_data:/data
+    networks: [gateway]
+
+networks:
+  gateway:
+    external: true
+    name: ${GATEWAY_NETWORK:-scanner_scannernet}   # the scanner project's network (docker network ls)
+
+volumes:
+  options_data:
