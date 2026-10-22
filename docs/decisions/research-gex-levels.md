@@ -1,10 +1,14 @@
 # research/gex-levels
 
-The draft PREREG for the GEX level test, `research/gex_levels/PREREG.md`,
-written after the owner's post-hoc decision in `research/gex_feasibility/`
-(2026-10-22). **A draft:** nothing is pre-registered until the owner settles
-D1–D6 in it. No data was read. Choices made without the owner, each with its
-alternative:
+The PREREG for the GEX level test, `research/gex_levels/PREREG.md`, written
+after the owner's post-hoc decision in `research/gex_feasibility/`
+(2026-10-22).
+- It was first a draft, with open decisions D1–D6.
+- The owner settled them on 2026-10-22 (GL9), and N was set by a touch-rate
+  count (GL10).
+- No GEX evidence data has been collected or read.
+
+Choices made without the owner, each with its alternative:
 
 | # | Decision | Conservative because | Alternative |
 |---|---|---|---|
@@ -16,3 +20,9 @@ alternative:
 | GL6 | **Gates restricted to the band**, the feasibility study's G5 lesson. | A gate measures the data the result depends on. | Gates over the whole chain. |
 | GL7 | **Sample sizes come from stated assumptions** (§9), with the touch rate q as the main unknown, to be counted on seen data (XAUUSD 2007–2023, round-number levels, no outcomes) before the PREREG is final. **Draft defaults:** W = 10 trading days and Δ = 15 pp, which gives about 16 monthly cycles (12–23 for q between 0.4 and 0.2). | The owner sees how the duration depends on each choice. | Pick N without a power calculation. |
 | GL8 | **The seal and data plan B are open decisions,** not settled here. Plan A reads post-2026-10-01 prices, which the seal reserves. Plan B (historical CME OG open interest, 2007–2023) would be seal-compatible and fast, but its availability and cost aren't verified. | Neither is mine to decide. | none |
+| GL9 | **The owner's decisions (2026-10-22) close D1–D6:**<br>D1: forward daily snapshots; no historical purchase.<br>D2: registration in the seal registry (C1 rewrite).<br>D3: XAUUSD, with the spot-futures gap at the 05:00 UTC snapshot, stated as an approximation.<br>D4: W = 10.<br>D5: Δ = 15 pp.<br>D6: cron at 05:00 UTC; the second IBKR username is the owner's call after checking its cost.<br>GL7's assumption-only table and GL8's open questions are replaced by these and by GL10. | Recorded as given. | none |
+| GL10 | **The touch rate was counted on seen data before N was set** (`research/gex_levels/touch_rate.py`, `TOUCH_RATE.md`).<br>The data: XAUUSD 2007–2023 through the research loaders that assert the seals; the last 10 trading days before each OG expiry (4th-last business day rule, without holidays); round stand-in levels in the ±2 SD band (realized volatility for IV), in three placements.<br>Touches only, no outcomes, no GEX data.<br>**The rule, written in the script before it ran:** N = the near-the-money weighted placement's cycles, rounded up, at least 16.<br>The result: q = 0.216, so 21.1 cycles and **N = 22** (upper and lower placements: 14.2 and 26.0).<br>On 263 window days the band held fewer than 3 stand-in levels and was skipped; those are the days with the most touches, so N errs high. | The sample size comes from a count of the data the test resembles, under a rule set before the count; no forking. | The owner's 16 as given (power below 0.8 if q is 0.22). |
+| GL11 | **The gap S** is recorded by the probe in the same snapshot (prerequisite P3, a small probe change, to do). Without it, the close of the last XAUUSD bar before 05:00 UTC, recorded. The draft's "gap at each touch" sensitivity is dropped (there are no intraday futures prices); a $2 tolerance is added as a sensitivity instead. | F and S at the same moment; the fallback is visible. | The XAUUSD bar close always. |
+| GL12 | **The evidence period starts only after P1–P5:** the seal registration; the daily cron; the gap in the probe; XAUUSD bars recorded on the host; the analysis code frozen. A cycle counts only if its whole window is inside the period and passes G1. | No evidence before the plan, the code and the seal are in place. | Start collecting now. |
+| GL13 | **Cheaper historical OG open interest (checked, nothing bought; not used, D1).**<br>**Databento** `GLBX.MDP3` covers all CME futures and options on futures from June 2010. Its `statistics` schema carries open interest (`stat_type` 9) and settlement per instrument. It is usage-based (per GB), with $125 of free credit for new accounts. Daily statistics are small, so a 2010–2023 OG history may cost little. Not verified: that open interest is present for OG options, and the exact cost (their cost-quote API needs an account).<br>**CME DataMine:** official end-of-day options data; price not checked.<br>**CME's daily bulletins:** free for the current day only.<br>**QuikStrike:** shows open interest by strike; its history is unverified. | A cost-free check, as asked. | Buy a sample. |
+| GL14 | **"Seal registry" and "C1 rewrite" don't exist in the repo yet** (searched every branch, the docs and the local notes on 2026-10-22). P1 keeps the owner's wording; the registration is done when the C1 rewrite creates the registry. Until then, P1 blocks the evidence period. | Nothing is invented; the dependency is explicit. | Write an entry into `SEALING.md` now. |
