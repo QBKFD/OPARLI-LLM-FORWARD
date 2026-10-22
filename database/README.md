@@ -13,6 +13,16 @@ instead (`/data`, `/datafeed`, see `deploy/scanner/docker-compose.yml`).
 | `datafeed.sqlite` | a local datafeed store | the recorder (`$DATAFEED_DB` in `deploy/.env.example`) | the stream scanner, agents |
 | `historical_news/` | economic event calendars (`events_utc.parquet`, from the Forex Factory CSVs that `tools/scraper_fxfac` scrapes); `DATA_NOTES_events.md` describes them | by hand | nothing in the current code |
 
+**Manifest:** `backend/datafeed/store/manifest.json` records, for `XAUUSD.txt`
+and the clean parquet, the source, the cleaning steps, the date range, the row
+count and the SHA-256. Check the files on this machine with
+`python -m backend.datafeed.store.manifest check` (`--content` also checks the
+parquet's bars). The datafeed's replay source refuses a file with a listed name
+that doesn't match. The parquet can be rebuilt from `XAUUSD.txt`
+(`tools/data/build_clean_parquet.py`, checked by content hash).
+`tools/data/make_fixture.py` cuts the selftest's windows out of the parquet
+(`docs/decisions/feat-data-manifest.md`).
+
 **Git:** the data files are ignored by `.gitignore`:
 - `ohlcv_data/*.parquet`, `*.csv`, `*.txt` and `*.zip`;
 - `historical_news/*.csv`, `*.parquet` and `*.txt`;

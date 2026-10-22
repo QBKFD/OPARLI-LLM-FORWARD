@@ -1,0 +1,51 @@
+{
+ "schema": "data_manifest/1",
+ "about": "The untracked price files under database/ that code reads. Checked by backend/datafeed/store/manifest.py; keys are paths under database/. The files themselves are not in git (public repo; source terms unknown).",
+ "files": {
+  "ohlcv_data/XAUUSD.txt": {
+   "source": {
+    "vendor": null,
+    "how": "a one-off download to the developer machine (database/README.md); vendor, product and download date not recorded",
+    "file_mtime": "2026-02-17"
+   },
+   "format": "CSV with CRLF line ends. Line 1 is a header with a stray prefix: 'should contai<TICKER>,<DTYYYYMMDD>,<TIME>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>'. Then one 1-min bar per line: TICKER (XAUUSD),YYYYMMDD,HHMMSS,OPEN,HIGH,LOW,CLOSE,VOL; the time is the bar's open.",
+   "timezone": "UTC (research/vol_features/DATA_AUDIT_LONG.md: best shift 0 in every year where it can be identified; 2020-2023 equal the clean parquet close for close)",
+   "rows": 7710890,
+   "first_ts": "2003-05-06T00:01:00+00:00",
+   "last_ts": "2026-01-30T21:59:00+00:00",
+   "known_issues": "not sorted as stored; 1 duplicate timestamp and 1 bad OHLC row, both before 2020; usable years 2007-2023 by the audit's U1-U3 rules (DATA_AUDIT_LONG.md)",
+   "cleaning_steps": [],
+   "bytes": 497062825,
+   "sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9"
+  },
+  "ohlcv_data/XAUUSD_1min_UTC_clean.parquet": {
+   "source": {
+    "derived_from": "ohlcv_data/XAUUSD.txt",
+    "how": "a one-off export (its script was never in git); reproduced exactly by tools/data/build_clean_parquet.py",
+    "file_mtime": "2026-07-04"
+   },
+   "cleaning_steps": [
+    "skip XAUUSD.txt's header line; parse TICKER,YYYYMMDD,HHMMSS,OPEN,HIGH,LOW,CLOSE,VOL",
+    "read date + time as UTC (no shift)",
+    "keep rows with timestamp >= 2020-01-01 00:00 UTC (the first kept row is 2020-01-01 23:00)",
+    "sort by timestamp; the kept range has no duplicate timestamps and no bad OHLC bars, so nothing is dropped",
+    "columns timestamp (datetime64[ns, UTC]), open, high, low, close, volume (float64; VOL as is)"
+   ],
+   "verified": "2026-10-22: all 2,156,239 rows equal the XAUUSD.txt rows with the same timestamp in open, high, low, close and volume, and no XAUUSD.txt row in the range is missing; tools/data/build_clean_parquet.py reproduces content_sha256",
+   "rows": 2156239,
+   "first_ts": "2020-01-01T23:00:00+00:00",
+   "last_ts": "2026-01-30T21:59:00+00:00",
+   "columns": {
+    "timestamp": "datetime64[ns, UTC]",
+    "open": "float64",
+    "high": "float64",
+    "low": "float64",
+    "close": "float64",
+    "volume": "float64"
+   },
+   "bytes": 48549839,
+   "sha256": "07b7f7ce2f55725f76b2506384b8a047d962f2732cf189ac75185cbdc23f8477",
+   "content_sha256": "6ae9908f3a45aaa221a62f2d11a5b7f00d785c22bcc0dbe8209c7b663d0ba0b2"
+  }
+ }
+}
