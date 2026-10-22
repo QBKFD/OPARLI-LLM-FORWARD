@@ -28,8 +28,11 @@ that doesn't match.
     selftest's windows. It is local and git-ignored (`tools/data/make_fixture.py`).
   - `tests/fixtures/xauusd_synthetic_selftest.parquet` holds made-up bars. It
     is the only one in git, for CI (`tools/data/make_synthetic_fixture.py`).
-- A backfill of 2026-02-01 .. 2026-09-30 is proposed in
-  `docs/BACKFILL_2026_PROPOSAL.md`, not run.
+- A backfill of 2026-02-01 .. 2026-09-30 from IBKR is approved and prepared,
+  not run yet (`docs/BACKFILL_2026_PROPOSAL.md`). Its file,
+  `ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet`, is marked "unused
+  by any study". `research/data_guard.py` refuses it to any study whose
+  committed PREREG doesn't name it.
 
 **Git:** the data files are ignored by `.gitignore`:
 - `ohlcv_data/*.parquet`, `*.csv`, `*.txt` and `*.zip`;

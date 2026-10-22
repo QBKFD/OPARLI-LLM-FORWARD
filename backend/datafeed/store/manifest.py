@@ -108,6 +108,9 @@ def verify(path, *, content: bool = False) -> str | None:
     if found is None:
         return None
     key, entry = found
+    if "sha256" not in entry and "content_sha256" not in entry:
+        raise ManifestError(f"{path}: the manifest's {key} is planned, not built yet (no hashes); "
+                            f"nothing may read a file under that name")
     st = os.stat(path)
     memo = (os.path.realpath(path), st.st_size, st.st_mtime_ns)
     content = content or "sha256" not in entry

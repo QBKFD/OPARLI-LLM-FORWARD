@@ -79,6 +79,24 @@
    "first_ts": "2023-06-01T00:00:00+00:00",
    "last_ts": "2025-06-16T23:59:00+00:00",
    "content_sha256": "cff9e2da3fa75f4360b4cae4f8a069b9470c70f23fb188a349dea2c39a57cf0e"
+  },
+  "database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py on the EC2 paper gateway, then tools/data/backfill_build.py",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "XAUUSD CMDTY SMART USD",
+    "what_to_show": null,
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2026-02-01",
+    "2026-10-01"
+   ],
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. backfill_build.py --update-manifest replaces this entry with the built one. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/BACKFILL_2026_PROPOSAL.md"
   }
  }
 }

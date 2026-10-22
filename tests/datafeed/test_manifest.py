@@ -18,6 +18,7 @@ CLEAN = "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
 TXT = "database/ohlcv_data/XAUUSD.txt"
 REAL_FIXTURE = "database/ohlcv_data/XAUUSD_selftest_fixture.parquet"
 SYNTHETIC = "tests/fixtures/xauusd_synthetic_selftest.parquet"
+BACKFILL = "database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet"
 
 
 def _tool(name):
@@ -48,8 +49,8 @@ def listed(tmp_path, monkeypatch):
 
 def test_the_shipped_manifest_lists_the_files_with_hashes():
     doc = manifest.load()
-    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC}
-    for e in doc["files"].values():
+    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC, BACKFILL}
+    for e in (e for e in doc["files"].values() if not e.get("planned")):
         assert len(e.get("sha256") or e["content_sha256"]) == 64 and e["rows"] > 0 and e["first_ts"] < e["last_ts"]
         assert "source" in e and isinstance(e["in_git"], bool)
     t = doc["files"][TXT]["source"]
@@ -84,6 +85,15 @@ def test_the_synthetic_fixture_regenerates_to_the_manifest():
     assert [w[:2] for w in gen.WINDOWS] == [tuple(w) for w in _tool("make_fixture").WINDOWS]
     # trading minutes only: no bar in the daily break or the weekend
     assert not any(not gen.is_open(t.to_pydatetime()) for t in df["timestamp"])
+
+
+def test_the_planned_backfill_is_unused_and_unreadable(tmp_path):
+    e = manifest.load()["files"][BACKFILL]
+    assert e["planned"] is True and e["status"] == "unused by any study" and not e["in_git"]
+    p = tmp_path / Path(BACKFILL).name
+    bars().to_parquet(p, index=False)
+    with pytest.raises(manifest.ManifestError, match="planned, not built yet"):
+        manifest.verify(p)
 
 
 def test_manifest_ships_as_package_data():
