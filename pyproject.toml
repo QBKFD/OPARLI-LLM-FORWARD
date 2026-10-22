@@ -52,13 +52,15 @@ include = ["backend*"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed, tests/agents,
-# tests/risk, tests/scoring, tests/scanner, tests/deploy and tests/status only.
+# tests/risk, tests/scoring, tests/scanner, tests/deploy, tests/status, tests/levels
+# and tests/options only.
 # tests/ and its directories are packages (__init__.py), so their modules are
 # tests.<dir>.<module> and no test directory shadows backend.*. legacy/ is never
 # collected: it is listed in norecursedirs (with pytest's own defaults), so it is
 # skipped even when a parent directory is collected.
 testpaths = ["research", "tests/datafeed", "tests/agents", "tests/risk",
-             "tests/scoring", "tests/scanner", "tests/deploy", "tests/status", "tests/levels"]
+             "tests/scoring", "tests/scanner", "tests/deploy", "tests/status", "tests/levels",
+             "tests/options"]
 norecursedirs = ["*.egg", ".*", "_darcs", "build", "CVS", "dist", "node_modules",
                  "venv", "{arch}", "legacy"]
 # pytest-timeout: fail any single test that runs longer than this (seconds).
