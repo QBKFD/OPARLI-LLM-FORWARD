@@ -35,7 +35,17 @@ report is right.
 | 10 | [`sigma_compare/`](sigma_compare/REPORT.md) | Which sigma forecast should risk/ and scoring use: the plug-in, HAR on (L, S_hd, T) or EWMA? | `c75b24f` (+ post-hoc amendment `f14102d`) | CONF `XAUUSD.txt` 2007–2020; DEV parquet 2021–2023 | **HAR replaces the plug-in.** QLIKE 0.249 vs 0.304 (60 min) and 0.184 vs 0.219 (240 min); 24/24 folds. Post hoc: still wins frozen on the parquet 2021–23 and when fitted on non-crossing rows only. |
 | 11 | [`agents_v1/`](agents_v1/PREREG.md) | Does the Technical agent's direction beat always-long and always-short, and do its own SL/TP beat the neutral k·σ bracket? | **DRAFT** (not yet pre-registered) | Evidence: live shadow decisions after 2026-10-01 only; dev backtest 2007–2023 | **Plan only.** Design in `docs/AGENTS_TECHNICAL_DESIGN.md`. |
 | 12 | [`level_target/`](level_target/SPEC.md) | Does a trade from a scanner-alerted level to the next level (stop beyond the touched level, 240-min cap) earn mean net R > 0, and more than random entry times with the same σ distances? | **SPEC only** (no PREREG, no code) | Develop `XAUUSD.txt` 2007–2020; holdout parquet 2021–2023 (one look); evidence: sealed forward test | **Specified, not started.** |
-| 13 | [`gex_feasibility/`](gex_feasibility/PREREG.md) | Is listed gold options positioning (OG on GC) big enough, against GC futures volume, for a GEX level effect to be plausible? R = unsigned \|GEX\| / 20-day GC dollar volume | `94c0b1a` (+ amendment `8403c57`) | One live IBKR snapshot (post-seal, magnitudes only: no prices, returns or XAUUSD bars) | **INCONCLUSIVE by the PREREG:** gate G5 failed (gamma vs IBKR, unweighted median 6.16 % > 5 %; post hoc, the gap is in contracts 3+ SD from the money, 0.56 % near the money). R = 8.19 % (8.20 % with IBKR's gamma). Snapshot 2026-10-22 11:43 UTC (attempt 3). Next step: the owner's decision. |
+| 13 | [`gex_feasibility/`](gex_feasibility/PREREG.md) | Is listed gold options positioning (OG on GC) big enough, against GC futures volume, for a GEX level effect to be plausible? R = unsigned \|GEX\| / 20-day GC dollar volume | `94c0b1a` (+ amendment `8403c57`) | One live IBKR snapshot (post-seal, magnitudes only: no prices, returns or XAUUSD bars) | **INCONCLUSIVE by the PREREG:** gate G5 failed (gamma vs IBKR, unweighted median 6.16 % > 5 %; post hoc, the gap is in contracts 3+ SD from the money, 0.56 % near the money). R = 8.19 % (8.20 % with IBKR's gamma). Snapshot 2026-10-22 11:43 UTC (attempt 3). **Owner decision (post hoc): build the GEX level test** (R 8.20 % with IBKR's gamma; > 5 % under every sensitivity). |
+
+## Lessons for future pre-registrations
+
+- **Weight a gate like the result it protects** (`gex_feasibility/`, G5). A
+  check on an input to a weighted sum (here our gamma, inside |GEX|) must be
+  weighted like that sum, or restricted to the items that carry it. G5 was an
+  unweighted median over all contracts. The deep out-of-the-money contracts,
+  with gamma close to 0, dominated it: a median difference of 132 % there,
+  against 0.56 % near the money and 1.24 % weighted by |GEX|. The gate failed
+  on the part of the data the result doesn't depend on.
 
 ## Also here
 

@@ -4,7 +4,9 @@
         [--report research/gex_feasibility/REPORT.md] [--attempt "<UTC time>: <why it was not used>" ...]
 
 The attempts in ATTEMPTS.md (every probe run, used or not) go into the report,
-followed by any --attempt given.
+followed by any --attempt given. OWNER_DECISION.md, when it exists, is copied
+verbatim after the verdict: a post-hoc decision, kept apart from the
+pre-registered verdict, which it never changes.
 
 Stdlib only; gex.py holds the formulas. Every number in the report comes from
 `analyze(doc)`, which the tests call directly.
@@ -324,13 +326,15 @@ def pct(x: float) -> str:
     return "n/a" if not math.isfinite(x) else f"{x:.2%}"
 
 
-def report(a: dict, *, source: str, sha256: str, attempts: list[str]) -> str:
+def report(a: dict, *, source: str, sha256: str, attempts: list[str], owner_decision: str = "") -> str:
     L = ["# GEX feasibility: report", ""]
     L += ["## Verdict", "", f"**{a['verdict']}**", ""]
     L += [f"- **R = {pct(a['r'])}** = |GEX| {money(a['abs_gex'])} per 1 % move "
           f"/ D {money(a['d'])} average daily GC futures dollar volume ({len(a['days'])} trade dates).",
           "- Rule (PREREG): R < 1 % drop; R > 5 % build the test; in between, later at low priority.",
           f"- Gates: {'all passed' if a['gates_ok'] else 'FAILED, see below'}.", ""]
+    if owner_decision.strip():
+        L += [owner_decision.strip(), ""]
     L += ["## Snapshot", "",
           f"- Snapshot: {a['snapshot']} to {a['snapshot_end']} (UTC); CME trade date {a['trade_date']}.",
           f"- Open-interest settlement date: **{a['oi_date']}** (inferred: {a['oi_date_method']}).",
@@ -416,6 +420,10 @@ def _rng(t) -> str:
     return f"{n} ({_num(lo)}–{_num(hi)})" if n else "0"
 
 
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
 def read_attempts(path: Path) -> list[str]:
     """The "- " lines of ATTEMPTS.md, without the dash."""
     if not path.is_file():
@@ -430,6 +438,8 @@ def main(argv=None) -> int:
     ap.add_argument("--attempt", action="append", default=[],
                     help="an attempt not in ATTEMPTS.md, and why it was not used; repeat per attempt")
     ap.add_argument("--attempts-file", default=str(Path(__file__).resolve().parent / "ATTEMPTS.md"))
+    ap.add_argument("--owner-decision-file", default=str(Path(__file__).resolve().parent / "OWNER_DECISION.md"),
+                    help="a post-hoc owner decision, copied verbatim after the verdict (if the file exists)")
     args = ap.parse_args(argv)
     attempts = read_attempts(Path(args.attempts_file)) + args.attempt
     raw = Path(args.probe_json).read_bytes()
@@ -438,7 +448,8 @@ def main(argv=None) -> int:
         ap.error(f"not an options_probe/1 file: schema {doc.get('schema')!r}")
     a = analyze(doc)
     Path(args.report).write_text(report(a, source=Path(args.probe_json).name,
-                                        sha256=hashlib.sha256(raw).hexdigest(), attempts=attempts),
+                                        sha256=hashlib.sha256(raw).hexdigest(), attempts=attempts,
+                                        owner_decision=_read(Path(args.owner_decision_file))),
                                  encoding="utf-8")
     print(f"R = {pct(a['r'])}: {a['verdict']}")
     return 0
