@@ -9,6 +9,7 @@ Decisions: [docs/decisions/research-gex-feasibility.md](../../docs/decisions/res
 | `../../tools/options_probe.py` | the read-only IBKR snapshot (OG chain, GC futures, GC daily bars) → one JSON file |
 | `gex.py` | Black-76 gamma and unsigned dollar gamma per 1 % move |
 | `analyze.py` | probe JSON → `REPORT.md`: gates, R, verdict, descriptives |
+| `ATTEMPTS.md` | every probe run, used or not (copied into the report) |
 | `fake_ib.py` | a fake IBKR client for the probe's tests |
 | `test_*.py` | the tests (`pytest research/gex_feasibility`) |
 | `data/` | the probe's JSON, git-ignored (exchange market data, public repo) |
@@ -57,15 +58,19 @@ echo "exit status $?"
   batch for the contracts that sent nothing live (frozen); a batch ends sooner
   once every contract has all its values. A chain of 2,000 contracts takes at
   most about 20 minutes.
-- If a run fails, keep a note of its time and exit status: PREREG.md asks for
-  every attempt to be listed in the report.
+- **Every run, used or not, gets a line in `ATTEMPTS.md`** (time, exit
+  status, why it wasn't used); `analyze.py` copies them into the report.
+  Attempt 1 (2026-10-22 10:43 UTC, exit 1, too few expiries) is already there.
+- The terminal log shows each GC month whose option chain was asked, with
+  the OG expiries it listed, and which underlying each chosen expiry sits on.
+  If fewer than 3 expiries exist, the probe uses 2 and records it (PREREG
+  Amendment 1).
 
 ## 2. Analyse (on the Mac)
 
 ```
 scp <ec2-host>:~/gex_probe_<time>.json research/gex_feasibility/data/
-python research/gex_feasibility/analyze.py research/gex_feasibility/data/gex_probe_<time>.json \
-    [--attempt "<UTC time>: exit 4, error 10197"]
+python research/gex_feasibility/analyze.py research/gex_feasibility/data/gex_probe_<time>.json
 pytest research/gex_feasibility                    # now also checks our gamma against IBKR's in the file
 ```
 

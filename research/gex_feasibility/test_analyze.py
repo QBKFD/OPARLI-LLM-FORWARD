@@ -63,8 +63,8 @@ def test_r_equals_the_hand_computation(base):
         t = (analyze.expiry_utc(o)[0] - snap).total_seconds() / (365 * 86400)
         g = black76_gamma(f, o["strike"], t, 0.25)
         gex += dollar_gamma_1pct(g, f, 500.0)
-    # D: GCZ6 150,000 contracts + GCG7 and GCJ7 1,000 each, at 4,150, 100 oz; the last 20 complete days
-    d = (150_000 + 1_000 + 1_000) * 100 * 4150.0
+    # D: GCZ6 150,000 contracts + the 6 other listed months 1,000 each, at 4,150, 100 oz; last 20 complete days
+    d = (150_000 + 6 * 1_000) * 100 * 4150.0
     assert a["abs_gex"] == pytest.approx(gex, rel=1e-12)
     assert a["d"] == pytest.approx(d) and len(a["days"]) == 20
     assert a["r"] == pytest.approx(gex / d)
@@ -199,8 +199,15 @@ def test_report_and_main(base, tmp_path, capsys):
     p = tmp_path / "probe.json"
     p.write_text(json.dumps(base))
     rep = tmp_path / "REPORT.md"
-    assert analyze.main([str(p), "--report", str(rep), "--attempt", "2026-10-21T05:00Z: exit 4, error 10197"]) == 0
+    attempts = tmp_path / "ATTEMPTS.md"
+    attempts.write_text("# Probe attempts\n\n- Attempt 1: 2026-10-22 10:43 UTC, exit 1, not used.\n")
+    assert analyze.main([str(p), "--report", str(rep), "--attempts-file", str(attempts),
+                         "--attempt", "2026-10-21T05:00Z: exit 4, error 10197"]) == 0
     text = rep.read_text()
+    assert "- Attempt 1: 2026-10-22 10:43 UTC, exit 1, not used." in text
+    assert "Expiries: 3 used, 3 targeted." in text
+    assert "20261027 GCZ6 / GCZ6; 20261124 GCZ6 / GCZ6; 20261228 GCG7 / GCG7" in text
+    assert "GC futures asked for their option chains: GCV6, GCX6, GCZ6, GCF7, GCG7." in text
     lines = text.splitlines()
     assert lines[0] == "# GEX feasibility: report" and lines[2] == "## Verdict"
     assert "**GEX DROPPED" in lines[4]
@@ -209,6 +216,20 @@ def test_report_and_main(base, tmp_path, capsys):
         assert section in text
     assert "exit 4, error 10197" in text and "2026-10-21" in text and "SHA-256" in text
     assert "R = " in capsys.readouterr().out
+
+
+def test_the_fallback_is_in_the_report(tmp_path):
+    ib = world(THU_0500, expiries=("20261023", "20261027", "20261124"))
+    doc = probe_doc(ib)
+    a = analyze.analyze(doc)
+    assert a["n_expiries_used"] == 2 and a["sensitivities"]["R, next 2 expiries only"] == pytest.approx(a["r"])
+    text = analyze.report(a, source="x.json", sha256="0" * 64, attempts=[])
+    assert "Expiries: 2 used, 3 targeted; **fallback**: only 2 OG expiries" in text
+
+
+def test_committed_attempts_file_lists_attempt_1():
+    lines = analyze.read_attempts(HERE / "ATTEMPTS.md")
+    assert lines[0].startswith("Attempt 1: 2026-10-22 10:43 UTC, exit 1, not used.")
 
 
 def test_main_rejects_other_files(tmp_path):

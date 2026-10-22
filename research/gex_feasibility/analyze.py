@@ -3,6 +3,9 @@
     python research/gex_feasibility/analyze.py research/gex_feasibility/data/<probe>.json \\
         [--report research/gex_feasibility/REPORT.md] [--attempt "<UTC time>: <why it was not used>" ...]
 
+The attempts in ATTEMPTS.md (every probe run, used or not) go into the report,
+followed by any --attempt given.
+
 Stdlib only; gex.py holds the formulas. Every number in the report comes from
 `analyze(doc)`, which the tests call directly.
 """
@@ -239,7 +242,21 @@ def analyze(doc: dict) -> dict:
         "errors": dict(sorted(err_codes.items())),
         "expiry_time_sources": dict(_count(o["expiry_time_source"] for o in opts)),
         "max_concurrent_lines": doc.get("max_concurrent_lines"),
+        "n_expiries_used": doc.get("n_expiries_used", len(expiries)),
+        "n_expiries_target": doc.get("n_expiries_target", 3),
+        "expiry_fallback": doc.get("expiry_fallback"),
+        "chain_futures_queried": doc.get("chain_futures_queried", []),
+        "expiry_sources": [(x["expiry"], [_sym(doc, c) for c in x["chain_underlying_con_ids"]],
+                            [_sym(doc, c) for c in x["details_under_con_ids"]])
+                           for x in doc.get("expiry_sources", [])],
     }
+
+
+def _sym(doc: dict, con_id: int) -> str:
+    for f in doc.get("futures", []):
+        if f["con_id"] == con_id:
+            return f["local_symbol"]
+    return str(con_id)
 
 
 def _count(items):
@@ -285,6 +302,13 @@ def report(a: dict, *, source: str, sha256: str, attempts: list[str]) -> str:
     L += ["## Snapshot", "",
           f"- Snapshot: {a['snapshot']} to {a['snapshot_end']} (UTC); CME trade date {a['trade_date']}.",
           f"- Open-interest settlement date: **{a['oi_date']}** (inferred: {a['oi_date_method']}).",
+          f"- Expiries: {a['n_expiries_used']} used, {a['n_expiries_target']} targeted"
+          + (f"; **fallback**: {a['expiry_fallback']}" if a["expiry_fallback"] else "") + ".",
+          "- Expiry → underlying (from its chain / from its contracts' details): "
+          + ("; ".join(f"{e} {'/'.join(ch) or '?'} / {'/'.join(dt) or '?'}" for e, ch, dt in a["expiry_sources"])
+             or "not recorded") + ".",
+          "- GC futures asked for their option chains: " + (", ".join(a["chain_futures_queried"]) or "not recorded")
+          + ".",
           f"- Option contracts: {a['n_options']} in expiries {', '.join(a['expiries'])}; values "
           f"live {a['data_types']['live']} ({_share(a['data_types']['live'], a['n_options'])}), "
           f"frozen {a['data_types']['frozen']} ({_share(a['data_types']['frozen'], a['n_options'])}), "
@@ -346,20 +370,29 @@ def _rng(t) -> str:
     return f"{n} ({_num(lo)}–{_num(hi)})" if n else "0"
 
 
+def read_attempts(path: Path) -> list[str]:
+    """The "- " lines of ATTEMPTS.md, without the dash."""
+    if not path.is_file():
+        return []
+    return [line[2:].strip() for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("- ")]
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="probe JSON -> REPORT.md (research/gex_feasibility)")
     ap.add_argument("probe_json")
     ap.add_argument("--report", default=str(Path(__file__).resolve().parent / "REPORT.md"))
     ap.add_argument("--attempt", action="append", default=[],
-                    help="an earlier attempt and why it was not used; repeat per attempt")
+                    help="an attempt not in ATTEMPTS.md, and why it was not used; repeat per attempt")
+    ap.add_argument("--attempts-file", default=str(Path(__file__).resolve().parent / "ATTEMPTS.md"))
     args = ap.parse_args(argv)
+    attempts = read_attempts(Path(args.attempts_file)) + args.attempt
     raw = Path(args.probe_json).read_bytes()
     doc = json.loads(raw)
     if doc.get("schema") != "options_probe/1":
         ap.error(f"not an options_probe/1 file: schema {doc.get('schema')!r}")
     a = analyze(doc)
     Path(args.report).write_text(report(a, source=Path(args.probe_json).name,
-                                        sha256=hashlib.sha256(raw).hexdigest(), attempts=args.attempt),
+                                        sha256=hashlib.sha256(raw).hexdigest(), attempts=attempts),
                                  encoding="utf-8")
     print(f"R = {pct(a['r'])}: {a['verdict']}")
     return 0

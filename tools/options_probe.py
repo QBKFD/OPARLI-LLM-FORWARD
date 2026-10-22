@@ -13,8 +13,13 @@ What it does, in order (PREREG.md, "Data: one snapshot"):
 2. Connects read-only with client id 61 (CLIENT_ID; 1, 2, 11, 21, 31, 43, 44,
    97, 98, 996 and 999 are taken or reserved). Host and port come from
    IB_HOST / IB_PORT, as in the scanner container.
-3. Lists the GC futures, finds the OG expiries with reqSecDefOptParams, and
-   picks the next 3 that are at least 2 calendar days away.
+3. Lists the GC futures and asks for their option chains (reqSecDefOptParams)
+   one by one, in expiry order, until the next 3 OG expiries at least 2
+   calendar days away are found (at most 12 futures; IBKR lists GC months
+   consecutively, and OG options sit on only some of them). Each future
+   queried is logged with the OG expiries its chain listed, and each expiry
+   is recorded with that underlying. Fewer than 3: the next 2 are used and
+   the fallback is recorded; fewer than 2: exit 1 (PREREG Amendment 1).
 4. Lists every OG contract of those expiries (contract details: strike,
    right, underConId, expiry time), and their underlying GC futures.
 5. Requests market data in batches of at most --batch lines: options with
@@ -49,8 +54,9 @@ CLIENT_ID = 61
 NY = ZoneInfo("America/New_York")
 SYMBOL, EXCHANGE, CURRENCY, TRADING_CLASS = "GC", "COMEX", "USD", "OG"
 N_EXPIRIES = 3
+MIN_EXPIRIES = 2           # fewer than 3 eligible expiries: use 2, recorded (PREREG Amendment 1)
 MIN_DAYS_TO_EXPIRY = 2
-CHAIN_FUTURES = 4          # GC months whose option chains are asked for expirations
+CHAIN_FUTURES = 12         # at most this many GC months are asked for their option chains
 BAR_FUTURES = 8            # GC months whose daily bars are fetched
 BATCH = 50                 # market data lines at a time (IBKR's default limit is 100)
 LIVE_TIMEOUT_S = 15.0
@@ -230,21 +236,45 @@ class Probe:
             raise ProbeError("IBKR returned no GC futures", 1)
         return futs
 
-    def expiries(self, futs: list) -> tuple[list[str], list[dict]]:
-        chains, og = [], set()
-        for d in futs[:CHAIN_FUTURES]:
-            for ch in self.ib.reqSecDefOptParams(SYMBOL, EXCHANGE, "FUT", d.contract.conId):
-                chains.append({"underlying_con_id": ch.underlyingConId, "exchange": ch.exchange,
-                               "trading_class": ch.tradingClass, "multiplier": ch.multiplier,
-                               "expirations": sorted(ch.expirations), "n_strikes": len(ch.strikes)})
-                if ch.tradingClass == TRADING_CLASS and ch.exchange == EXCHANGE:
-                    og.update(ymd(e) for e in ch.expirations)
-            self.check_stop()
+    def expiries(self, futs: list) -> tuple[list[str], list[dict], dict]:
+        """The OG expiries to snapshot, from the GC futures' option chains, asked
+        future by future in expiry order until N_EXPIRIES eligible ones are found."""
         first_ok = (self.now().astimezone(NY).date() + timedelta(days=MIN_DAYS_TO_EXPIRY)).strftime("%Y%m%d")
-        chosen = sorted(e for e in og if e >= first_ok)[:N_EXPIRIES]
+        chains: list[dict] = []
+        sources: dict[str, list[int]] = {}             # OG expiry -> underlyings whose chain lists it
+        queried: list[str] = []
+        for d in futs[:CHAIN_FUTURES]:
+            fut = d.contract
+            got, other = set(), set()
+            for ch in self.ib.reqSecDefOptParams(SYMBOL, EXCHANGE, "FUT", fut.conId):
+                chains.append({"queried_con_id": fut.conId, "queried_local_symbol": fut.localSymbol,
+                               "underlying_con_id": ch.underlyingConId, "exchange": ch.exchange,
+                               "trading_class": ch.tradingClass, "multiplier": ch.multiplier,
+                               "expirations": sorted(ymd(e) for e in ch.expirations), "n_strikes": len(ch.strikes)})
+                if ch.tradingClass == TRADING_CLASS and ch.exchange == EXCHANGE:
+                    for e in map(ymd, ch.expirations):
+                        got.add(e)
+                        if ch.underlyingConId not in sources.setdefault(e, []):
+                            sources[e].append(ch.underlyingConId)
+                else:
+                    other.add(ch.tradingClass)
+            self.check_stop()
+            queried.append(fut.localSymbol)
+            log(f"chain of {fut.localSymbol} (conId {fut.conId}): OG expiries {', '.join(sorted(got)) or 'none'}"
+                + (f"; other classes {', '.join(sorted(other))}" if other else ""))
+            if sum(e >= first_ok for e in sources) >= N_EXPIRIES:
+                break
+        eligible = sorted(e for e in sources if e >= first_ok)
+        chosen, fallback = eligible[:N_EXPIRIES], None
         if len(chosen) < N_EXPIRIES:
-            raise ProbeError(f"only {len(chosen)} OG expiries at least {MIN_DAYS_TO_EXPIRY} days away: {chosen}", 1)
-        return chosen, chains
+            found = f"after asking {len(queried)} GC futures ({', '.join(queried)})"
+            if len(chosen) < MIN_EXPIRIES:
+                raise ProbeError(f"only {len(chosen)} OG expiries at least {MIN_DAYS_TO_EXPIRY} days away {found}: "
+                                 f"{chosen}; all OG expiries seen: {sorted(sources)}", 1)
+            fallback = (f"only {len(chosen)} OG expiries at least {MIN_DAYS_TO_EXPIRY} days away {found}; "
+                        f"using {len(chosen)} (PREREG Amendment 1)")
+            log(fallback)
+        return chosen, chains, {"queried": queried, "sources": {e: sources[e] for e in chosen}, "fallback": fallback}
 
     # 4. the chain
     def options(self, expiry: str) -> list:
@@ -324,9 +354,18 @@ class Probe:
         start = self.now()
         futs = self.futures()
         by_con = {d.contract.conId: d for d in futs}
-        chosen, chains = self.expiries(futs)
-        log(f"OG expiries: {chosen}")
+        chosen, chains, found = self.expiries(futs)
         opt_details = [d for e in chosen for d in self.options(e)]
+        expiry_sources = []
+        for e in chosen:
+            from_details = sorted({d.underConId for d in opt_details if ymd(d.contract.lastTradeDateOrContractMonth) == e})
+            from_chain = found["sources"][e]
+            expiry_sources.append({"expiry": e, "chain_underlying_con_ids": from_chain,
+                                   "details_under_con_ids": from_details})
+            names = [by_con[c].contract.localSymbol if c in by_con else str(c) for c in from_chain]
+            log(f"OG expiry {e}: underlying {', '.join(names)} (from its chain)"
+                + ("" if set(from_details) <= set(from_chain) else
+                   f"; contract details name {from_details} instead, and those are used"))
         und_ids = sorted({d.underConId for d in opt_details})
         for u in und_ids:
             if u not in by_con:                            # not in the list: ask IBKR for it by conId
@@ -364,7 +403,12 @@ class Probe:
                          "expiry": ymd(d.contract.lastTradeDateOrContractMonth),
                          "multiplier": d.contract.multiplier} for d in futs],
             "chains": chains,
+            "chain_futures_queried": found["queried"],
+            "n_expiries_target": N_EXPIRIES,
+            "n_expiries_used": len(chosen),
+            "expiry_fallback": found["fallback"],
             "selected_expiries": chosen,
+            "expiry_sources": expiry_sources,
             "underlyings": [{"con_id": u, "local_symbol": by_con[u].contract.localSymbol,
                              "expiry": ymd(by_con[u].contract.lastTradeDateOrContractMonth), **values(u)}
                             for u in und_ids],

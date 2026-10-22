@@ -98,8 +98,13 @@ def test_full_run():
     ticks = {c: g for c, g, _ in ib.subscribed}
     assert ticks[100] == "588" and ticks[1013] == "101"
     assert doc["underlyings"][0]["fields"]["open_interest"]["value"] == 322_500.0
-    # GC daily bars for every listed month, the expiry and dates recorded
-    assert [b["local_symbol"] for b in doc["gc_daily_bars"]] == ["GCZ6", "GCG7", "GCJ7"]
+    # chains asked month by month until 3 expiries: GCG7 is the 5th listed month
+    assert doc["chain_futures_queried"] == ["GCV6", "GCX6", "GCZ6", "GCF7", "GCG7"]
+    assert doc["n_expiries_used"] == 3 and doc["expiry_fallback"] is None
+    assert [(x["expiry"], x["chain_underlying_con_ids"], x["details_under_con_ids"]) for x in doc["expiry_sources"]] \
+        == [("20261027", [100], [100]), ("20261124", [100], [100]), ("20261228", [101], [101])]
+    # GC daily bars for the nearest 8 listed months (7 here), the expiry and dates recorded
+    assert [b["local_symbol"] for b in doc["gc_daily_bars"]] == ["GCV6", "GCX6", "GCZ6", "GCF7", "GCG7", "GCH7", "GCJ7"]
     assert len(doc["gc_daily_bars"][0]["bars"]) == 22
     assert doc["trade_date"] == "2026-10-22" and doc["oi_settlement_date_inferred"] == "2026-10-21"
     assert {c["trading_class"] for c in doc["chains"]} == {"OG", "G1W"}
@@ -126,10 +131,37 @@ def test_batch_must_stay_under_the_line_limit():
     assert e.value.code == 2
 
 
-def test_not_enough_expiries():
+def test_attempt_1_the_first_4_months_hold_only_2_expiries(monkeypatch, capsys):
+    """Attempt 1 (2026-10-22 10:43 UTC) asked the first 4 GC months only: GCV6, GCX6,
+    GCZ6 and GCF7, of which only GCZ6 has OG options. That gives exactly the 2
+    expiries it reported. Asking on to GCG7 finds the 3rd."""
+    monkeypatch.setattr(probe, "CHAIN_FUTURES", 4)
+    status, doc = run(world(THU_0500))
+    assert status == 0 and doc["selected_expiries"] == ["20261027", "20261124"]
+    assert doc["chain_futures_queried"] == ["GCV6", "GCX6", "GCZ6", "GCF7"]
+    err = capsys.readouterr().err
+    assert "chain of GCF7 (conId 103): OG expiries none" in err and "chain of GCX6 (conId 99): OG expiries none; " \
+        "other classes G1W" in err
+    monkeypatch.undo()
+    status, doc = run(world(THU_0500))
+    assert status == 0 and doc["selected_expiries"] == ["20261027", "20261124", "20261228"]
+
+
+def test_fewer_than_3_expiries_falls_back_to_2_and_records_it(capsys):
+    ib = world(THU_0500, expiries=("20261023", "20261027", "20261124"))
+    status, doc = run(ib)
+    assert status == 0 and doc["selected_expiries"] == ["20261027", "20261124"]
+    assert doc["n_expiries_used"] == 2 and doc["n_expiries_target"] == 3
+    assert "after asking 7 GC futures" in doc["expiry_fallback"] and "PREREG Amendment 1" in doc["expiry_fallback"]
+    assert len(doc["chain_futures_queried"]) == 7                    # every listed month was asked first
+    assert "using 2" in capsys.readouterr().err
+
+
+def test_fewer_than_2_expiries_stops(capsys):
     ib = world(THU_0500, expiries=("20261023", "20261027"))
     status, doc = run(ib)
-    assert status == 1 and doc is None and ib.disconnected
+    assert status == 1 and doc is None and ib.disconnected and not ib.subscribed
+    assert "only 1 OG expiries" in capsys.readouterr().err
 
 
 def test_writes_to_a_file(tmp_path):

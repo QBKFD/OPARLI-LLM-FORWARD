@@ -179,21 +179,31 @@ def daily_bars(last_day: date, n: int, close: float, volume: float) -> list:
     return sorted(out, key=lambda b: b.date)
 
 
-def world(start: datetime, *, expiries=("20261023", "20261027", "20261124", "20261228"),
-          strikes=(4000.0, 4100.0, 4200.0), scripts=None, n_bars=22, bar_volume=150_000.0):
-    """GCZ6 (conId 100) and GCG7 (101) plus a later month (102). OG expiries in
-    October and November sit on GCZ6, December on GCG7 (as IBKR maps them).
-    The first expiry is too close to be picked when the start is 2026-10-22."""
-    gc = [Details(Future(conId=100, symbol="GC", lastTradeDateOrContractMonth="20261229", multiplier="100",
-                         exchange="COMEX", localSymbol="GCZ6")),
-          Details(Future(conId=101, symbol="GC", lastTradeDateOrContractMonth="20270224", multiplier="100",
-                         exchange="COMEX", localSymbol="GCG7")),
-          Details(Future(conId=102, symbol="GC", lastTradeDateOrContractMonth="20270428", multiplier="100",
-                         exchange="COMEX", localSymbol="GCJ7"))]
-    under = {"20261023": 100, "20261027": 100, "20261124": 100, "20261228": 101}
-    chains = {100: [OptionChain("COMEX", 100, "OG", "100", [e for e in expiries if under[e] == 100], list(strikes)),
-                    OptionChain("COMEX", 100, "G1W", "100", ["20261030"], list(strikes))],
-              101: [OptionChain("COMEX", 101, "OG", "100", [e for e in expiries if under[e] == 101], list(strikes))]}
+# GC futures as IBKR lists them: consecutive months. OG options sit only on some
+# (Z6 carries the Nov and Dec options, G7 the Jan and Feb ones, J7 Mar and Apr).
+GC_MONTHS = [(98, "GCV6", "20261028"), (99, "GCX6", "20261125"), (100, "GCZ6", "20261229"),
+             (103, "GCF7", "20270127"), (101, "GCG7", "20270224"), (104, "GCH7", "20270326"),
+             (102, "GCJ7", "20270428")]
+OG_UNDERLYING = {"20260924": 98, "20261023": 100, "20261027": 100, "20261124": 100,
+                 "20261228": 101, "20270126": 101, "20270223": 102, "20270325": 102}
+
+
+def world(start: datetime, *, expiries=("20261023", "20261027", "20261124", "20261228", "20270126"),
+          strikes=(4000.0, 4100.0, 4200.0), scripts=None, n_bars=22, bar_volume=150_000.0, months=GC_MONTHS):
+    """GC futures listed month by month (GCV6 .. GCJ7). OG expiries in October and
+    November sit on GCZ6, December and January on GCG7, as IBKR maps them. Only
+    GCZ6, GCG7 and GCJ7 have OG chains; the other months list a weekly class or
+    nothing. The first expiry is too close to be picked when the start is 2026-10-22,
+    so with the default expiries GCG7 (the 5th month) must be asked to find 3."""
+    gc = [Details(Future(conId=c, symbol="GC", lastTradeDateOrContractMonth=e, multiplier="100",
+                         exchange="COMEX", localSymbol=sym)) for c, sym, e in months]
+    under = OG_UNDERLYING
+    chains = {c: [] for c, _, _ in months}
+    for e in expiries:
+        chains[under[e]].append(e)
+    chains = {c: ([OptionChain("COMEX", c, "OG", "100", exps, list(strikes))] if exps else [])
+              + ([OptionChain("COMEX", c, "G1W", "100", ["20261030"], list(strikes))] if c == 99 else [])
+              for c, exps in chains.items()}
     options, con = {}, 1000
     for e in expiries:
         rows = []
