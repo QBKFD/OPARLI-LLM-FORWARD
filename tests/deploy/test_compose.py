@@ -26,7 +26,7 @@ def test_start_order_through_healthchecks():
     assert S["feed"]["depends_on"]["redis"] == {"condition": "service_healthy"}
     assert S["recorder"]["depends_on"]["feed"] == {"condition": "service_healthy"}
     # the scanner never waits on the datafeed: an ibkr-mode scanner must start
-    # whatever the stream services do (docs/DECISIONS.md D3)
+    # whatever the stream services do (docs/decisions/feat-deploy-stack.md D3)
     assert S["scanner"]["depends_on"] == ["ibgateway"]
     for n in ("redis", "feed", "recorder", "scanner"):
         assert S[n]["healthcheck"]["test"][0] == "CMD", n

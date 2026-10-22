@@ -1,8 +1,10 @@
 # Restructure plan: one `backend` package
 
+> **History.** Plan of the `backend` restructure (2026-10-21), carried out in #31, #32 and `docs/tidy`; the result is in [ARCHITECTURE_CURRENT.md](../ARCHITECTURE_CURRENT.md), the decisions in [decisions/](../decisions/README.md).
+
 **Status:** plan only (phase 0). Nothing has moved yet. Drawn from `main` @
 c556533 on 2026-10-21. Decisions taken without the owner:
-[docs/decisions/refactor-backend-layout.md](decisions/refactor-backend-layout.md).
+[docs/decisions/refactor-backend-layout.md](../decisions/refactor-backend-layout.md).
 
 ## 1. What and why
 

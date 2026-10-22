@@ -12,8 +12,8 @@ The full design is `docs/AGENTS_ARCHITECTURE.md`.
 
 **Status:** the contract for jobs 2–5.
 - **Built (job 2):** prompt loading and checking, the placeholders, the
-  config file, the epoch, and `python -m agents.prompting check` /
-  `python -m agents.epoch`.
+  config file, the epoch, and `python -m backend.agents.prompting check` /
+  `python -m backend.agents.epoch`.
 - **Built (job 5):** the metric table and the snapshot features.
 - No agent calls a model until job 3.
 
@@ -21,16 +21,16 @@ The full design is `docs/AGENTS_ARCHITECTURE.md`.
 
 | File | What | Who writes it |
 |---|---|---|
-| `agents/prompts/visual.md` | Visual agent (LLM, charts) | you |
-| `agents/prompts/technical.md` | Technical agent, the LLM half (interprets the metric table) | you |
-| `agents/prompts/sentiment.md` | Sentiment agent (LLM, calendar/news) | you |
-| `agents/prompts/gex.md` | reserved: GEX is code and doesn't read it while there is no options data | you (optional) |
-| `agents/prompts/discussion.md` | the discussion turn, shared by all LLM agents | you |
+| `backend/agents/prompts/visual.md` | Visual agent (LLM, charts) | you |
+| `backend/agents/prompts/technical.md` | Technical agent, the LLM half (interprets the metric table) | you |
+| `backend/agents/prompts/sentiment.md` | Sentiment agent (LLM, calendar/news) | you |
+| `backend/agents/prompts/gex.md` | reserved: GEX is code and doesn't read it while there is no options data | you (optional) |
+| `backend/agents/prompts/discussion.md` | the discussion turn, shared by all LLM agents | you |
 | `agents.toml` (path from `$AGENTS_CONFIG`; keep it outside the repo or untracked) | models, effort and `max_tokens` **per agent and per round** (round 1 vs discussion; `AGENTS_ARCHITECTURE.md` §6.1), discussion rounds, Meta rule, LLM call settings, budget, the `{{bars_table}}` row counts | you |
-| `agents/agents.example.toml` | every key of `agents.toml`, with comments and `"<...>"` placeholder values; never read at run time | code (job 2) |
+| `backend/agents/agents.example.toml` | every key of `agents.toml`, with comments and `"<...>"` placeholder values; never read at run time | code (job 2) |
 
 **`agents.toml` is only yours.** The infrastructure settings (snapshot mode,
-gate, timeouts) stay in their own file, `agents/config.example.toml`. So your
+gate, timeouts) stay in their own file, `backend/agents/config.example.toml`. So your
 file holds your values and nothing else.
 - **Every value is required,** except `discussion.rounds` (default 2) and
   `discussion.early_stop` (default true).
@@ -319,7 +319,7 @@ The **epoch id** is a hash of, among others (full list:
   other epoch are stored as development and don't count. To change a prompt
   during an experiment, end the epoch: write a PREREG addendum and start a
   new `experiment_id`.
-- `python -m agents.epoch [--config agents.toml] [--db agents.sqlite]` prints
+- `python -m backend.agents.epoch [--config agents.toml] [--db agents.sqlite]` prints
   the current epoch id and its inputs. With `--db`, it also prints which
   files or values differ from the last stored run, and warns about a prompt
   whose bytes changed while its `version` didn't.
@@ -335,10 +335,10 @@ The **epoch id** is a hash of, among others (full list:
 - [ ] A worked example, if any, doesn't show a direction. The legacy Visual
       agent's bullish example biased it (`legacy/PORT_CANDIDATES.md`).
 - [ ] Run the checks:
-      - `python -m agents.prompting check [--prompts DIR] [--config agents.toml]`:
+      - `python -m backend.agents.prompting check [--prompts DIR] [--config agents.toml]`:
         every prompt file (OK with its version, hash and placeholders, or
         the reason it's invalid), every config problem, and the epoch id;
-      - `python -m agents.llm count-tokens --db <replay store> --t <UTC time>
+      - `python -m backend.agents.llm count-tokens --db <replay store> --t <UTC time>
         [--config agents.toml]` (real token counts for the cost estimate; one
         API call per agent, no generation);
       - a cache-only rerun on development data.

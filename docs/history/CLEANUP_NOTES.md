@@ -1,5 +1,7 @@
 # Cleanup phase 1: notes
 
+> **History.** Notes and report of cleanup phase 1 (2026-10-14), merged in #8; the current layout is in [ARCHITECTURE_CURRENT.md](../ARCHITECTURE_CURRENT.md).
+
 > **Status (2026-10-14): steps 0–7 done. Every check passed; no open
 > question blocks this PR.** The full report is in "Step 7" and "PR
 > description" at the end.

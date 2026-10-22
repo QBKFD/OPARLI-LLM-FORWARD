@@ -1,5 +1,7 @@
 # Scanner bar-source switch: notes for the deployment PR
 
+> **Paths are from before the restructure** (#31, #32): `backend/deterministic_scanner.py` is now the `backend/scanner/` package (`python -m backend.scanner`), and `datafeed` is `backend/datafeed`; see [ARCHITECTURE_CURRENT.md](ARCHITECTURE_CURRENT.md) §0. It stays here because [DEPLOY_RUNBOOK.md](DEPLOY_RUNBOOK.md) cites its §4 and §5c.
+
 Branch `feat/scanner-stream-source` (from `main` @ 9042270). **Nothing is
 deployed.** The deployment itself (compose stack, entrypoint, backups,
 watchdog, runbook) is on `feat/deploy-stack`: see `docs/DEPLOY_RUNBOOK.md`. This branch doesn't touch the EC2 host, `deploy/` or the running

@@ -1,5 +1,7 @@
 # Deployment PR: plan
 
+> **History.** Build plan of `feat/deploy-stack` (2026-10-15), written before it was built; superseded by [DEPLOY_RUNBOOK.md](../DEPLOY_RUNBOOK.md).
+
 Branch `feat/deploy-stack`. Written 2026-10-15, unattended, before building.
 Decisions taken without the owner are in `docs/DECISIONS.md`.
 

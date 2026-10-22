@@ -3,10 +3,10 @@
 **Status: design draft, written 2026-10-17 overnight, unattended. Nothing is
 built, nothing calls an LLM, and no PREREG exists yet.**
 - The experiment it describes needs its own PREREG under
-  `agents/experiments/<id>/` before the first evidence decision, like agents
+  `backend/agents/experiments/<id>/` before the first evidence decision, like agents
   v1.
-- Choices made without the owner are in `docs/DECISIONS.md`, section
-  `research/level-target-spec` (L1–L13). The owner's answers of 2026-10-17
+- Choices made without the owner are in
+  `docs/decisions/research-level-target-spec.md` (L1–L13). The owner's answers of 2026-10-17
   are in §14 (L14).
 - The multi-agent flow agreed later that day (`docs/AGENTS_ARCHITECTURE.md`,
   PR #17) reuses this document's frozen-model, cache and epoch rules.
@@ -68,7 +68,7 @@ it (the existing `agents.snapshot` rules).
 | Part | Content | Source |
 |---|---|---|
 | Alert | exactly the Telegram fields: id, time, session, level types, level price, price, confluence | journal row |
-| Bars | 1m (240), 5m, 15m (192), 1h (120), 4h (120) with `complete` flags | `bars_before(..., known_by=t)`; resampled by `agents/resample.py` |
+| Bars | 1m (240), 5m, 15m (192), 1h (120), 4h (120) with `complete` flags | `bars_before(..., known_by=t)`; resampled by `backend/agents/resample.py` |
 | Charts | three PNGs rendered **from the snapshot's bars only**: 15m over 2 days, 1h over 5 days, 4h over 20 days. Each has the scanner levels active at t drawn as lines, the touched level highlighted, and no indicators. Fixed size (1000 × 600 px) and style; `plt.close` after each | a port of legacy `_render_chart` (PORT_CANDIDATES: render only, from the snapshot, levels as of t) |
 | Levels | every level instance active at t, with id, type, value, `active_from` and touched-or-not, plus `trigger_levels` | the shared level library (`LevelSource`, agents v1 design §2) |
 | σ and vol state | `sigma_px_60`, `sigma_px_240`, `crosses_close_*`, L, S_hd, T, the L tercile | `vol_block` with the pinned HAR model (`parquet2021_2023`, SHA-256 checked) |
@@ -134,7 +134,7 @@ it (the existing `agents.snapshot` rules).
 }
 ```
 
-- **Refs** use the existing grammar (`agents/debate/evidence.py`):
+- **Refs** use the existing grammar (`backend/agents/evidence.py`):
   `bars:<tf>:<start>..<end>`, `level:<id>`, `feature:<name>`, `event:<id>`,
   plus one new kind, `chart:<tf>`, which names one of the three images.
 - **Validation in code, after the schema:**
@@ -221,7 +221,7 @@ An **epoch** is one fixed set of:
   of the canonical request body), `model`, `request_id`, usage (input,
   output and thinking tokens), stop reason and latency. The agent store
   already has `model_id`, `prompt_hash`, token and latency columns
-  (`agents/store/sqlite.py`); `request_id`, the epoch id and the stop reason
+  (`backend/agents/store/sqlite.py`); `request_id`, the epoch id and the stop reason
   need a store migration.
 
 ## 9. Reproducibility
@@ -298,7 +298,7 @@ none crashes the runner.
   chart files.
 - **Memory:** about 200–300 MB (Python, pandas, matplotlib, the SDK). Charts
   are rendered one at a time and closed. A container limit of 384 MB fits
-  the 3.8 GB host next to today's 2.88 GB of limits (docs/DECISIONS.md, D14).
+  the 3.8 GB host next to today's 2.88 GB of limits (docs/decisions/feat-deploy-stack.md, D14).
   This is to be measured before it is deployed.
 - **Network:** egress to the Anthropic API only.
 - **The key:** `ANTHROPIC_API_KEY` lives in the host's `.env`, never in the

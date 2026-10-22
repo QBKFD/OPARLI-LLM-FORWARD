@@ -13,8 +13,9 @@
 - `selftest.py`.
 - The level engine itself is `backend/levels/` (pure: build, touch).
 
-This file lives at `backend/README.md` for now; docs/RESTRUCTURE_PLAN.md
-describes the layout.
+This file lives at `backend/README.md` for now. The layout is in
+`docs/ARCHITECTURE_CURRENT.md` (§0); the plan that made it is
+`docs/history/RESTRUCTURE_PLAN.md`.
 
 The scanner's design notes are in the docstring of `backend/scanner/__init__.py`,
 `docs/SCANNER_SWITCH_NOTES.md` and `docs/DEPLOY_RUNBOOK.md`. This README

@@ -4,8 +4,8 @@ How to deploy `main` to the scanner host, flip the bar source, roll back, and
 restore. **The first deploy of `main` onto a host still running
 `pipeline-fixes-and-cleanup` @ c62810d has its own step-by-step: §11.** Use
 it instead of §0–§5 for that jump. Background is in
-`docs/SCANNER_SWITCH_NOTES.md`, the build plan in `docs/DEPLOY_PLAN.md`, and
-the choices made without the owner in `docs/DECISIONS.md` and `docs/decisions/`.
+`docs/SCANNER_SWITCH_NOTES.md`, the build plan in `docs/history/DEPLOY_PLAN.md`, and
+the choices made without the owner in `docs/decisions/`.
 
 Commands run on the host, in `~/oparli/deploy/scanner` (the directory of
 `docker-compose.yml`), as the user that owns the stack. Nothing here was run
@@ -748,7 +748,7 @@ store needs about two weeks of bars before a Thursday-to-Sunday warm-up is
 ## 12. Deploying the restructure
 
 For a host that already runs `main` from **before** the scanner restructure
-(PR 2 of `docs/RESTRUCTURE_PLAN.md`). On a host still on c62810d, use §11:
+(PR 2 of `docs/history/RESTRUCTURE_PLAN.md`). On a host still on c62810d, use §11:
 deploying `main` from §11 includes the restructure.
 
 **What changes.** Code layout only:
@@ -802,7 +802,7 @@ docker compose up -d --no-build --no-deps scanner      # and feed recorder in th
 | `requirements-studio.in` | `requirements/requirements-studio.in` |
 | `requirements-studio.lock` | `requirements/requirements-studio.lock` |
 | `.env.example` (the local development template) | `deploy/.env.example` |
-| `DECISIONS.md` | `docs/DECISIONS.md` |
+| `DECISIONS.md` | `docs/DECISIONS.md`, since split into `docs/decisions/<branch>.md` (`docs/tidy`) |
 | `langgraph.json` | `tools/langgraph_studio/langgraph.json` |
 
 **On EC2, no command changes.**
