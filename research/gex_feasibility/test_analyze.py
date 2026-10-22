@@ -189,6 +189,10 @@ def test_descriptives(base):
     assert e["listed"] == (3, 4000.0, 4200.0) and e["quoted"] == (3, 4000.0, 4200.0) and e["underlying"] == "GCZ6"
     assert a["other_classes"] == {"G1W": 1}
     assert a["futures_oi"]["GCZ6"] == 322_500.0
+    assert e["contracts_quoted"] == 6 and e["n_contracts"] == 6
+    g = a["g5_posthoc"]                                               # consistent() made IBKR's gamma = ours
+    assert g["gex_weighted_median"] == pytest.approx(0, abs=1e-9) and g["by_sd"][(0, 1)][1] == pytest.approx(0, abs=1e-9)
+    assert a["r_ib"] == pytest.approx(a["r"])
     s = a["sensitivities"]
     assert s["R, next 2 expiries only"] < a["r"]
     assert s["R, D = front GC month only (GCZ6)"] > a["r"]
@@ -212,7 +216,7 @@ def test_report_and_main(base, tmp_path, capsys):
     assert lines[0] == "# GEX feasibility: report" and lines[2] == "## Verdict"
     assert "**GEX DROPPED" in lines[4]
     for section in ("## Snapshot", "## Attempts", "## Gates", "## Per expiry", "## Top 10 strikes",
-                    "## Sensitivities", "## D, by trade date", "## Known limits"):
+                    "## Sensitivities", "## D, by trade date", "## Post hoc: where G5", "## Known limits"):
         assert section in text
     assert "exit 4, error 10197" in text and "2026-10-21" in text and "SHA-256" in text
     assert "R = " in capsys.readouterr().out

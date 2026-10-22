@@ -168,6 +168,10 @@ def analyze(doc: dict) -> dict:
            for o in opts
            if o["ib_gamma"] and o["ib_gamma"] > 0 and o["ib_und"] and o["ib_und"] > 0 and o["ib_iv"] and o["t"] > 0]
     med = statistics.median(rel) if rel else math.inf
+    g5_rows = [dict(e=o["expiry"], rel=abs(black76_gamma(o["ib_und"], o["strike"], o["t"], o["ib_iv"]) / o["ib_gamma"] - 1),
+                    sd=abs(math.log(o["strike"] / o["ib_und"])) / (o["ib_iv"] * math.sqrt(o["t"])),
+                    w=(o["dg"] or 0.0)) for o in opts
+               if o["ib_gamma"] and o["ib_gamma"] > 0 and o["ib_und"] and o["ib_und"] > 0 and o["ib_iv"] and o["t"] > 0]
     gates["G5"] = (med <= G5_MAX_MEDIAN_REL_DIFF,
                    f"median |Γ_ours/Γ_IBKR − 1| = {med:.2%} over {len(rel)} contracts" if rel
                    else "no contract has an IBKR model gamma")
@@ -186,10 +190,11 @@ def analyze(doc: dict) -> dict:
     d_front = per_month[front_month] / len(days) if front_month and days else 0.0
     gex_ib = sum(dollar_gamma_1pct(o["ib_gamma"], o["f"], o["oi"]) if (o["ib_gamma"] and o["oi"] and o["f"])
                  else (o["dg"] or 0.0) for o in opts)
+    r_ib = gex_ib / d_total if d_total else math.inf
     sens = {
         "R, next 2 expiries only": gex([o for o in opts if o["expiry"] in expiries[:2]]) / d_total if d_total else math.inf,
         f"R, D = front GC month only ({front_month})": abs_gex / d_front if d_front else math.inf,
-        "R, IBKR's model gamma instead of ours": gex_ib / d_total if d_total else math.inf,
+        "R, IBKR's model gamma instead of ours": r_ib,
     }
 
     # descriptives
@@ -207,6 +212,7 @@ def analyze(doc: dict) -> dict:
             "gex": gex(sub), "n_contracts": len(sub),
             "listed": (len(listed), listed[0] if listed else None, listed[-1] if listed else None),
             "quoted": (len(quoted), quoted[0] if quoted else None, quoted[-1] if quoted else None),
+            "contracts_quoted": sum(o["quoted"] for o in sub),
         })
     by_strike = defaultdict(float)
     for o in opts:
@@ -242,6 +248,7 @@ def analyze(doc: dict) -> dict:
         "errors": dict(sorted(err_codes.items())),
         "expiry_time_sources": dict(_count(o["expiry_time_source"] for o in opts)),
         "max_concurrent_lines": doc.get("max_concurrent_lines"),
+        "g5_posthoc": g5_posthoc(g5_rows, expiries), "r_ib": r_ib,
         "n_expiries_used": doc.get("n_expiries_used", len(expiries)),
         "n_expiries_target": doc.get("n_expiries_target", 3),
         "expiry_fallback": doc.get("expiry_fallback"),
@@ -252,9 +259,34 @@ def analyze(doc: dict) -> dict:
     }
 
 
-def _sym(doc: dict, con_id: int) -> str:
+def g5_posthoc(rows: list[dict], expiries: list[str]) -> dict:
+    """NOT pre-registered: where G5's relative gamma differences come from. By expiry,
+    by distance from the money in standard deviations (|ln(K/F)| / (σ √T)), and the
+    median weighted by each contract's |GEX| (dollar gamma)."""
+    def med(xs):
+        return statistics.median(xs) if xs else math.nan
+    by_exp = {e: (len(rs), med([r["rel"] for r in rs])) for e in expiries
+              for rs in [[r for r in rows if r["e"] == e]]}
+    bands = [(0, 1), (1, 2), (2, 3), (3, math.inf)]
+    by_sd = {(lo, hi): (len(rs), med([r["rel"] for r in rs])) for lo, hi in bands
+             for rs in [[r for r in rows if lo <= r["sd"] < hi]]}
+    ws = sorted((r["rel"], r["w"]) for r in rows if r["w"] > 0)
+    total, acc, wmed = sum(w for _, w in ws), 0.0, math.nan
+    for rel, w in ws:
+        acc += w
+        if acc >= total / 2:
+            wmed = rel
+            break
+    gex_far = sum(r["w"] for r in rows if r["sd"] >= 2)
+    return {"by_expiry": by_exp, "by_sd": by_sd, "gex_weighted_median": wmed,
+            "gex_share_beyond_2sd": gex_far / total if total else math.nan}
+
+
+def _sym(doc: dict, con_id) -> str:
+    """The local symbol of a GC future. IBKR's option chains give the underlying conId
+    as a string, contract details as an int."""
     for f in doc.get("futures", []):
-        if f["con_id"] == con_id:
+        if int(f["con_id"]) == int(con_id):
             return f["local_symbol"]
     return str(con_id)
 
@@ -328,12 +360,16 @@ def report(a: dict, *, source: str, sha256: str, attempts: list[str]) -> str:
     L += [""]
     L += ["## Per expiry", "",
           "| Expiry | Underlying | F (source) | Days | OI calls | OI puts | OI total | \\|GEX\\| per 1 % | "
-          "Strikes listed (range) | Strikes quoted (range) |", "|---|---|---|---|---|---|---|---|---|---|"]
+          "Strikes listed (range) | Strikes quoted (range) | Contracts quoted |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
     for e in a["per_expiry"]:
         L.append(f"| {e['expiry']} | {e['underlying']} | {_num(e['f'])} ({e['f_src']}) | {_num(e['days'], 1)} | "
                  f"{_int(e['oi_calls'])} | {_int(e['oi_puts'])} | {_int(e['oi_calls'] + e['oi_puts'])} | "
-                 f"{money(e['gex'])} | {_rng(e['listed'])} | {_rng(e['quoted'])} |")
-    L += ["", f"- Front month ({a['front']}): {pct(a['front_oi_share'])} of open interest, "
+                 f"{money(e['gex'])} | {_rng(e['listed'])} | {_rng(e['quoted'])} | "
+                 f"{e['contracts_quoted']} of {e['n_contracts']} |")
+    L += ["", "- A strike is quoted when its call or its put has a positive bid or ask (PREREG); "
+              "a contract is quoted when it has one itself.",
+          f"- Front month ({a['front']}): {pct(a['front_oi_share'])} of open interest, "
               f"{pct(a['front_gex_share'])} of |GEX|; back months the rest.", ""]
     L += ["## Top 10 strikes by open interest (calls + puts, all selected expiries)", "",
           "| Strike | Open interest | Share |", "|---|---|---|"]
@@ -345,6 +381,16 @@ def report(a: dict, *, source: str, sha256: str, attempts: list[str]) -> str:
           + (", ".join(f"{k} {v}" for k, v in a["other_classes"].items()) or "none") + ".", ""]
     L += ["## D, by trade date", "", "| Trade date | GC dollar volume |", "|---|---|"]
     L += [f"| {d} | {money(v)} |" for d, v in a["days"]]
+    g = a["g5_posthoc"]
+    L += ["", "## Post hoc: where G5's differences come from (NOT pre-registered; does not change the verdict)", "",
+          "Relative difference |Γ_ours/Γ_IBKR − 1|, Black-76 with IBKR's own IV and underlying price.", "",
+          "| Group | Contracts | Median difference |", "|---|---|---|"]
+    L += [f"| expiry {e} | {n} | {pct(m)} |" for e, (n, m) in g["by_expiry"].items()]
+    L += [f"| {lo}–{'∞' if hi == math.inf else hi} SD from the money | {n} | {pct(m)} |"
+          for (lo, hi), (n, m) in g["by_sd"].items()]
+    L += ["", f"- Weighted by each contract's |GEX|, the median difference is {pct(g['gex_weighted_median'])}; "
+              f"contracts 2 SD or more from the money hold {pct(g['gex_share_beyond_2sd'])} of |GEX|.",
+          f"- R with IBKR's model gamma instead of ours: {pct(a['r_ib'])}."]
     L += ["", "## Known limits", "",
           "- One day; listed OG monthlies only (no weeklies, GLD or OTC options).",
           "- |GEX| is unsigned, an upper bound on net dealer hedging; D is futures volume only.",

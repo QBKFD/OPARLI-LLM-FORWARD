@@ -248,14 +248,15 @@ class Probe:
             got, other = set(), set()
             for ch in self.ib.reqSecDefOptParams(SYMBOL, EXCHANGE, "FUT", fut.conId):
                 chains.append({"queried_con_id": fut.conId, "queried_local_symbol": fut.localSymbol,
-                               "underlying_con_id": ch.underlyingConId, "exchange": ch.exchange,
+                               "underlying_con_id": int(ch.underlyingConId), "exchange": ch.exchange,
                                "trading_class": ch.tradingClass, "multiplier": ch.multiplier,
                                "expirations": sorted(ymd(e) for e in ch.expirations), "n_strikes": len(ch.strikes)})
                 if ch.tradingClass == TRADING_CLASS and ch.exchange == EXCHANGE:
                     for e in map(ymd, ch.expirations):
                         got.add(e)
-                        if ch.underlyingConId not in sources.setdefault(e, []):
-                            sources[e].append(ch.underlyingConId)
+                        und = int(ch.underlyingConId)      # IBKR sends it as a string
+                        if und not in sources.setdefault(e, []):
+                            sources[e].append(und)
                 else:
                     other.add(ch.tradingClass)
             self.check_stop()
