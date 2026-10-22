@@ -32,5 +32,5 @@ decision files stay with their package or study (e.g.
 **Found on the way, not fixed** (each for its own PR), as of 2026-10-21:
 - **F2:** source-text tests; see `refactor-backend-layout.md`.
 - **F4:** an intermittent hang of `python -m backend.datafeed.ingest`, the feed
-  container's entry point; see `fix-narrow-excepts.md`.
-- **F5:** `TWSConnector` swallows bar-callback errors; see `fix-narrow-excepts.md`.
+  container's entry point; see `fix-narrow-excepts.md` (on #35, not merged yet).
+- **F5:** `TWSConnector` swallows bar-callback errors; see `fix-narrow-excepts.md` (on #35, not merged yet).
