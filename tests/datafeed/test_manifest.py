@@ -14,8 +14,10 @@ from backend.datafeed.ingest import xauusd_bars as xb
 from backend.datafeed.store import manifest
 
 ROOT = Path(__file__).resolve().parents[2]
-DATA = ROOT / "database" / "ohlcv_data"
-CLEAN = "ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
+CLEAN = "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
+TXT = "database/ohlcv_data/XAUUSD.txt"
+REAL_FIXTURE = "database/ohlcv_data/XAUUSD_selftest_fixture.parquet"
+SYNTHETIC = "tests/fixtures/xauusd_synthetic_selftest.parquet"
 
 
 def _tool(name):
@@ -44,17 +46,44 @@ def listed(tmp_path, monkeypatch):
     return path
 
 
-def test_the_shipped_manifest_lists_both_files_with_hashes():
+def test_the_shipped_manifest_lists_the_files_with_hashes():
     doc = manifest.load()
-    assert set(doc["files"]) == {"ohlcv_data/XAUUSD.txt", CLEAN}
+    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC}
     for e in doc["files"].values():
-        assert len(e["sha256"]) == 64 and e["bytes"] > 0 and e["rows"] > 0 and e["first_ts"] < e["last_ts"]
-        assert "source" in e and isinstance(e["cleaning_steps"], list)
+        assert len(e.get("sha256") or e["content_sha256"]) == 64 and e["rows"] > 0 and e["first_ts"] < e["last_ts"]
+        assert "source" in e and isinstance(e["in_git"], bool)
+    t = doc["files"][TXT]["source"]
+    assert t["provider"].startswith("IBKR") and "CMDTY" in t["contract"] and t["bar_size"] == "1 min"
+    assert t["what_to_show"] is None and "unknown" in t["what_to_show_note"]          # not recorded anywhere
+    assert "2026-02-01" in doc["files"][TXT]["timezone_break"]
     p = doc["files"][CLEAN]
-    assert p["source"]["derived_from"] == "ohlcv_data/XAUUSD.txt" and len(p["content_sha256"]) == 64
+    assert p["source"]["derived_from"] == TXT and len(p["content_sha256"]) == 64
     # the replay source's coverage constant is the manifest's range
     first, last = xb.PARQUET_COVERAGE
     assert (first.isoformat(), last.isoformat()) == (p["first_ts"], p["last_ts"])
+
+
+def test_only_the_synthetic_fixture_is_in_git():
+    """IBKR data is the owner's own use only: no real bars in the public repo."""
+    files = manifest.load()["files"]
+    assert [k for k, e in files.items() if e["in_git"]] == [SYNTHETIC]
+    tracked = subprocess.run(["git", "ls-files", "--", "*.parquet", "*.txt", "*.csv"], cwd=ROOT,
+                             capture_output=True, text=True, check=True).stdout.split()
+    assert not [p for p in tracked if p.startswith(("database/", "tests/")) and p != SYNTHETIC
+                and "XAUUSD" in p.upper()]
+    for k, e in files.items():
+        if not e["in_git"]:
+            assert subprocess.run(["git", "check-ignore", "-q", k], cwd=ROOT).returncode == 0, k
+
+
+def test_the_synthetic_fixture_regenerates_to_the_manifest():
+    gen = _tool("make_synthetic_fixture")
+    df = gen.frame()
+    assert manifest.content_sha256(df) == manifest.load()["files"][SYNTHETIC]["content_sha256"]
+    assert manifest.verify(ROOT / SYNTHETIC) == SYNTHETIC                         # the committed file, by content
+    assert [w[:2] for w in gen.WINDOWS] == [tuple(w) for w in _tool("make_fixture").WINDOWS]
+    # trading minutes only: no bar in the daily break or the weekend
+    assert not any(not gen.is_open(t.to_pydatetime()) for t in df["timestamp"])
 
 
 def test_manifest_ships_as_package_data():
@@ -100,6 +129,20 @@ def test_replay_source_checks_the_manifest_before_reading(listed):
     bars(6).to_parquet(listed, index=False)
     with pytest.raises(manifest.ManifestError):
         xb.ReplaySource(str(listed), start="2025-06-11", end="2025-06-12").run(out.append)
+
+
+def test_content_only_entries_are_checked_by_content(tmp_path, monkeypatch):
+    path = tmp_path / "xauusd_synthetic_selftest.parquet"
+    bars().to_parquet(path, index=False)
+    d = manifest.describe(path)
+    m = tmp_path / "manifest.json"
+    m.write_text(json.dumps({"schema": manifest.SCHEMA, "files": {SYNTHETIC: {"content_sha256": d["content_sha256"]}}}))
+    monkeypatch.setattr(manifest, "MANIFEST", m)
+    bars().to_parquet(path, index=False, compression="gzip")                      # other bytes, same bars
+    assert manifest.verify(path) == SYNTHETIC
+    bars(6).to_parquet(path, index=False)
+    with pytest.raises(manifest.ManifestError, match="content SHA-256"):
+        manifest.verify(path)
 
 
 def test_check_cli_reports_missing_ok_and_mismatch(listed, tmp_path, capsys):
@@ -176,9 +219,9 @@ def test_fixture_refuses_an_unlisted_source(tmp_path):
 
 # --- the real files (untracked; skipped when absent) --------------------------------
 
-@pytest.mark.parametrize("name", ["XAUUSD_1min_UTC_clean.parquet", "XAUUSD.txt"])
-def test_the_real_files_match_the_manifest(name):
-    path = DATA / name
+@pytest.mark.parametrize("key", [CLEAN, TXT, REAL_FIXTURE])
+def test_the_real_files_match_the_manifest(key):
+    path = ROOT / key
     if not path.exists():
-        pytest.skip(f"{name} not present (untracked)")
-    assert manifest.verify(path, content=name.endswith(".parquet")) == f"ohlcv_data/{name}"
+        pytest.skip(f"{key} not present (untracked)")
+    assert manifest.verify(path, content=key.endswith(".parquet")) == key

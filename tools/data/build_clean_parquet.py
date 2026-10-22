@@ -41,7 +41,7 @@ if str(ROOT) not in sys.path:
 from backend.datafeed.store import manifest  # noqa: E402
 
 START = "2020-01-01"
-PARQUET_KEY = "ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
+PARQUET_KEY = "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet"
 
 
 def build(txt: Path):

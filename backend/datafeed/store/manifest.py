@@ -1,23 +1,25 @@
 """The data manifest: what the untracked price files are, and their hashes.
 
 `manifest.json` (next to this file, shipped as package data so it is there in
-every image) lists each file under database/ that code reads but git doesn't
-hold. For each one: where it came from, how it was built, its date range and
-row count, and two hashes:
+every image) lists the price files code reads, by repo-relative path: the
+untracked real files under database/ and the fixtures. For each one: where it
+came from, how it was built, its date range and row count, and hashes:
 
 - `sha256`: of the file's bytes. verify() checks it, so a loader stops
   before reading a file that isn't the one the results were computed on.
 - `content_sha256` (parquet only): of the bars themselves (content_sha256()
   below), so a rebuilt file (tools/data/build_clean_parquet.py) can be
-  checked even though parquet writers don't produce identical bytes.
+  checked even though parquet writers don't produce identical bytes. An
+  entry with only a content hash (the fixtures, which are regenerated) is
+  checked by content.
 
 Files are matched by name (the manifest key's last part): a loader given a
 file with a listed name must get exactly that file; any other name (a test
 fixture, a scratch extract) isn't checked.
 
     python -m backend.datafeed.store.manifest check [--data-dir DIR] [--content]
-        every listed file in DIR (default database/ohlcv_data): missing,
-        ok, or MISMATCH. Exit 1 on any mismatch, 0 otherwise.
+        every listed file (at its path, or by name in DIR): missing, ok, or
+        MISMATCH. Exit 1 on any mismatch, 0 otherwise.
     python -m backend.datafeed.store.manifest describe PATH
         the hashes, size, rows and range of PATH, as JSON, for a new entry.
 
@@ -35,6 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 
 MANIFEST = Path(__file__).with_name("manifest.json")
+ROOT = Path(__file__).resolve().parents[3]              # the repo root; manifest keys are relative to it
 SCHEMA = "data_manifest/1"
 # the parquet columns content_sha256 covers, in this order
 CONTENT_COLUMNS = ("timestamp", "open", "high", "low", "close", "volume")
@@ -99,14 +102,16 @@ def verify(path, *, content: bool = False) -> str | None:
     """Raise ManifestError unless `path` matches its entry. Returns the key,
     or None when no entry has this name (nothing to check). The byte hash is
     computed once per process per unchanged file. content=True also checks
-    content_sha256 (parquet entries only)."""
+    content_sha256 (parquet entries only); an entry without `sha256` is
+    always checked by content."""
     found = entry_for(path)
     if found is None:
         return None
     key, entry = found
     st = os.stat(path)
     memo = (os.path.realpath(path), st.st_size, st.st_mtime_ns)
-    if memo not in _verified:
+    content = content or "sha256" not in entry
+    if memo not in _verified and "sha256" in entry:
         if st.st_size != entry["bytes"]:
             raise ManifestError(f"{path}: {st.st_size} bytes, the manifest's {key} has {entry['bytes']}; "
                                 f"not the file the results were computed on")
@@ -114,7 +119,7 @@ def verify(path, *, content: bool = False) -> str | None:
         if got != entry["sha256"]:
             raise ManifestError(f"{path}: SHA-256 {got}, the manifest's {key} has {entry['sha256']}; "
                                 f"not the file the results were computed on")
-        _verified[memo] = key
+    _verified[memo] = key
     if content:
         if "content_sha256" not in entry:
             raise ManifestError(f"{key} has no content_sha256 (not a parquet entry)")
@@ -138,11 +143,11 @@ def describe(path) -> dict:
     return out
 
 
-def check(data_dir, content: bool = False, out=None) -> int:
+def check(data_dir=None, content: bool = False, out=None) -> int:
     out = out or sys.stdout
     bad = 0
     for key in load()["files"]:
-        p = Path(data_dir) / Path(key).name
+        p = Path(data_dir) / Path(key).name if data_dir else ROOT / key
         if not p.exists():
             print(f"missing   {key} (not at {p})", file=out)
             continue
@@ -156,11 +161,10 @@ def check(data_dir, content: bool = False, out=None) -> int:
 
 
 def main(argv=None) -> int:
-    root = Path(__file__).resolve().parents[3]
     ap = argparse.ArgumentParser(prog="python -m backend.datafeed.store.manifest")
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("check")
-    c.add_argument("--data-dir", default=str(root / "database" / "ohlcv_data"))
+    c.add_argument("--data-dir", help="look for each file by name here instead of at its path")
     c.add_argument("--content", action="store_true", help="also check the parquet's content_sha256 (pandas)")
     d = sub.add_parser("describe")
     d.add_argument("path")
