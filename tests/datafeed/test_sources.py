@@ -230,7 +230,7 @@ def test_entry_point_stdout(tmp_path):
            "DATAFEED_REPLAY_START": "2025-06-11", "DATAFEED_REPLAY_END": "2025-06-12"}
     env.pop("REDIS_URL", None)
     r = subprocess.run([sys.executable, "-m", "backend.datafeed.ingest", "--stdout"], env=env,
-                       capture_output=True, text=True, cwd=ROOT / "tests")
+                       capture_output=True, text=True, cwd=ROOT / "tests", timeout=60)   # F4: a hang fails here
     assert r.returncode == 0, r.stderr
     lines = [json.loads(x) for x in r.stdout.splitlines()]
     assert [m["close"] for m in lines] == [1.5, 2.5, 3.5]
@@ -241,6 +241,35 @@ def test_entry_point_unknown_source():
     r = subprocess.run([sys.executable, "-m", "backend.datafeed.ingest", "--stdout"], env=env,
                        capture_output=True, text=True)
     assert r.returncode != 0
+
+
+
+# F4: the entry point ends with os._exit (no C++ static destructors, so no
+# pyarrow thread-pool deadlock at exit), with the status Python would give.
+@pytest.mark.parametrize("ends, code, stderr", [
+    (lambda: 0, 0, ""),
+    (lambda: 3, 3, ""),
+    (lambda: sys.exit(2), 2, ""),                                  # argparse errors
+    (lambda: sys.exit(), 0, ""),
+    (lambda: sys.exit("unknown DATAFEED_SOURCE='nope'"), 1, "unknown DATAFEED_SOURCE='nope'"),
+    (lambda: 1 / 0, 1, "ZeroDivisionError"),
+    (lambda: (_ for _ in ()).throw(KeyboardInterrupt), 130, "KeyboardInterrupt"),
+], ids=["ok", "status", "argparse", "exit-none", "exit-message", "exception", "ctrl-c"])
+def test_run_exits_hard_with_pythons_status(monkeypatch, capsys, ends, code, stderr):
+    from backend.datafeed.ingest import __main__ as entry
+
+    class Exited(Exception):
+        pass
+
+    def fake_exit(c):
+        raise Exited(c)
+
+    monkeypatch.setattr(entry, "main", lambda argv=None: ends())
+    monkeypatch.setattr(entry.os, "_exit", fake_exit)
+    with pytest.raises(Exited) as e:
+        entry.run([])
+    assert e.value.args == (code,)
+    assert stderr in capsys.readouterr().err
 
 
 @pytest.mark.ibkr
