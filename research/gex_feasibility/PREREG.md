@@ -167,3 +167,38 @@ nothing to |GEX| and need no IV.
   assumption. If R is high, the net could still be much smaller.
 - **D counts the futures volume only,** not spot or OTC gold, so R overstates
   the share of all gold trading.
+
+## Amendment 1 (2026-10-22, before any data was read)
+
+By the owner's instruction after probe attempt 1. The text above is unchanged.
+The header says this file isn't edited once the probe has run. Attempt 1 ran,
+but read **no data**: it stopped after reference data (the GC futures list and
+the option-chain definitions). It read no quotes, open interest, IV, gamma or
+volume. This amendment is committed before the next run.
+
+**Attempt 1** (2026-10-22 10:43 UTC, exit 1): "only 2 OG expiries at least
+2 days away: ['20261027', '20261124']".
+- The probe had asked for the OG chains of the first 4 GC futures in IBKR's
+  list.
+- The likely cause: IBKR lists GC months consecutively (Oct, Nov, Dec, Jan,
+  ...), while OG options sit only on some of them. GCG7, which carries the
+  Dec 28 and Jan 26 expiries, came after the first 4.
+- This wasn't confirmed: that probe didn't log which futures it queried.
+
+Changes:
+1. **Expiry discovery.** The OG chain (`reqSecDefOptParams`) is asked for each
+   GC future in expiry order, until 3 eligible expiries are found, at most 12
+   futures.
+   - Each expiry is recorded with the underlying future whose chain listed
+     it, and with the underlyings its contracts' details name (`underConId`).
+     The underlying used for F stays the contract's `underConId`, as above.
+   - Every future queried is logged, with the OG expiries its chain returned.
+2. **Fallback to 2 expiries.** If fewer than 3 eligible OG expiries exist after
+   step 1, the next 2 are used.
+   - The JSON and the report record that, and why.
+   - With fewer than 2 the probe stops (exit 1).
+   - In the fallback case, the "next 2 expiries only" sensitivity equals R.
+3. **Nothing else changes:** the metric, the thresholds, the gates, the IV fill
+   rule and D are as above.
+
+Attempts are listed in `ATTEMPTS.md`; `analyze.py` copies them into the report.
