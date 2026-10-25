@@ -122,3 +122,93 @@ def test_attempt_counter(tmp_path, monkeypatch):
 
 def test_committed_counter_is_zero():
     assert stage1.attempts()["outcome_analyses"] == 0
+
+
+# --- data check and Q1 counts ---------------------------------------------------------
+
+def bars_at(times):
+    idx = pd.DatetimeIndex(sorted(times), name="timestamp")
+    return pd.DataFrame({"open": 1.0, "high": 1.1, "low": 0.9, "close": 1.0}, index=idx)
+
+
+def with_break(first, days):
+    """2015+-style: every open minute (16:59 NY is the last bar before the break)."""
+    t = pd.Timestamp(first, tz="UTC")
+    return [t + pd.Timedelta(minutes=k) for k in range(days * 1440)
+            if _market_open((t + pd.Timedelta(minutes=k)).to_pydatetime())]
+
+
+def continuous(first, days):
+    """2007-2011-style: every minute Mon 00:00 .. Fri 23:59 UTC, no daily break."""
+    t = pd.Timestamp(first, tz="UTC")
+    return [t + pd.Timedelta(minutes=k) for k in range(days * 1440)
+            if (t + pd.Timedelta(minutes=k)).weekday() <= 4]
+
+
+def test_break_table_tells_a_daily_break_from_none():
+    b = stage1.break_table(bars_at(with_break("2019-06-02", 14)))     # June: US DST
+    row = b.loc[(2019, "DST")]
+    assert row["break_min_mode"] == 61 and row["break_share"] == 1.0
+    assert (row["last_bar_mode_utc"], row["first_bar_mode_utc"]) == ("20:59", "22:00")
+    c = stage1.break_table(bars_at(continuous("2008-06-02", 14)))
+    assert c.loc[(2008, "DST")]["break_min_mode"] == 1
+    w = stage1.break_table(bars_at(with_break("2019-01-06", 14)))     # January: standard time
+    assert (w.loc[(2019, "STD")]["last_bar_mode_utc"], w.loc[(2019, "STD")]["first_bar_mode_utc"]) == ("21:59", "23:00")
+
+
+def test_holiday_table_counts_by_utc_date_and_hour():
+    xmas = pd.Timestamp("2018-12-25", tz="UTC")
+    closed = [t for t in with_break("2018-12-23", 4)                   # 2012+-style: closed on the day,
+              if t.normalize() != xmas or t.hour == 23]                # reopening at 23:00 UTC
+    times = closed + continuous("2008-12-22", 5)
+    h = stage1.holiday_table(bars_at(times), range(2008, 2020))
+    assert h.loc[2018, "bars_dec_25"] == 60 and h.loc[2018, "holiday_bars_at_23_utc"] == 60   # the 23:00 reopening only
+    assert h.loc[2018, "holiday_bars_other_hours"] == 0
+    assert h.loc[2008, "bars_dec_25"] == 1440 and h.loc[2008, "holiday_bars_other_hours"] == 1380
+    assert h.loc[2019, "good_friday"] == "2019-04-19" and h.loc[2008, "good_friday"] == "2008-03-21"
+    assert (h["bars_on_utc_saturdays"] == 0).all()
+
+
+def test_bars_per_trade_date_and_weekend_trade_dates():
+    b = stage1.bars_per_trade_date(bars_at(with_break("2019-06-02", 14)))
+    assert b.loc[2019, "median_bars_per_trade_date"] == 1380 and b.loc[2019, "weekend_trade_dates"] == 0
+    c = stage1.bars_per_trade_date(bars_at(continuous("2008-06-02", 14)))
+    assert c.loc[2008, "weekend_trade_dates"] == 2                    # Friday evenings roll to Saturday's date
+
+
+def test_candle_and_label_counts():
+    m = bars_at(with_break("2019-06-03", 1))                          # a Monday: open but for the 21:00 hour
+    c15, c30 = stage1.candle_counts(m, 15), stage1.candle_counts(m, 30)
+    assert c15.loc[2019, "buckets_15m_complete"] == 92 and c15.loc[2019, "buckets_15m_complete_ending_on_hour"] == 23
+    assert c30.loc[2019, "buckets_30m_complete"] == 46 and c30.loc[2019, "buckets_30m_complete_ending_on_hour"] == 23
+    gap = m.drop(m.index[5])                                          # one missing minute
+    assert stage1.candle_counts(gap, 15).loc[2019, "buckets_15m_complete"] == 91
+    with pytest.raises(ValueError):
+        stage1.candle_counts(m, 7)
+    assert stage1.label_counts(m).loc[2019] == 23
+
+
+def test_committed_counts_hold_counts_only():
+    d = json.loads((Path(__file__).resolve().parent / "results" / "q1_event_counts.json").read_text())
+    for v in [*d["per_year"].values(), d["totals"], *d["subtotals"].values()]:
+        assert all(isinstance(x, int) for x in v.values()), v
+    t, s = d["totals"], d["subtotals"]
+    assert all(t[k] == s["2007-2011"][k] + s["2012-2020"][k] for k in t)
+    assert set(d["per_year"]) == {str(y) for y in range(2007, 2021)}
+
+
+def test_q1_counts_reads_the_notebook_register():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("q1_counts", Path(__file__).resolve().parent / "q1_counts.py")
+    q = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(q)
+    ns = q.register()
+    assert ns["need"]("DEV_START") == "2007-01-01T00:00:00+00:00" and ns["need"]("HORIZONS") == (60, 240)
+    for open_id in ("Q1_TIMEFRAME", "DATA_CHECK_ACCEPTED", "L_TERCILES", "Q2_SEED"):
+        with pytest.raises(ns["RegisterError"], match="OPEN"):
+            ns["need"](open_id)
+    with pytest.raises(ns["RegisterError"], match="PROPOSED"):
+        ns["need"]("Q1_SCORING")
+    statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
+    assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
+    assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled

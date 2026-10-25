@@ -1,0 +1,170 @@
+{
+ "what": "event counts per year on the dev period; counts only (no sigma, outcome or price)",
+ "dev_period_utc": [
+  "2007-01-01T00:00:00+00:00",
+  "2021-01-01T00:00:00+00:00"
+ ],
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAUUSD.txt",
+  "manifest_sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9",
+  "cache_equals_fresh_parse": true,
+  "cache_rows": 6971972
+ },
+ "per_year": {
+  "2007": {
+   "buckets_15m_any": 25054,
+   "buckets_15m_complete": 16454,
+   "buckets_15m_complete_ending_on_hour": 4021,
+   "buckets_30m_any": 12527,
+   "buckets_30m_complete": 7025,
+   "buckets_30m_complete_ending_on_hour": 3466,
+   "hourly_labels": 6263
+  },
+  "2008": {
+   "buckets_15m_any": 25152,
+   "buckets_15m_complete": 21169,
+   "buckets_15m_complete_ending_on_hour": 5229,
+   "buckets_30m_any": 12576,
+   "buckets_30m_complete": 9782,
+   "buckets_30m_complete_ending_on_hour": 4877,
+   "hourly_labels": 6288
+  },
+  "2009": {
+   "buckets_15m_any": 25056,
+   "buckets_15m_complete": 21731,
+   "buckets_15m_complete_ending_on_hour": 5403,
+   "buckets_30m_any": 12528,
+   "buckets_30m_complete": 10177,
+   "buckets_30m_complete_ending_on_hour": 5137,
+   "hourly_labels": 6264
+  },
+  "2010": {
+   "buckets_15m_any": 25048,
+   "buckets_15m_complete": 22643,
+   "buckets_15m_complete_ending_on_hour": 5635,
+   "buckets_30m_any": 12524,
+   "buckets_30m_complete": 10760,
+   "buckets_30m_complete_ending_on_hour": 5412,
+   "hourly_labels": 6263
+  },
+  "2011": {
+   "buckets_15m_any": 24809,
+   "buckets_15m_complete": 23685,
+   "buckets_15m_complete_ending_on_hour": 5876,
+   "buckets_30m_any": 12415,
+   "buckets_30m_complete": 11701,
+   "buckets_30m_complete_ending_on_hour": 5851,
+   "hourly_labels": 6211
+  },
+  "2012": {
+   "buckets_15m_any": 23751,
+   "buckets_15m_complete": 23197,
+   "buckets_15m_complete_ending_on_hour": 5793,
+   "buckets_30m_any": 11959,
+   "buckets_30m_complete": 11451,
+   "buckets_30m_complete_ending_on_hour": 5737,
+   "hourly_labels": 6060
+  },
+  "2013": {
+   "buckets_15m_any": 23718,
+   "buckets_15m_complete": 23023,
+   "buckets_15m_complete_ending_on_hour": 5719,
+   "buckets_30m_any": 11940,
+   "buckets_30m_complete": 11319,
+   "buckets_30m_complete_ending_on_hour": 5655,
+   "hourly_labels": 6049
+  },
+  "2014": {
+   "buckets_15m_any": 23640,
+   "buckets_15m_complete": 23243,
+   "buckets_15m_complete_ending_on_hour": 5813,
+   "buckets_30m_any": 11914,
+   "buckets_30m_complete": 11514,
+   "buckets_30m_complete_ending_on_hour": 5782,
+   "hourly_labels": 6049
+  },
+  "2015": {
+   "buckets_15m_any": 23680,
+   "buckets_15m_complete": 23543,
+   "buckets_15m_complete_ending_on_hour": 5886,
+   "buckets_30m_any": 11886,
+   "buckets_30m_complete": 11749,
+   "buckets_30m_complete_ending_on_hour": 5877,
+   "hourly_labels": 5989
+  },
+  "2016": {
+   "buckets_15m_any": 23640,
+   "buckets_15m_complete": 23584,
+   "buckets_15m_complete_ending_on_hour": 5890,
+   "buckets_30m_any": 11831,
+   "buckets_30m_complete": 11777,
+   "buckets_30m_complete_ending_on_hour": 5885,
+   "hourly_labels": 5926
+  },
+  "2017": {
+   "buckets_15m_any": 23555,
+   "buckets_15m_complete": 23473,
+   "buckets_15m_complete_ending_on_hour": 5842,
+   "buckets_30m_any": 11794,
+   "buckets_30m_complete": 11711,
+   "buckets_30m_complete_ending_on_hour": 5840,
+   "hourly_labels": 5912
+  },
+  "2018": {
+   "buckets_15m_any": 23617,
+   "buckets_15m_complete": 23392,
+   "buckets_15m_complete_ending_on_hour": 5807,
+   "buckets_30m_any": 11810,
+   "buckets_30m_complete": 11605,
+   "buckets_30m_complete_ending_on_hour": 5773,
+   "hourly_labels": 5906
+  },
+  "2019": {
+   "buckets_15m_any": 23554,
+   "buckets_15m_complete": 22888,
+   "buckets_15m_complete_ending_on_hour": 5681,
+   "buckets_30m_any": 11781,
+   "buckets_30m_complete": 11198,
+   "buckets_30m_complete_ending_on_hour": 5577,
+   "hourly_labels": 5893
+  },
+  "2020": {
+   "buckets_15m_any": 23702,
+   "buckets_15m_complete": 23636,
+   "buckets_15m_complete_ending_on_hour": 5910,
+   "buckets_30m_any": 11852,
+   "buckets_30m_complete": 11788,
+   "buckets_30m_complete_ending_on_hour": 5893,
+   "hourly_labels": 5926
+  }
+ },
+ "totals": {
+  "buckets_15m_any": 337976,
+  "buckets_15m_complete": 315661,
+  "buckets_15m_complete_ending_on_hour": 78505,
+  "buckets_30m_any": 169337,
+  "buckets_30m_complete": 153557,
+  "buckets_30m_complete_ending_on_hour": 76762,
+  "hourly_labels": 84999
+ },
+ "subtotals": {
+  "2007-2011": {
+   "buckets_15m_any": 125119,
+   "buckets_15m_complete": 105682,
+   "buckets_15m_complete_ending_on_hour": 26164,
+   "buckets_30m_any": 62570,
+   "buckets_30m_complete": 49445,
+   "buckets_30m_complete_ending_on_hour": 24743,
+   "hourly_labels": 31289
+  },
+  "2012-2020": {
+   "buckets_15m_any": 212857,
+   "buckets_15m_complete": 209979,
+   "buckets_15m_complete_ending_on_hour": 52341,
+   "buckets_30m_any": 106767,
+   "buckets_30m_complete": 104112,
+   "buckets_30m_complete_ending_on_hour": 52019,
+   "hourly_labels": 53710
+  }
+ }
+}

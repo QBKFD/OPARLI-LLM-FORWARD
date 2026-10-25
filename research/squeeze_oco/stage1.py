@@ -189,3 +189,98 @@ def bump_attempt(what: str, by: str) -> int:
     d["log"].append({"n": d["outcome_analyses"], "date": date.today().isoformat(), "what": what, "by": by})
     ATTEMPTS.write_text(json.dumps(d, indent=1) + "\n")
     return d["outcome_analyses"]
+
+
+# ----------------------------------------------------------------- data check (before steps 2-4)
+
+def _trade_dates(m: pd.DataFrame) -> pd.DatetimeIndex:
+    """audit_long.session_date: the New York trading date (18:00 NY opens the next date)."""
+    import audit_long
+    return audit_long.session_date(m.index.tz_convert("UTC").tz_localize(None))
+
+
+def break_table(m: pd.DataFrame) -> pd.DataFrame:
+    """Where the daily break falls in UTC: per year and US-DST season (audit_long.us_dst
+    on the trade date), the most common gap in minutes from a Mon-Thu trade date's
+    last bar to the next trade date's first bar (its share among those gaps), and the
+    most common UTC clock time of each trade date's last and first bar (their shares).
+    The first bar at 18:00 New York follows from the trade-date cut itself; the
+    break shows in the gap."""
+    import audit_long
+    td = _trade_dates(m)
+    f = pd.DataFrame({"td": td, "hm": m.index.strftime("%H:%M")}, index=m.index)
+    g = f.groupby("td")["hm"]
+    ts = pd.Series(m.index, index=m.index).groupby(td.values)
+    days = pd.DataFrame({"last": g.last(), "first": g.first()})
+    # minutes from a trade date's last bar to the next trade date's first bar
+    # (Mon-Thu trade dates only, so the weekend isn't counted as a break)
+    gap = (ts.min().shift(-1) - ts.max()).dt.total_seconds() / 60
+    days["break_min"] = np.where(days.index.weekday <= 3, gap.to_numpy(), np.nan)
+    days["season"] = np.where(audit_long.us_dst(pd.DatetimeIndex(days.index)), "DST", "STD")
+    days["year"] = days.index.year
+    rows = []
+    for (y, s), x in days.groupby(["year", "season"]):
+        lv, fv = x["last"].value_counts(), x["first"].value_counts()
+        bv = x["break_min"].dropna().value_counts()
+        rows.append({"year": y, "season": s, "trade_dates": len(x),
+                     "break_min_mode": bv.index[0] if len(bv) else np.nan,
+                     "break_share": bv.iloc[0] / bv.sum() if len(bv) else np.nan,
+                     "last_bar_mode_utc": lv.index[0], "last_share": lv.iloc[0] / len(x),
+                     "first_bar_mode_utc": fv.index[0], "first_share": fv.iloc[0] / len(x)})
+    return pd.DataFrame(rows).set_index(["year", "season"])
+
+
+def holiday_table(m: pd.DataFrame, years: range) -> pd.DataFrame:
+    """Bars per year on the UTC calendar dates 1 January, 25 December and Good Friday
+    (pandas.tseries.holiday.GoodFriday); how many of those fall in the 23:00 UTC hour
+    (where a winter session opens for the next date) and how many in other hours;
+    and bars on UTC Saturdays."""
+    from pandas.tseries.holiday import GoodFriday
+    idx = m.index.tz_convert("UTC")
+    day = idx.normalize().tz_localize(None)
+    counts = pd.Series(day).value_counts()
+    rows = []
+    for y in years:
+        gf = GoodFriday.dates(pd.Timestamp(y, 1, 1), pd.Timestamp(y, 12, 31))[0]
+        on = idx[day.isin([pd.Timestamp(y, 1, 1), pd.Timestamp(y, 12, 25), gf])]
+        rows.append({"year": y, "bars_jan_1": int(counts.get(pd.Timestamp(y, 1, 1), 0)),
+                     "bars_dec_25": int(counts.get(pd.Timestamp(y, 12, 25), 0)),
+                     "good_friday": gf.date().isoformat(), "bars_good_friday": int(counts.get(gf, 0)),
+                     "holiday_bars_at_23_utc": int((on.hour == 23).sum()),
+                     "holiday_bars_other_hours": int((on.hour != 23).sum()),
+                     "bars_on_utc_saturdays": int(((idx.year == y) & (idx.weekday == 5)).sum())})
+    return pd.DataFrame(rows).set_index("year")
+
+
+def bars_per_trade_date(m: pd.DataFrame) -> pd.DataFrame:
+    """Per year: trade dates Monday-Friday, the median bars per such trade date, and
+    the trade dates falling on a Saturday or Sunday (there should be none)."""
+    td = pd.Series(_trade_dates(m)).value_counts().sort_index()
+    wk = td[td.index.weekday <= 4]
+    we = td[td.index.weekday > 4]
+    return pd.DataFrame({"trade_dates_mon_fri": wk.groupby(wk.index.year).size(),
+                         "median_bars_per_trade_date": wk.groupby(wk.index.year).median(),
+                         "weekend_trade_dates": we.groupby(we.index.year).size()}).fillna(0).astype(int)
+
+
+# ----------------------------------------------------------------- Q1 sample sizes without sigma (PROPOSALS.md)
+
+def candle_counts(m: pd.DataFrame, minutes: int) -> pd.DataFrame:
+    """Per year: `minutes`-minute UTC buckets (aligned to the hour) with at least
+    one 1-min bar, those with all `minutes` bars, and the complete ones that end on
+    the hour (where an hourly label, and so a HAR state, exists). Counts only."""
+    if 60 % minutes:
+        raise ValueError(f"{minutes} doesn't divide the hour")
+    b = m.index.floor(f"{minutes}min")
+    n = pd.Series(1, index=b).groupby(level=0).sum()
+    full = n[n == minutes]
+    on_hour = full[((full.index + pd.Timedelta(minutes=minutes)).minute == 0)]
+    by = lambda s: s.groupby(s.index.year).size()  # noqa: E731
+    return pd.DataFrame({f"buckets_{minutes}m_any": by(n), f"buckets_{minutes}m_complete": by(full),
+                         f"buckets_{minutes}m_complete_ending_on_hour": by(on_hour)}).fillna(0).astype(int)
+
+
+def label_counts(m: pd.DataFrame) -> pd.Series:
+    """Hourly labels per year (vol_block's 1-hour rows: the grid's size before any state)."""
+    lab = pd.DatetimeIndex(vb._bar_labels(m.index).unique())
+    return lab.to_series().groupby(lab.year).size().rename("hourly_labels")
