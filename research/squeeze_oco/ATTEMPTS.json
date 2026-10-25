@@ -1,0 +1,5 @@
+{
+ "about": "Outcome analyses of research/squeeze_oco, counted. Any analysis that looks at an outcome (a Q1 result, a strategy result) calls stage1.bump_attempt() first. Stage 1 is descriptive and does not count.",
+ "outcome_analyses": 0,
+ "log": []
+}
