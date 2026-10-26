@@ -19,6 +19,38 @@ report is right.
   seen data.
 - Studies before `levels_confirm/` assert timestamps before 2024-01-01.
 
+## Data eras in XAUUSD.txt (added 2026-10-26)
+
+`research/squeeze_oco/` checked the 1-min file year by year for 2007–2020. The executed notebook at commit
+`338c180` holds the tables, in "Data check: result". It found three eras (OBSERVED there):
+
+| | 2007–2011 | 2012–2014 | 2015–2020 |
+|---|---|---|---|
+| Daily break (most common gap between sessions) | **1 min: none** | 60 min | 61 min |
+| Last bar before the break, UTC (summer / winter) | 21:59 / 22:59 | 21:00 / 22:00 | 20:59 / 21:59 |
+| Bars on 1 Jan, 25 Dec, Good Friday | 2007–2010: 512–996 a day, at all hours; 2011: Good Friday only (818) | only at 23:00 UTC, the next session's open | only at 23:00 UTC |
+| Trade dates falling on a Saturday (Friday-evening bars) | 49–52 a year | 0–1 | 0 |
+| Median bars per Mon–Fri trade date | 1,335–1,412 | 1,378–1,380 | 1,377–1,380 |
+
+INFERRED (squeeze_oco): 2007–2011 come from a different feed or session convention: 24-hour trading, through
+CME holidays, with Friday-evening sessions. The timestamps are UTC in every era: the session edges move by one
+UTC hour with US DST. The one-minute difference between 2012–2014 and 2015–2020 is cosmetic (owner,
+2026-10-26). `squeeze_oco` uses 2012–2020 only.
+
+**Earlier studies used 2007–2020, including the 2007–2011 era.** Their "CONF" or development period (table
+below):
+- `vol_features_r2/` and `vol_features_r3/` (rows 2–3; loader `vol_features_r3/run_r3.py:89`);
+- `trend_features/`, `regime_v2/` and `levels/` (rows 5–7);
+- `sigma_compare/` (row 10; `sigma_compare/run_sigma.py:54-57`), so also the shipped HAR fit `txt2007_2023`;
+- `levels_diag/` (2007–2023, row 9);
+- the plans in `agents_v1/` and `level_target/` (rows 11–12).
+
+`vol_features/` (round 1, 2021–2023) and the default HAR model `parquet2021_2023` (2021–2023) don't touch it.
+sigma_compare already reported its eras 2008–2012 / 2013–2020 (`sigma_compare/REPORT.md:24-25`). But its
+expanding training windows start in 2007, so every fold was fitted with 2007–2011 data. A check that reruns
+sigma_compare on 2012–2020 only is proposed, not run: [`era_check/PROPOSAL.md`](era_check/PROPOSAL.md). No
+verdict changes unless the owner decides so.
+
 ## Studies
 
 | # | Study | Question | PREREG | Data | Status (per its REPORT.md) |
