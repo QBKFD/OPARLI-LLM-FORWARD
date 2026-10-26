@@ -132,10 +132,12 @@ def sliding_runs(sc: pd.DataFrame, thr: dict[int, float], minutes: int, r: int) 
     return int((full.astype(int).rolling(r).sum() == r).sum())
 
 
-def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacings_min: tuple) -> dict:
+def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacings_min: tuple,
+               quantiles: tuple) -> dict:
     """How clustered the run ends are: gaps between consecutive runs (hours),
     the share whose previous hourly label is also a run, the longest chain of
-    consecutive hourly runs, trade dates with runs, and for each spacing S (min)
+    consecutive hourly runs, trade dates with runs, runs per UTC hour of the
+    label, and for each spacing S (min)
     the runs kept by a greedy pass that keeps a run only S or more minutes after
     the last kept one."""
     t = pd.DatetimeIndex(run_ends).sort_values()
@@ -143,7 +145,7 @@ def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacin
     if len(t) == 0:
         return out
     gap_h = np.diff(t.asi8) / 3.6e12
-    out["gap_hours_quantiles"] = {str(p): float(np.quantile(gap_h, p)) for p in (0.1, 0.25, 0.5, 0.75, 0.9)} if len(gap_h) else {}
+    out["gap_hours_quantiles"] = {str(p): float(np.quantile(gap_h, p)) for p in quantiles} if len(gap_h) else {}
     out["share_previous_label_also_run"] = float(np.mean(gap_h == 1.0)) if len(gap_h) else 0.0
     chain, best = 1, 1
     for g in gap_h:
@@ -155,6 +157,7 @@ def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacin
     out["trade_dates_with_runs"] = int(len(per))
     out["runs_per_trade_date_max"] = int(per.max())
     out["runs_per_trade_date_share_1"] = float(np.mean(per == 1))
+    out["runs_per_utc_hour_of_label"] = {int(h): int(n) for h, n in pd.Series(t.hour).value_counts().sort_index().items()}
     for S in spacings_min:
         kept, last = 0, None
         for x in t.asi8:
@@ -167,7 +170,7 @@ def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacin
 # ----------------------------------------------------------------- the counts the rule reads
 
 def event_counts(sc: pd.DataFrame, grid: pd.DataFrame, years: list[int], qs: tuple, r_values: tuple,
-                 minutes: int, spacings_min: tuple) -> dict:
+                 minutes: int, spacings_min: tuple, quantiles: tuple) -> dict:
     """Counts only, per (q, r): the walk-forward thresholds, and per year of the
     run's label: runs at the grid's labels (candle-disjoint by construction),
     the same restricted to labels whose H-window doesn't cross a close (a
@@ -193,7 +196,7 @@ def event_counts(sc: pd.DataFrame, grid: pd.DataFrame, years: list[int], qs: tup
             out["per_year"][(q, r)] = yrs
             out["totals"][(q, r)] = {k: sum(v[k] for v in yrs.values()) for k in next(iter(yrs.values()))}
             td = audit_long.session_date((ends - pd.Timedelta(minutes=minutes)).tz_localize(None))
-            out["clustering"][(q, r)] = clustering(ends, td, spacings_min)
+            out["clustering"][(q, r)] = clustering(ends, td, spacings_min, quantiles)
     return out
 
 

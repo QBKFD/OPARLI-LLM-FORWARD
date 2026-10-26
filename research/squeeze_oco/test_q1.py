@@ -191,11 +191,12 @@ def test_clustering():
     t = pd.DatetimeIndex(["2013-03-05 10:00", "2013-03-05 11:00", "2013-03-05 12:00", "2013-03-05 20:00",
                           "2013-03-07 10:00"], tz="UTC")
     td = pd.DatetimeIndex(["2013-03-05"] * 4 + ["2013-03-07"])
-    c = q1.clustering(t, td, (240,))
+    c = q1.clustering(t, td, (240,), (0.5,))
     assert c["runs"] == 5 and c["longest_chain_hours"] == 3
     assert c["share_previous_label_also_run"] == pytest.approx(2 / 4)
     assert c["trade_dates_with_runs"] == 2 and c["runs_per_trade_date_max"] == 4
     assert c["greedy_spaced_240min"] == 3                               # 10:00, 20:00, day 3
+    assert c["runs_per_utc_hour_of_label"] == {10: 2, 11: 1, 12: 1, 20: 1}
 
 
 def test_choose_follows_the_owners_rule():
@@ -213,7 +214,7 @@ def test_event_counts_on_synthetic_bars_across_a_year_end():
     ctx = stage1.context(m, end, (60, 240), 0.90)
     sc = q1.candle_scores(m, ctx, model, 15, 60)
     grid = stage1.state_table(ctx, model, start, end)
-    ec = q1.event_counts(sc, grid, [2018, 2019], (0.20, 0.25), (3, 4), 15, (60, 240))
+    ec = q1.event_counts(sc, grid, [2018, 2019], (0.20, 0.25), (3, 4), 15, (60, 240), (0.5,))
     for key, yrs in ec["per_year"].items():
         assert yrs[2018]["runs"] == 0                                     # the first year has no threshold
         assert ec["totals"][key]["runs"] == sum(v["runs"] for v in yrs.values()) == ec["clustering"][key]["runs"]

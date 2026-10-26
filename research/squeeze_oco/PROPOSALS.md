@@ -1,5 +1,7 @@
 # Q1: options for the OPEN items (for the owner's decision)
 
+**Decided 2026-10-26 (owner):** 15 min; option B; quantile threshold, walk-forward; (q, r) by a rule, which chose q = 0.20, r = 4; H = 240 primary and 60 secondary; scoring A. See `Q1_SETUP.md`. This file stays as the record of the options.
+
 **Status:** proposals only. Q1 has not been run. Nothing here looks at an outcome or a forward return, or uses
 σ. Every register entry named here stays OPEN (or PROPOSED, for Q1_SCORING) until the owner decides.
 

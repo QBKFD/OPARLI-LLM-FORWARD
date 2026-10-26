@@ -214,13 +214,21 @@ def test_q1_counts_reads_the_notebook_register():
     assert need("DEV_START") == "2012-01-01T00:00:00+00:00" and need("DEV_END_EXCL") == "2021-01-01T00:00:00+00:00"
     assert need("HORIZONS") == (60, 240)
     assert need("L_TERCILES") == (-0.4144399979178456, -0.018438540066194775)       # PR #42's file, :6-7
-    assert "2007-2011 excluded" in need("DATA_CHECK_ACCEPTED") and need("Q1_SCORING").startswith("sigma_compare")
-    for open_id in ("Q1_TIMEFRAME", "Q1_SMALL_DEF", "Q1_RUN_LENGTH", "Q1_H", "Q2_SEED"):
+    assert "2007-2011 excluded" in need("DATA_CHECK_ACCEPTED") and need("Q1_SCORING")["test"].startswith("A: sigma_compare")
+    # the owner's Q1 decisions (decision log #21-#25) and the rule's result (#28)
+    assert need("Q1_TIMEFRAME") == 15 and need("Q1_SMALL_DEF")["option"] == "B"
+    assert need("Q1_H") == {"primary": 240, "secondary": 60, "multiplicity": "BH across the two"}
+    assert (need("Q1_SMALL_Q"), need("Q1_RUN_LENGTH")) == (0.20, 4)
+    assert ns["_REG"]["Q1_SMALL_Q"]["status"] == ns["_REG"]["Q1_RUN_LENGTH"]["status"] == "APPROVED-BY-RULE"
+    for open_id in ("Q1_FOLDS", "Q1_AUG_FIT", "Q2_SEED"):
         with pytest.raises(ns["RegisterError"], match="OPEN"):
             need(open_id)
+    for proposed in ("Q1_NW_LAG_240", "Q1_NW_LAG_60"):
+        with pytest.raises(ns["RegisterError"], match="PROPOSED"):
+            need(proposed)
     statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
     assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
-    assert "PROPOSED" not in statuses.values()
+    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_NW_LAG_240", "Q1_NW_LAG_60"]
     assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled
 
 
