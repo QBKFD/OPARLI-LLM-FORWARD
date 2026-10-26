@@ -212,7 +212,7 @@ Later tables follow the same append-only, `ingest_ts`-versioned pattern
 | `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store. `sigma_over` = HAR sigma over the next H market-open minutes (H = 60, 240) from a shipped model in `features/models/`, SHA-256 pinned (research/sigma_compare); the former plug-in is `sigma_plugin`. Needs numpy and pandas |
 | `features/exposures.py` | planned, later PR |
 | `store/sealed.py` | planned, later PR |
-| `store/manifest.py` | planned, later PR |
+| `store/manifest.py`, `store/manifest.json` | v1: the data manifest (source, cleaning steps, range, SHA-256 of `XAUUSD.txt` and the clean parquet); `ReplaySource` checks it before reading. `python -m backend.datafeed.store.manifest check` |
 
 Later root-level packages (not part of this package): `time/`, `levels/`,
 `stats/`, `scanner/`.

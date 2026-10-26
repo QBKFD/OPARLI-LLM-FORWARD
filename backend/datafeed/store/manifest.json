@@ -1,0 +1,102 @@
+{
+ "schema": "data_manifest/1",
+ "about": "The price files code reads, by path from the repo root. Checked by backend/datafeed/store/manifest.py. The real files are IBKR data, licensed for the owner's own use only: untracked, never committed (public repo). Only the synthetic fixture is in git.",
+ "files": {
+  "database/ohlcv_data/XAUUSD.txt": {
+   "in_git": false,
+   "source": {
+    "provider": "IBKR historical data (the owner, 2026-10-22)",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "XAUUSD CMDTY (London gold spot, IBKR secType CMDTY; the repo's IBKR code asks for Contract(symbol='XAUUSD', secType='CMDTY', exchange='SMART', currency='USD'))",
+    "what_to_show": null,
+    "what_to_show_note": "unknown: the code that downloaded and converted this file isn't in the repo or any notes. The repo's IBKR history requests use MIDPOINT (backend/datafeed/ingest/ibkr.py, tools/data/fetch_data_xauusd.py), but this file's VOL column is positive on every row but one, and IBKR MIDPOINT bars carry no volume (-1; the old live bars had 0). So this file is probably not plain MIDPOINT. The backfill proposal settles it on the overlap (docs/BACKFILL_2026_PROPOSAL.md).",
+    "bar_size": "1 min",
+    "how": "downloaded from IBKR and converted to this text format by the owner, one-off (database/README.md); the download script and date are not recorded",
+    "file_mtime": "2026-02-17"
+   },
+   "format": "CSV with CRLF line ends. Line 1 is a header with a stray prefix: 'should contai<TICKER>,<DTYYYYMMDD>,<TIME>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>'. Then one 1-min bar per line: TICKER (XAUUSD),YYYYMMDD,HHMMSS,OPEN,HIGH,LOW,CLOSE,VOL; the time is the bar's open (the last bar before the daily break is 21:59 UTC in winter, the break being 22:00-23:00 UTC).",
+   "timezone": "UTC throughout the file (research/vol_features/DATA_AUDIT_LONG.md: best shift 0 in every year where it can be identified; research/levels_confirm/DATA_AUDIT_2024.md: UTC 2024-01 .. 2026-01; 2020-2023 equal the clean parquet close for close)",
+   "timezone_break": "2026-02-01: IBKR XAUUSD data fetched later switches from UTC to US-Eastern timestamps on that date. Seen in database/snapshots/XAUUSD_COMPLETE.csv (tools/data/fetch_data_xauusd.py, formatDate=1, which returns times in the TWS login's time zone): research/vol_features/DECISIONS.md item 6, research/levels_confirm/DATA_AUDIT_2024.md. This file ends 2026-01-30 21:59 UTC, before the break, and is UTC throughout. Any later IBKR data must be requested in UTC (formatDate=2) and checked against the session pattern, never assumed UTC.",
+   "rows": 7710890,
+   "first_ts": "2003-05-06T00:01:00+00:00",
+   "last_ts": "2026-01-30T21:59:00+00:00",
+   "known_issues": "not sorted as stored; 1 duplicate timestamp and 1 bad OHLC row, both before 2020; usable years 2007-2023 by the audit's U1-U3 rules (DATA_AUDIT_LONG.md)",
+   "cleaning_steps": [],
+   "bytes": 497062825,
+   "sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9"
+  },
+  "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet": {
+   "in_git": false,
+   "source": {
+    "derived_from": "database/ohlcv_data/XAUUSD.txt",
+    "licence": "as XAUUSD.txt (IBKR, own use only)",
+    "how": "a one-off export (its script was never in git); reproduced exactly by tools/data/build_clean_parquet.py",
+    "file_mtime": "2026-07-04"
+   },
+   "cleaning_steps": [
+    "skip XAUUSD.txt's header line; parse TICKER,YYYYMMDD,HHMMSS,OPEN,HIGH,LOW,CLOSE,VOL",
+    "read date + time as UTC (no shift)",
+    "keep rows with timestamp >= 2020-01-01 00:00 UTC (the first kept row is 2020-01-01 23:00)",
+    "sort by timestamp; the kept range has no duplicate timestamps and no bad OHLC bars, so nothing is dropped",
+    "columns timestamp (datetime64[ns, UTC]), open, high, low, close, volume (float64; VOL as is)"
+   ],
+   "verified": "2026-10-22: all 2,156,239 rows equal the XAUUSD.txt rows with the same timestamp in open, high, low, close and volume, and no XAUUSD.txt row in the range is missing; tools/data/build_clean_parquet.py reproduces content_sha256",
+   "rows": 2156239,
+   "first_ts": "2020-01-01T23:00:00+00:00",
+   "last_ts": "2026-01-30T21:59:00+00:00",
+   "columns": {
+    "timestamp": "datetime64[ns, UTC]",
+    "open": "float64",
+    "high": "float64",
+    "low": "float64",
+    "close": "float64",
+    "volume": "float64"
+   },
+   "bytes": 48549839,
+   "sha256": "07b7f7ce2f55725f76b2506384b8a047d962f2732cf189ac75185cbdc23f8477",
+   "content_sha256": "6ae9908f3a45aaa221a62f2d11a5b7f00d785c22bcc0dbe8209c7b663d0ba0b2"
+  },
+  "database/ohlcv_data/XAUUSD_selftest_fixture.parquet": {
+   "in_git": false,
+   "source": {
+    "derived_from": "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet",
+    "licence": "as XAUUSD.txt (IBKR, own use only): local, git-ignored (database/ohlcv_data/*.parquet)",
+    "how": "tools/data/make_fixture.py: the real bars of the selftest's three windows; checked by content (regenerated, so its bytes vary by writer)"
+   },
+   "rows": 45440,
+   "first_ts": "2023-06-01T00:00:00+00:00",
+   "last_ts": "2025-06-16T23:59:00+00:00",
+   "content_sha256": "5f514bf176bdf6d9c3a37bbe876b4d4433a864a96d84ecef2b7fb2f6f687f287"
+  },
+  "tests/fixtures/xauusd_synthetic_selftest.parquet": {
+   "in_git": true,
+   "source": {
+    "provider": "synthetic: tools/data/make_synthetic_fixture.py (seeded stdlib random walk); no real price",
+    "licence": "none needed (made-up numbers)",
+    "how": "regenerated by the tool; checked by content"
+   },
+   "rows": 45600,
+   "first_ts": "2023-06-01T00:00:00+00:00",
+   "last_ts": "2025-06-16T23:59:00+00:00",
+   "content_sha256": "cff9e2da3fa75f4360b4cae4f8a069b9470c70f23fb188a349dea2c39a57cf0e"
+  },
+  "database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py on the EC2 paper gateway, then tools/data/backfill_build.py",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "XAUUSD CMDTY SMART USD",
+    "what_to_show": null,
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2026-02-01",
+    "2026-10-01"
+   ],
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. backfill_build.py --update-manifest replaces this entry with the built one. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/BACKFILL_2026_PROPOSAL.md"
+  }
+ }
+}
