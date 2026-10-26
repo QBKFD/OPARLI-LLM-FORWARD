@@ -22,7 +22,7 @@ sys.path.insert(0, str(HERE))
 import stage1  # noqa: E402
 
 NOTEBOOK = HERE / "01_vol_state.ipynb"
-TIMEFRAMES = (15, 30)                                       # Q1_TIMEFRAME's two options (register item text)
+TIMEFRAMES = (15, 30)                                       # Q1_TIMEFRAME's two options, as PROPOSALS.md listed them
 
 
 def register() -> dict:
@@ -31,7 +31,6 @@ def register() -> dict:
     (src,) = ["".join(c["source"]) for c in cells if c["cell_type"] == "code" and "REGISTER = [" in "".join(c["source"])]
     ns = {"pd": pd}
     exec(compile(src.split("\nreg = pd.DataFrame")[0], str(NOTEBOOK), "exec"), ns)      # the display lines left out
-    assert "15 or 30" in ns["_REG"]["Q1_TIMEFRAME"]["item"]
     return ns
 
 

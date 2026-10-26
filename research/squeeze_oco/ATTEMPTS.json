@@ -1,5 +1,12 @@
 {
  "about": "Outcome analyses of research/squeeze_oco, counted. Any analysis that looks at an outcome (a Q1 result, a strategy result) calls stage1.bump_attempt() first. Stage 1 is descriptive and does not count.",
- "outcome_analyses": 0,
- "log": []
+ "outcome_analyses": 1,
+ "log": [
+  {
+   "n": 1,
+   "date": "2026-10-26",
+   "what": "Q1: two-sided DM, HAR vs HAR + small-candle pattern (q 0.20, r 4, per-NY-hour threshold), H = 240 primary / 60, BH; folds 2014-2020",
+   "by": "owner, 2026-10-26 (decision log #39-#41)"
+  }
+ ]
 }

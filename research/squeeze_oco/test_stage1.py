@@ -122,13 +122,15 @@ def test_attempt_counter(tmp_path, monkeypatch):
     p = tmp_path / "ATTEMPTS.json"
     p.write_text(stage1.ATTEMPTS.read_text())
     monkeypatch.setattr(stage1, "ATTEMPTS", p)
-    assert stage1.attempts()["outcome_analyses"] == 0
-    assert stage1.bump_attempt("Q1 first look", "claude") == 1
-    assert json.loads(p.read_text())["log"][0]["what"] == "Q1 first look"
+    n0 = stage1.attempts()["outcome_analyses"]
+    assert stage1.bump_attempt("a later look", "claude") == n0 + 1
+    assert json.loads(p.read_text())["log"][-1]["what"] == "a later look"
 
 
-def test_committed_counter_is_zero():
-    assert stage1.attempts()["outcome_analyses"] == 0
+def test_committed_counter_is_one_q1_run():
+    """Q1 was run once (decision log #41); nothing else has looked at an outcome."""
+    a = stage1.attempts()
+    assert a["outcome_analyses"] == 1 and len(a["log"]) == 1 and a["log"][0]["what"].startswith("Q1: two-sided DM")
 
 
 # --- data check and Q1 counts ---------------------------------------------------------
@@ -214,13 +216,26 @@ def test_q1_counts_reads_the_notebook_register():
     assert need("DEV_START") == "2012-01-01T00:00:00+00:00" and need("DEV_END_EXCL") == "2021-01-01T00:00:00+00:00"
     assert need("HORIZONS") == (60, 240)
     assert need("L_TERCILES") == (-0.4144399979178456, -0.018438540066194775)       # PR #42's file, :6-7
-    assert "2007-2011 excluded" in need("DATA_CHECK_ACCEPTED") and need("Q1_SCORING").startswith("sigma_compare")
-    for open_id in ("Q1_TIMEFRAME", "Q1_SMALL_DEF", "Q1_RUN_LENGTH", "Q1_H", "Q2_SEED"):
+    assert "2007-2011 excluded" in need("DATA_CHECK_ACCEPTED") and need("Q1_SCORING")["test"].startswith("A: sigma_compare")
+    # the owner's Q1 decisions (decision log #21-#25) and the rule's result (#28)
+    assert need("Q1_TIMEFRAME") == 15 and need("Q1_SMALL_DEF")["option"] == "B"
+    assert need("Q1_H") == {"primary": 240, "secondary": 60, "multiplicity": "BH across the two"}
+    assert (need("Q1_SMALL_Q"), need("Q1_RUN_LENGTH")) == (0.20, 4)
+    assert need("Q1_THRESHOLD_KIND")["hour_tz"] == "America/New_York"                  # decision log #31
+    assert "349" in ns["_REG"]["Q1_SMALL_Q"]["source"]
+    assert need("Q1_NW_LAG_240") == need("Q1_NW_LAG_60") == 8 and "pinned" in need("Q1_AUG_FIT")
+    assert ns["_REG"]["Q1_SMALL_Q"]["status"] == ns["_REG"]["Q1_RUN_LENGTH"]["status"] == "APPROVED-BY-RULE"
+    for open_id in ("Q2_SEED",):
         with pytest.raises(ns["RegisterError"], match="OPEN"):
             need(open_id)
+    assert need("Q1_FOLDS")["embargo"] == "24 h" and need("Q1_READING_RULE")["min_positive_years"] == 5
+    for proposed in ("Q1_GATE_GAMMA",):
+        with pytest.raises(ns["RegisterError"], match="PROPOSED"):
+            need(proposed)
     statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
     assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
-    assert "PROPOSED" not in statuses.values()
+    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_GATE_GAMMA"]
+    assert not [i for i, st in statuses.items() if st == "OPEN" and i.startswith("Q1_")]           # Q1: nothing OPEN
     assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled
 
 
