@@ -21,7 +21,7 @@ this table and a report differ, the report is right.
 | `levels` | 0 of 6 supported | PDH/PDL breaks continue *less* than placebo breaks (−7.3 pp) | [REPORT](research/levels/REPORT.md) |
 | `levels_confirm` | rejected | near-open PDH/PDL breaks continued *more*, not less: +11.3 pp [+4.0, +18.5] | [REPORT](research/levels_confirm/REPORT.md) |
 | `levels_diag` | stopped | machinery validation failed: NEAR coverage 0.875–0.905, outside 93–97 % | [REPORT](research/levels_diag/REPORT.md) |
-| Squeeze Q1 | **not established** | small-candle runs add nothing to HAR at H = 240: DM p 0.408 (BH 0.749) | [Q1 report §11](https://github.com/QBKFD/OPARLI-LLM-FORWARD/blob/research/squeeze-oco-q1/research/squeeze_oco/Q1_SETUP.md#11-the-q1-test-run-once-attempts--1) (not on main) |
+| Squeeze Q1 | **not established** | small-candle runs add nothing to HAR at H = 240: DM p 0.408 (BH 0.749) | [Q1 report §11](research/squeeze_oco/Q1_SETUP.md#11-the-q1-test-run-once-attempts--1) |
 | `gex_feasibility` | inconclusive (gate G5 failed); feasibility done | R = 8.19 % (> 5 %); the owner decided post hoc to build the level test | [REPORT](research/gex_feasibility/REPORT.md) |
 | GEX level test | not run | PREREG drafted | [PR #39](https://github.com/QBKFD/OPARLI-LLM-FORWARD/pull/39) |
 | `agents_v1` | plan only | draft PREREG, not yet registered | [PREREG](research/agents_v1/PREREG.md) |
