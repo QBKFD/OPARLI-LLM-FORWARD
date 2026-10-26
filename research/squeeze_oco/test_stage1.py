@@ -219,16 +219,20 @@ def test_q1_counts_reads_the_notebook_register():
     assert need("Q1_TIMEFRAME") == 15 and need("Q1_SMALL_DEF")["option"] == "B"
     assert need("Q1_H") == {"primary": 240, "secondary": 60, "multiplicity": "BH across the two"}
     assert (need("Q1_SMALL_Q"), need("Q1_RUN_LENGTH")) == (0.20, 4)
+    assert need("Q1_THRESHOLD_KIND")["hour_tz"] == "America/New_York"                  # decision log #31
+    assert "349" in ns["_REG"]["Q1_SMALL_Q"]["source"]
+    assert need("Q1_NW_LAG_240") == need("Q1_NW_LAG_60") == 8 and "pinned" in need("Q1_AUG_FIT")
     assert ns["_REG"]["Q1_SMALL_Q"]["status"] == ns["_REG"]["Q1_RUN_LENGTH"]["status"] == "APPROVED-BY-RULE"
-    for open_id in ("Q1_FOLDS", "Q1_AUG_FIT", "Q2_SEED"):
+    for open_id in ("Q2_SEED",):
         with pytest.raises(ns["RegisterError"], match="OPEN"):
             need(open_id)
-    for proposed in ("Q1_NW_LAG_240", "Q1_NW_LAG_60"):
+    for proposed in ("Q1_FOLDS", "Q1_AUG_ESTIMATOR"):
         with pytest.raises(ns["RegisterError"], match="PROPOSED"):
             need(proposed)
     statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
     assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
-    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_NW_LAG_240", "Q1_NW_LAG_60"]
+    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_AUG_ESTIMATOR", "Q1_FOLDS"]
+    assert not [i for i, st in statuses.items() if st == "OPEN" and i.startswith("Q1_")]           # Q1: nothing OPEN
     assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled
 
 

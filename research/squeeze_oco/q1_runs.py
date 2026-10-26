@@ -37,7 +37,8 @@ def main() -> int:
     tbl = stage1.state_table(ctx, model, DEV_START, DEV_END)
     assert need("EVAL_GRID")
     TF, SD, RULE, H = need("Q1_TIMEFRAME"), need("Q1_SMALL_DEF"), need("Q1_RULE"), need("Q1_H")
-    assert SD["option"] == "B" and SD["range"] == "high - low" and need("Q1_THRESHOLD_KIND")["kind"] == "quantile"
+    TK = need("Q1_THRESHOLD_KIND")
+    assert SD["option"] == "B" and SD["range"] == "high - low" and TK["kind"] == "quantile per hour"
     assert need("Q1_RUN_ANCHOR")
     years = list(range(DEV_START.year, DEV_END.year))
     assert (pd.Timestamp(RULE["span"][0], tz="UTC"), pd.Timestamp(RULE["span"][1], tz="UTC")) == (DEV_START, DEV_END)
@@ -45,7 +46,7 @@ def main() -> int:
     stage1.dev_guard(sc.index, DEV_START, DEV_END, "Q1 candle scores")
     qs = tuple(need("DESCRIBE_QUANTILES"))
     ec = q1.event_counts(sc, tbl[[f"crossing_{h}" for h in need("HORIZONS")]], years, RULE["q_order"], RULE["r_order"],
-                         TF, (H["primary"], H["secondary"]), qs)
+                         TF, (H["primary"], H["secondary"]), qs, TK["hour_tz"])
     rule_args = (RULE["r_order"], RULE["q_order"], RULE["min_runs"])
     chosen = q1.choose({k: v["runs"] for k, v in ec["totals"].items()}, *rule_args)
     compare = {alt: q1.choose({k: v[alt] for k, v in ec["totals"].items()}, *rule_args)
@@ -55,7 +56,7 @@ def main() -> int:
     ok = sc["score"].notna()
     score_q = sc.loc[ok, "score"].groupby(sc.index[ok].year).quantile(list(qs)).unstack()
     score_h = sc.loc[ok, "score"].groupby(sc.index[ok].hour).quantile(list(qs)).unstack()      # UTC hour of the candle's start
-    out = {"what": "Q1 event counts: option-B candle scores, walk-forward thresholds, runs at hourly labels; "
+    out = {"what": "Q1 event counts: option-B candle scores, walk-forward thresholds per New York hour, runs at hourly labels; "
                    "counts and score quantiles only (no price, no forward return, no outcome)",
            "dev_period_utc": [DEV_START.isoformat(), DEV_END.isoformat()], "checks": checks,
            "model": {"name": model.name, "sha256": model.sha256},
@@ -66,7 +67,10 @@ def main() -> int:
                        "scored_per_year": {str(y): int(n) for y, n in sc.loc[ok].groupby(sc.index[ok].year).size().items()}},
            "score_quantiles_per_year": {str(y): {str(p): float(v) for p, v in row.items()} for y, row in score_q.iterrows()},
            "score_quantiles_per_utc_hour_of_start": {str(h): {str(p): float(v) for p, v in row.items()} for h, row in score_h.iterrows()},
-           "thresholds": {str(q): {str(y): v for y, v in t.items()} for q, t in ec["thresholds"].items()},
+           "threshold_kind": TK,
+           "supersedes": "the pooled-threshold counts of commit bacf336 (decision log #28, #31, #32)",
+           "thresholds": {str(q): {f"{y},ny_hour={h}": v for (y, h), v in t.items()} for q, t in ec["thresholds"].items()},
+           "per_ny_hour": {key(q, r): {str(h): v for h, v in ph.items()} for (q, r), ph in ec["per_hour"].items()},
            "per_year": {key(q, r): {str(y): v for y, v in yrs.items()} for (q, r), yrs in ec["per_year"].items()},
            "totals": {key(q, r): v for (q, r), v in ec["totals"].items()},
            "clustering": {key(q, r): v for (q, r), v in ec["clustering"].items()},

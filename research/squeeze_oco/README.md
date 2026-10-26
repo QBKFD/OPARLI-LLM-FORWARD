@@ -48,8 +48,8 @@ place (`database/ohlcv_data/XAUUSD.txt` and `research/vol_features_r2/cache/`):
    - The data check on 2007–2020 found a different era in 2007–2011, which the owner excluded.
    - Steps 2–4 then ran (summary in the notebook's "What Stage 1 found").
 2. Q1: the small-candle pattern against HAR.
-   - **Set up:** 15 min, option B, q = 0.20 and r = 4 by the owner's rule (510 runs), H = 240 / 60.
-   - **Not run.** It waits for Q1_NW_LAG_240 / _60 (PROPOSED), Q1_FOLDS and Q1_AUG_FIT (OPEN); see `Q1_SETUP.md` section 6.
+   - **Set up:** 15 min; option B with a per-New-York-hour quantile threshold; q = 0.20 and r = 4 by the owner's rule (349 runs); H = 240 / 60; NW lag 8; pinned β with only the indicator's γ per fold.
+   - **Not run.** It waits for Q1_FOLDS and Q1_AUG_ESTIMATOR (PROPOSED); see `Q1_SETUP.md` section 10.
 3. The squeeze definition and event counts.
 4. An order/fill simulator, tested on synthetic data.
 5. PREREG.

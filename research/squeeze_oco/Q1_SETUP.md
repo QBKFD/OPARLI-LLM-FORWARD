@@ -51,7 +51,10 @@ This file and `q1.py` are committed before `q1_runs.py` is run, so the order is 
      return is read.
    - Not reported: the "valid" subset, because validity uses the forward window's RV (> 0) and its coverage.
 
-## 3. The counts (step 2) and the rule's choice (step 3)
+## 3. The counts (step 2) and the rule's choice (step 3): pooled threshold, SUPERSEDED
+
+**Superseded by section 8.** The owner changed Q1_THRESHOLD_KIND to a per-New-York-hour quantile before any outcome
+(decision log #31). This section stays as the record that led to the change; its JSON is at commit `bacf336`.
 
 **Labels:**
 - **OBSERVED:** `results/q1_run_counts.json`, written by `q1_runs.py`, which `01_vol_state.ipynb` "Q1 setup" recomputes.
@@ -160,7 +163,7 @@ grid rows in time order. Lags count rows (CITED `research/vol_features/DECISIONS
 The autocorrelation of d itself would show which lag fits. It is an outcome, so it isn't looked at here. The owner
 could approve reporting it as a descriptive diagnostic after the test, without changing the lag.
 
-## 6. Still OPEN before the Q1 test (the first outcome analysis)
+## 6. Still OPEN before the Q1 test (first round, SUPERSEDED by section 10)
 
 | id | what is open |
 |---|---|
@@ -169,3 +172,116 @@ could approve reporting it as a descriptive diagnostic after the test, without c
 | Q1_AUG_FIT | what "HAR + the pattern indicator" refits per fold: the pinned VolParams kept or refitted; β and c refitted together with the indicator, or the indicator's coefficient alone on top of the pinned β |
 | (readings) | decision log #27 (`Q1_SETUP.md` section 2): owner to confirm |
 | (section 4.1) | whether the pooled threshold stays, given the clock-time concentration (no change made) |
+
+## 7. The owner's decisions, second round (2026-10-26)
+
+| id | decision |
+|---|---|
+| (readings) | Section 2 confirmed: non-overlapping = sharing no candle; no threshold in 2012 (decision log #30) |
+| Q1_THRESHOLD_KIND | **Changed before any outcome.** "Small" = score below the q-quantile of scores **at the same hour**, the hour in America/New_York time, fitted on past years only, walk-forward. Reason: with the pooled quantile, the runs concentrated at 19/20/23/00 UTC, a time-of-day artefact around the daily break (section 4.1). Decision log #31 |
+| Q1_SMALL_Q, Q1_RUN_LENGTH | Recount on 2012–2020 with this definition and apply the same rule (#32) |
+| Q1_NW_LAG_240, Q1_NW_LAG_60 | 8 at both H, APPROVED (#33) |
+| Q1_AUG_FIT | Pinned HAR β fixed; per fold, fit only the pattern indicator's coefficient on past data (#35) |
+| Q1_FOLDS | Expanding window; test year by year 2014–2020; 24 h embargo. Exact edges PROPOSED in section 9 (#34) |
+
+**How the hour is read** (INFERRED from the definition; the code does exactly this, and it is tested):
+- A candle's hour is the clock hour of its **start** in New York time.
+- The four candles of a run share one New York hour: a run covers one UTC hour, and New York is a whole number of
+  hours from UTC.
+- Year Y's threshold for hour h uses only candles that started at hour h in 2012 .. Y−1.
+
+## 8. The recount with the per-hour threshold (step 2) and the rule's choice (step 3)
+
+OBSERVED: `results/q1_run_counts.json` (rewritten; the pooled version is at `bacf336`), recomputed by the notebook.
+Counts only: no forward return, RV or outcome.
+
+**Totals 2012–2020**, runs at grid labels (all in 2013–2020; 2012 has no threshold):
+
+| (q, r) | runs: the rule's count | 60-min window doesn't cross a close | 240-min window doesn't cross a close | sliding runs (overlapping) |
+|---|---:|---:|---:|---:|
+| **0.20, 4** | **349** | 344 | 303 | 1,077 |
+| 0.25, 4 | 697 | 687 | 605 | 2,125 |
+| 0.20, 3 | 977 | 950 | 873 | 3,288 |
+| 0.25, 3 | 1,662 | 1,614 | 1,480 | 5,599 |
+
+**The rule's result: Q1_RUN_LENGTH = 4, Q1_SMALL_Q = 0.20, n = 349 ≥ 300.**
+- Recorded as APPROVED-BY-RULE (decision log #37). It supersedes #28 (pooled: 510).
+- OBSERVED: every other reading chooses the same pair:
+  - non-crossing at H = 240: 303;
+  - non-crossing at H = 60: 344;
+  - spaced ≥ 240 min: 329;
+  - spaced ≥ 60 min: 349.
+- Descriptive sensitivity only, never tested: q = 0.25, r = 4 (697 runs).
+
+**Per year, q = 0.20, r = 4** (OBSERVED: runs, then those with a non-crossing 240-min window):
+
+| | 2012 | 2013 | 2014 | 2015 | 2016 | 2017 | 2018 | 2019 | 2020 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| runs | 0 | 66 | 54 | 70 | 41 | 28 | 26 | 38 | 26 |
+| non-crossing, H = 240 | 0 | 58 | 48 | 56 | 38 | 27 | 24 | 31 | 21 |
+
+**Per New York hour of the run's candles, q = 0.20, r = 4** (OBSERVED: runs, and non-crossing at 240 min in brackets):
+
+| NY hour | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| runs | 10 (10) | 7 (7) | 9 (9) | 19 (19) | 28 (28) | 19 (19) | 19 (19) | 22 (22) | 16 (16) | 11 (11) | 31 (31) | 23 (23) |
+
+| NY hour | 12 | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| runs | 25 (25) | 18 (0) | 9 (0) | 14 (0) | 5 (0) | — | 3 (3) | 14 (14) | 12 (12) | 11 (11) | 12 (12) | 12 (12) |
+
+- INFERRED: NY hour 17 is the daily break, so it has no candles.
+- The 46 runs at NY hours 13–16 all have a 240-minute window that crosses the 17:00 New York close. That is why 303
+  of 349 runs remain non-crossing at H = 240 (INFERRED arithmetic: 349 − 46 = 303).
+- The other three (q, r) pairs per NY hour are in the JSON (`per_ny_hour`) and the notebook.
+
+**How clustered, q = 0.20, r = 4** (OBSERVED):
+- **By clock time, no longer concentrated.** The busiest NY hour has 31 of 349 runs (8.9 %, INFERRED). Under the
+  pooled threshold, 59 % of runs fell in four UTC hours (section 3).
+- **In time:**
+  - 1.4 % of runs directly follow a run at the previous label; the longest chain is 2 h;
+  - 304 trade dates have runs, 86.8 % of them with one run (at most 3);
+  - the gap between consecutive runs has a median of 129 h and a 5 % quantile of 3 h.
+- **Thresholds** (OBSERVED, q = 0.20): 0.486–1.043 across years × NY hours (184 cells).
+
+## 9. Proposals (PROPOSED): the fold edges and how γ is estimated
+
+**Q1_FOLDS, exact edges** (owner: expanding, test year by year 2014–2020, 24 h embargo):
+- **Test block k** = [Y-01-01 00:00, (Y+1)-01-01 00:00) UTC, for Y = 2014, …, 2020: 7 folds.
+- **Training rows of fold k:** labels t with 2013-01-01 00:00 ≤ t ≤ s_k − 24 h, **and** a window end E ≤ s_k. This is
+  sigma_compare's rule (CITED `research/sigma_compare/PREREG.md:95-97`), so no training window reaches the test block.
+- **Why training starts in 2013:**
+  - 2012 has no threshold, so no pattern indicator, and γ can't be fitted there (confirmed reading 3).
+  - 2012 still provides the 2013 thresholds.
+- **A run's indicator** uses the thresholds of its label's year, fitted on earlier years only. A training row in year
+  y ≤ Y − 1 therefore uses only years before y.
+- **Pooled:** per H, the test rows of the 7 folds concatenated in time order for the DM test. sigma_compare did the
+  same: "pooled over test rows" (CITED `PREREG.md:145`).
+
+**Q1_AUG_ESTIMATOR** (new, PROPOSED). How γ is fitted per fold and H, with h_aug = h_HAR × exp(γ × I_run):
+- **γ = ln(mean(RV / h_HAR)) over the fold's training rows with I_run = 1.** INFERRED:
+  - With h_HAR fixed, this is the γ that minimises training QLIKE. QLIKE is the loss the test scores, and
+    sigma_compare chose its λ by training QLIKE (CITED `PREREG.md:130`).
+  - It is also option B's ratio, mean RV/h on pattern rows, turned into a coefficient.
+- **Rows:** the valid, finite, non-crossing training rows: the population the test scores.
+- **Alternatives** (INFERRED):
+  - OLS of ln(RV / h_HAR) on I_run, which estimates a log-scale mean and needs its own smearing;
+  - also using crossing training rows, as sigma_compare's HAR fit did (CITED `PREREG.md:114-115`).
+- INFERRED: d_t is 0 on every row with I_run = 0, so the DM statistic comes from the pattern rows only.
+
+## 10. For the owner before the test (the first outcome analysis)
+
+1. **Fewer pattern rows in the test than in the rule's count.**
+   - The rule counts 2012–2020, but the test years are 2014–2020. There, q = 0.20 / r = 4 gives (OBSERVED,
+     `per_year`):
+     - 283 runs;
+     - 279 with a non-crossing 60-min window;
+     - **245 with a non-crossing 240-min window** (the primary H).
+   - The 66 runs of 2013 are training only.
+   - The test's n is at most these, since "valid" (forward coverage) isn't read here (UNVERIFIED how much lower).
+   - Nothing was changed: the rule is satisfied as written (349 ≥ 300).
+2. **Runs per year fall** from 66–70 (2013, 2015) to 26–28 (2017, 2018, 2020) (OBSERVED).
+   - INFERRED: the first folds' γ is fitted on few pattern rows. Fold 2014 trains on 2013 only: at most 58
+     non-crossing pattern rows at H = 240.
+3. **Still PROPOSED:** Q1_FOLDS (exact edges) and Q1_AUG_ESTIMATOR (above).
+4. **Nothing else is OPEN for Q1.** The register's other OPEN items are Q2's.

@@ -80,37 +80,49 @@ def candle_scores(m: pd.DataFrame, ctx: rs.Ctx, model: vb.SigmaModel, minutes: i
     return out
 
 
-# ----------------------------------------------------------------- threshold (walk-forward by year)
+# ----------------------------------------------------------------- threshold (walk-forward by year, per hour)
 
-def thresholds(scores: pd.Series, q: float, years: list[int]) -> dict[int, float]:
-    """For each year Y in `years`: the q-quantile (numpy's default, linear) of
-    the finite scores of the candles that start in the earlier years of
-    `years` (expanding, as run_sigma's folds). Fitted on training years only,
-    never on Y. The first year has no earlier year: NaN."""
+def hours(index: pd.DatetimeIndex, hour_tz: str | None) -> np.ndarray:
+    """The clock hour of each timestamp in hour_tz (the threshold's group), or
+    -1 for every row when hour_tz is None (one pooled threshold)."""
+    if hour_tz is None:
+        return np.full(len(index), -1)
+    return np.asarray(index.tz_convert(hour_tz).hour)
+
+
+def thresholds(scores: pd.Series, q: float, years: list[int], hour_tz: str | None) -> dict[tuple[int, int], float]:
+    """For each year Y in `years` and each hour h (the candle start's clock hour
+    in hour_tz; -1 if pooled): the q-quantile (numpy's default, linear) of the
+    finite scores of the candles that start at hour h in the earlier years of
+    `years` (expanding, as run_sigma's folds). Fitted on past years only, never
+    on Y. The first year has no earlier year: NaN."""
     s = scores[np.isfinite(scores)]
-    yr = s.index.year
+    yr, hr = s.index.year, hours(s.index, hour_tz)
+    v = s.to_numpy()
     out = {}
-    for Y in years:
-        tr = s[(yr >= years[0]) & (yr < Y)]
-        out[Y] = float(np.quantile(tr.to_numpy(), q)) if len(tr) else float("nan")
+    for h in sorted(set(hr.tolist())):
+        for Y in years:
+            tr = v[(yr >= years[0]) & (yr < Y) & (hr == h)]
+            out[(Y, h)] = float(np.quantile(tr, q)) if len(tr) else float("nan")
     return out
 
 
-def small(sc: pd.DataFrame, thr: dict[int, float], by: pd.DatetimeIndex) -> np.ndarray:
-    """score <= the threshold of the year of `by` (one timestamp per candle):
-    the year in which the candle's run is scored."""
-    t = np.array([thr.get(y, np.nan) for y in by.year])
+def small(sc: pd.DataFrame, thr: dict[tuple[int, int], float], by: pd.DatetimeIndex, hour_tz: str | None) -> np.ndarray:
+    """score <= the threshold of (the year of `by`, the candle start's hour in
+    hour_tz). `by` holds one timestamp per candle: the year in which the
+    candle's run is scored. sc's index is the candles' starts."""
+    t = np.array([thr.get((y, h), np.nan) for y, h in zip(by.year, hours(pd.DatetimeIndex(sc.index), hour_tz))])
     with np.errstate(invalid="ignore"):
         return np.isfinite(t) & (sc["score"].to_numpy() <= t)
 
 
 # ----------------------------------------------------------------- runs
 
-def runs_at_labels(sc: pd.DataFrame, labels: pd.DatetimeIndex, thr: dict[int, float], minutes: int,
-                   r: int) -> pd.Series:
+def runs_at_labels(sc: pd.DataFrame, labels: pd.DatetimeIndex, thr: dict, minutes: int, r: int,
+                   hour_tz: str | None) -> pd.Series:
     """For each hourly label T: True when the r candles ending at T (starts
     T - k·minutes, k = 1..r) are all complete, scored and small, with the
-    threshold of T's year. The run covers the last r·minutes of the hour
+    thresholds of T's year. The run covers the last r·minutes of the hour
     before T, so with r·minutes <= 60 runs at different labels share no candle."""
     if r * minutes > 60:
         raise ValueError(f"r·minutes = {r * minutes} > 60: a run would reach past the hour before its label")
@@ -118,16 +130,15 @@ def runs_at_labels(sc: pd.DataFrame, labels: pd.DatetimeIndex, thr: dict[int, fl
     for k in range(1, r + 1):
         st = labels - pd.Timedelta(minutes=k * minutes)
         x = sc.reindex(st)
-        sm = small(x, thr, labels)
-        ok &= sm
+        ok &= small(x, thr, labels, hour_tz)
     return ok.rename(f"run_r{r}")
 
 
-def sliding_runs(sc: pd.DataFrame, thr: dict[int, float], minutes: int, r: int) -> int:
+def sliding_runs(sc: pd.DataFrame, thr: dict, minutes: int, r: int, hour_tz: str | None) -> int:
     """Descriptive: candle ends (at any `minutes` boundary) where the last r
-    candles are consecutive, complete and small (threshold of the candle's own
+    candles are consecutive, complete and small (thresholds of the candle's own
     year). These overlap each other."""
-    sm = pd.Series(small(sc, thr, sc.index), index=sc.index)
+    sm = pd.Series(small(sc, thr, pd.DatetimeIndex(sc.index), hour_tz), index=sc.index)
     full = sm.reindex(pd.date_range(sc.index.min(), sc.index.max(), freq=f"{minutes}min"), fill_value=False)
     return int((full.astype(int).rolling(r).sum() == r).sum())
 
@@ -170,20 +181,21 @@ def clustering(run_ends: pd.DatetimeIndex, trade_dates: pd.DatetimeIndex, spacin
 # ----------------------------------------------------------------- the counts the rule reads
 
 def event_counts(sc: pd.DataFrame, grid: pd.DataFrame, years: list[int], qs: tuple, r_values: tuple,
-                 minutes: int, spacings_min: tuple, quantiles: tuple) -> dict:
+                 minutes: int, spacings_min: tuple, quantiles: tuple, hour_tz: str | None) -> dict:
     """Counts only, per (q, r): the walk-forward thresholds, and per year of the
     run's label: runs at the grid's labels (candle-disjoint by construction),
     the same restricted to labels whose H-window doesn't cross a close (a
     calendar fact, no return read), and the overlapping sliding runs at any
-    candle end; then totals and clustering over all years. `grid` is
+    candle end; then totals, runs per hour of the run's candles in hour_tz
+    (UTC when hour_tz is None), and clustering over all years. `grid` is
     stage1.state_table's frame (labels with a state) with its crossing_H columns."""
     import audit_long
-    out: dict = {"thresholds": {}, "per_year": {}, "totals": {}, "clustering": {}}
+    out: dict = {"thresholds": {}, "per_year": {}, "totals": {}, "per_hour": {}, "clustering": {}}
     for q in qs:
-        thr = thresholds(sc["score"], q, years)
+        thr = thresholds(sc["score"], q, years, hour_tz)
         out["thresholds"][q] = thr
         for r in r_values:
-            run = runs_at_labels(sc, grid.index, thr, minutes, r)
+            run = runs_at_labels(sc, grid.index, thr, minutes, r, hour_tz)
             ends = grid.index[run.to_numpy()]
             yrs = {}
             for Y in years:
@@ -191,10 +203,16 @@ def event_counts(sc: pd.DataFrame, grid: pd.DataFrame, years: list[int], qs: tup
                 row = {"runs": int(inY.sum())}
                 for col in [c for c in grid.columns if c.startswith("crossing_")]:
                     row[f"runs_noncrossing_{col.split('_')[1]}"] = int((inY & ~grid.loc[ends, col].to_numpy().astype(bool)).sum())
-                row["sliding_runs_overlapping"] = sliding_runs(sc[sc.index.year == Y], thr, minutes, r)
+                row["sliding_runs_overlapping"] = sliding_runs(sc[sc.index.year == Y], thr, minutes, r, hour_tz)
                 yrs[Y] = row
             out["per_year"][(q, r)] = yrs
             out["totals"][(q, r)] = {k: sum(v[k] for v in yrs.values()) for k in next(iter(yrs.values()))}
+            first = ends - pd.Timedelta(minutes=minutes)               # the run's last candle: same clock hour as all its candles
+            hr = pd.Series(np.asarray(first.tz_convert(hour_tz or "UTC").hour))
+            cross = {col.split("_")[1]: grid.loc[ends, col].to_numpy().astype(bool) for col in grid.columns if col.startswith("crossing_")}
+            out["per_hour"][(q, r)] = {int(h): {"runs": int((hr == h).sum()),
+                                                **{f"runs_noncrossing_{H}": int(((hr == h).to_numpy() & ~c).sum()) for H, c in cross.items()}}
+                                       for h in sorted(hr.unique())}
             td = audit_long.session_date((ends - pd.Timedelta(minutes=minutes)).tz_localize(None))
             out["clustering"][(q, r)] = clustering(ends, td, spacings_min, quantiles)
     return out

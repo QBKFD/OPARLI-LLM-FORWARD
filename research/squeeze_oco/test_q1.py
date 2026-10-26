@@ -152,15 +152,15 @@ def _scores(years_vals: dict) -> pd.Series:
 
 def test_thresholds_are_walk_forward_and_never_use_the_scored_year():
     s = _scores({2012: [1, 2, 3, 4, 5], 2013: [10, 20, 30, 40, 50], 2014: [7.0] * 5})
-    thr = q1.thresholds(s, 0.25, [2012, 2013, 2014])
+    thr = {y: v for (y, h), v in q1.thresholds(s, 0.25, [2012, 2013, 2014], None).items()}   # pooled: hour -1
     assert math.isnan(thr[2012])                                       # no earlier year
     assert thr[2013] == np.quantile([1, 2, 3, 4, 5], 0.25)
     assert thr[2014] == np.quantile([1, 2, 3, 4, 5, 10, 20, 30, 40, 50], 0.25)
     s2 = s.copy()
     s2[s2.index.year == 2013] = -100.0                                  # the scored year changes ...
-    assert q1.thresholds(s2, 0.25, [2012, 2013, 2014])[2013] == thr[2013]   # ... its threshold doesn't
+    assert q1.thresholds(s2, 0.25, [2012, 2013, 2014], None)[(2013, -1)] == thr[2013]   # ... its threshold doesn't
     # a year before the first one (outside the dev period) is never used
-    assert q1.thresholds(_scores({2011: [0.0] * 5, 2012: [1, 2, 3, 4, 5]}), 0.25, [2012, 2013])[2013] == thr[2013]
+    assert q1.thresholds(_scores({2011: [0.0] * 5, 2012: [1, 2, 3, 4, 5]}), 0.25, [2012, 2013], None)[(2013, -1)] == thr[2013]
 
 
 def test_runs_at_labels():
@@ -172,19 +172,24 @@ def test_runs_at_labels():
     rows[T[1] - pd.Timedelta(minutes=30)] = 2.0                        # one candle not small
     del rows[T[2] - pd.Timedelta(minutes=60)]                           # one candle missing
     sc = pd.DataFrame({"score": pd.Series(rows)}).sort_index()
-    thr = {2013: 1.0}                                                   # 2012: no threshold
-    got = q1.runs_at_labels(sc, T, thr, 15, 4)
+    thr = {(2013, -1): 1.0}                                             # 2012: no threshold
+    got = q1.runs_at_labels(sc, T, thr, 15, 4, None)
     assert got.tolist() == [True, False, False, False]
-    assert q1.runs_at_labels(sc, T, thr, 15, 3).tolist() == [True, False, True, False]   # the last 45 min only
+    assert q1.runs_at_labels(sc, T, thr, 15, 3, None).tolist() == [True, False, True, False]   # the last 45 min only
     with pytest.raises(ValueError):
-        q1.runs_at_labels(sc, T, thr, 15, 5)
+        q1.runs_at_labels(sc, T, thr, 15, 5, None)
+    # per New York hour: the 09:00-10:00 UTC candles are NY hour 4 (EST) on 2013-03-05
+    ny = {(2013, h): (1.0 if h == 4 else 0.1) for h in range(24)}
+    assert q1.runs_at_labels(sc, T, ny, 15, 4, "America/New_York").tolist() == [True, False, False, False]
+    ny[(2013, 4)] = 0.1
+    assert not q1.runs_at_labels(sc, T, ny, 15, 4, "America/New_York").any()
 
 
 def test_sliding_runs_overlap():
     idx = pd.date_range("2013-03-05 10:00", periods=6, freq="15min", tz="UTC")
     sc = pd.DataFrame({"score": [0.5] * 6}, index=idx)
-    assert q1.sliding_runs(sc, {2013: 1.0}, 15, 4) == 3
-    assert q1.sliding_runs(sc, {2013: 1.0}, 15, 3) == 4
+    assert q1.sliding_runs(sc, {(2013, -1): 1.0}, 15, 4, None) == 3
+    assert q1.sliding_runs(sc, {(2013, -1): 1.0}, 15, 3, None) == 4
 
 
 def test_clustering():
@@ -214,7 +219,7 @@ def test_event_counts_on_synthetic_bars_across_a_year_end():
     ctx = stage1.context(m, end, (60, 240), 0.90)
     sc = q1.candle_scores(m, ctx, model, 15, 60)
     grid = stage1.state_table(ctx, model, start, end)
-    ec = q1.event_counts(sc, grid, [2018, 2019], (0.20, 0.25), (3, 4), 15, (60, 240), (0.5,))
+    ec = q1.event_counts(sc, grid, [2018, 2019], (0.20, 0.25), (3, 4), 15, (60, 240), (0.5,), "America/New_York")
     for key, yrs in ec["per_year"].items():
         assert yrs[2018]["runs"] == 0                                     # the first year has no threshold
         assert ec["totals"][key]["runs"] == sum(v["runs"] for v in yrs.values()) == ec["clustering"][key]["runs"]
@@ -222,3 +227,31 @@ def test_event_counts_on_synthetic_bars_across_a_year_end():
             assert v["runs_noncrossing_240"] <= v["runs_noncrossing_60"] <= v["runs"]
     assert ec["totals"][(0.25, 3)]["runs"] >= ec["totals"][(0.20, 3)]["runs"] >= ec["totals"][(0.20, 4)]["runs"]
     assert ec["totals"][(0.25, 3)]["runs"] > 0
+    for key, ph in ec["per_hour"].items():
+        assert sum(v["runs"] for v in ph.values()) == ec["totals"][key]["runs"]
+        assert sum(v["runs_noncrossing_240"] for v in ph.values()) == ec["totals"][key]["runs_noncrossing_240"]
+    assert {h for (y, h) in ec["thresholds"][0.20]} <= set(range(24))
+
+
+def test_hours_follow_new_york_time_through_dst():
+    idx = pd.DatetimeIndex(["2019-01-15 13:00", "2019-07-15 13:00"], tz="UTC")
+    assert q1.hours(idx, "America/New_York").tolist() == [8, 9]          # EST, EDT
+    assert q1.hours(idx, None).tolist() == [-1, -1]
+
+
+def test_thresholds_per_hour_use_only_that_hour_and_past_years():
+    # 2013: NY hour 3 (08:00 UTC, EST) scores 1..8, NY hour 9 (14:00 UTC) scores 10..80
+    idx = list(pd.date_range("2013-02-05 08:00", periods=4, freq="15min", tz="UTC")) + \
+        list(pd.date_range("2013-02-06 08:00", periods=4, freq="15min", tz="UTC")) + \
+        list(pd.date_range("2013-02-05 14:00", periods=4, freq="15min", tz="UTC")) + \
+        list(pd.date_range("2013-02-06 14:00", periods=4, freq="15min", tz="UTC"))
+    s = pd.Series([1, 2, 3, 4, 5, 6, 7, 8, 10, 20, 30, 40, 50, 60, 70, 80], index=pd.DatetimeIndex(idx), dtype=float)
+    thr = q1.thresholds(s, 0.20, [2013, 2014], "America/New_York")
+    assert thr[(2014, 3)] == np.quantile(np.arange(1, 9), 0.20)
+    assert thr[(2014, 9)] == np.quantile(np.arange(10, 90, 10), 0.20)
+    assert math.isnan(thr[(2013, 3)]) and math.isnan(thr[(2013, 9)])
+    sc = pd.DataFrame({"score": [2.0, 2.0]}, index=pd.DatetimeIndex(["2014-02-05 08:00", "2014-02-05 14:00"], tz="UTC"))
+    # thresholds 2.4 (NY hour 3) and 24 (NY hour 9): 2.0 is small at both, 5.0 only at hour 9
+    assert q1.small(sc, thr, pd.DatetimeIndex(sc.index), "America/New_York").tolist() == [True, True]
+    sc["score"] = [5.0, 5.0]
+    assert q1.small(sc, thr, pd.DatetimeIndex(sc.index), "America/New_York").tolist() == [False, True]
