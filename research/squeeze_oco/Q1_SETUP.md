@@ -285,3 +285,86 @@ Counts only: no forward return, RV or outcome.
      non-crossing pattern rows at H = 240.
 3. **Still PROPOSED:** Q1_FOLDS (exact edges) and Q1_AUG_ESTIMATOR (above).
 4. **Nothing else is OPEN for Q1.** The register's other OPEN items are Q2's.
+
+## 11. The Q1 test: run once (ATTEMPTS = 1)
+
+**Before the run.**
+- The owner approved Q1_FOLDS and Q1_AUG_ESTIMATOR as proposed, accepted the sample as it is, and fixed
+  Q1_READING_RULE (decision log #38–#39).
+- Claude's reading of the Q2 gate's γ (Q1_GATE_GAMMA, PROPOSED, #40):
+  - at H = 240;
+  - "pooled" and "per test year" mean the estimator applied to the test rows with a run (out of sample);
+  - the gate is also reported with the fold γ.
+- The code, the register and that reading were committed before the run (`279ab4b`, ATTEMPTS 0).
+- `q1_test_run.py` refuses to start unless ATTEMPTS is 0, and increments it before reading any RV. It ran once.
+  `results/q1_test.json` is its output; the notebook shows that file and doesn't rerun the test.
+
+**Labels.**
+- OBSERVED: `results/q1_test.json`.
+- CITED: file:line.
+- INFERRED: my reasoning.
+
+### Verdict (Q1_READING_RULE)
+
+| | H = 240 (primary) | H = 60 |
+|---|---:|---:|
+| test rows: valid, non-crossing, 2014–2020 | 34,022 | 39,415 |
+| … with a run (pattern rows) | 225 | 277 |
+| QLIKE HAR | 0.19033 | 0.24612 |
+| QLIKE HAR + pattern | 0.19022 | 0.24609 |
+| DM stat (two-sided; > 0 means HAR + pattern is lower) | +0.827 | +0.319 |
+| p raw | 0.408 | 0.749 |
+| p BH (H = 240 and 60) | 0.749 | 0.749 |
+| significant after BH (q 0.05) | **no** | no |
+
+- **"Pattern adds information": NO** (OBSERVED: H = 240 is not significant after BH).
+- **Q2 proceeds: NO.**
+  - Under Claude's reading (γ out of sample): pooled γ is 0.242 > 0, and 5 of 7 test years have γ > 0. That meets
+    the γ conditions, but the DM condition fails.
+  - Under the fold-γ reading: 7 of 7 are > 0, and the DM condition fails the same way.
+  - So the PROPOSED reading doesn't change the outcome.
+- INFERRED: n is 225 pattern rows at H = 240. The result is "not established", not a demonstrated absence of an
+  effect.
+
+### γ per fold and pooled (OBSERVED)
+
+| fold (test year) | 2014 | 2015 | 2016 | 2017 | 2018 | 2019 | 2020 | pooled |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| H = 240, γ fitted on the fold's training rows | 0.070 | 0.223 | 0.330 | 0.248 | 0.224 | 0.217 | 0.226 | — |
+| … training pattern rows | 55 | 99 | 150 | 184 | 210 | 231 | 260 | — |
+| H = 240, γ in the test year (out of sample) | 0.387 | 0.494 | −0.211 | 0.041 | 0.139 | 0.296 | −0.018 | **0.242** |
+| … test pattern rows | 44 | 52 | 33 | 26 | 21 | 29 | 20 | 225 |
+| H = 60, γ fitted on the fold's training rows | 0.223 | 0.203 | 0.227 | 0.176 | 0.156 | 0.145 | 0.161 | — |
+| H = 60, γ in the test year (out of sample) | 0.179 | 0.263 | −0.088 | −0.025 | 0.032 | 0.272 | −0.188 | 0.119 |
+| … test pattern rows | 53 | 67 | 40 | 28 | 26 | 38 | 25 | 277 |
+
+### Descriptives (no test, OBSERVED)
+
+- **Conditional calibration of HAR on the test rows** (Q1_SCORING option B):
+
+  | | mean RV/h | RMS z | QLIKE | n |
+  |---|---:|---:|---:|---:|
+  | H = 240, pattern rows | 1.274 | 1.082 | 0.3815 | 225 |
+  | H = 240, other rows | 0.979 | 0.951 | 0.1891 | 33,797 |
+  | H = 60, pattern rows | 1.126 | 1.052 | 0.3273 | 277 |
+  | H = 60, other rows | 1.027 | 0.960 | 0.2455 | 39,138 |
+
+- **QLIKE on the pattern rows only:** at H = 240 it falls from 0.3815 (HAR) to 0.3647 (HAR + pattern); at H = 60, from
+  0.3273 to 0.3230.
+- **q = 0.25 sensitivity** (not chosen by the rule):
+  - H = 240: 463 pattern rows, DM +1.095, p 0.274, pooled γ 0.179;
+  - H = 60: 559 pattern rows, DM +0.197, p 0.844, pooled γ 0.099.
+- **Per New York hour:** 3 to 23 pattern rows per hour (in `q1_test.json` and the notebook). These are too few to
+  read. One example: NY 18 has 3 rows, with mean RV/h 4.91 at H = 240.
+- **Per year:** the table above. Mean RV/h on the pattern rows at H = 240 is 0.81–1.64 across the test years.
+
+### Reading (INFERRED, not evidence)
+
+- **Direction:** after a run of small candles, realized variance tended to exceed HAR's forecast (γ > 0 in every
+  fold, mean RV/h 1.27 on the pattern rows at H = 240). That is the direction the owner's observation suggests.
+- **Size versus noise:**
+  - The pattern rows are 0.66 % of the test rows, so the change in pooled QLIKE is about 1e−4.
+  - The test-year γ has a negative sign in 2016 and 2020.
+  - On this sample the pattern's improvement can't be told apart from noise.
+- **No further looks.** By the rule, Q1 is answered: the pattern does not add information beyond HAR, and Q2 is not
+  pursued. Any further analysis of these data would be a new attempt, for the owner to decide.

@@ -122,13 +122,15 @@ def test_attempt_counter(tmp_path, monkeypatch):
     p = tmp_path / "ATTEMPTS.json"
     p.write_text(stage1.ATTEMPTS.read_text())
     monkeypatch.setattr(stage1, "ATTEMPTS", p)
-    assert stage1.attempts()["outcome_analyses"] == 0
-    assert stage1.bump_attempt("Q1 first look", "claude") == 1
-    assert json.loads(p.read_text())["log"][0]["what"] == "Q1 first look"
+    n0 = stage1.attempts()["outcome_analyses"]
+    assert stage1.bump_attempt("a later look", "claude") == n0 + 1
+    assert json.loads(p.read_text())["log"][-1]["what"] == "a later look"
 
 
-def test_committed_counter_is_zero():
-    assert stage1.attempts()["outcome_analyses"] == 0
+def test_committed_counter_is_one_q1_run():
+    """Q1 was run once (decision log #41); nothing else has looked at an outcome."""
+    a = stage1.attempts()
+    assert a["outcome_analyses"] == 1 and len(a["log"]) == 1 and a["log"][0]["what"].startswith("Q1: two-sided DM")
 
 
 # --- data check and Q1 counts ---------------------------------------------------------
