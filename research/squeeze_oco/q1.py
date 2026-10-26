@@ -229,3 +229,76 @@ def choose(counts: dict, r_order: tuple, q_order: tuple, min_runs: int) -> dict:
             if counts[(q, r)] >= min_runs:
                 return {"q": q, "r": r, "n": counts[(q, r)]}
     return {"q": None, "r": None, "n": None}
+
+
+# ----------------------------------------------------------------- the Q1 test (an outcome analysis: ATTEMPTS first)
+
+def scored_rows(ctx: rs.Ctx, model: vb.SigmaModel, start: pd.Timestamp, end_excl: pd.Timestamp,
+                run: pd.Series) -> dict[int, pd.DataFrame]:
+    """Per H: the valid, finite, non-crossing rows in [start, end_excl)
+    (posthoc.rows_from, the pinned model's HAR h), with the window end E and
+    the pattern indicator I (1 where `run` is True at the label). READS RV:
+    call only after stage1.bump_attempt."""
+    X, ok_x, P = stage1.features(ctx, model)
+    mod = {H: {"beta": np.asarray(model.horizons[H][0]), "c": model.horizons[H][1]} for H in rs.HORIZONS}
+    rows = stage1.posthoc.rows_from(ctx, X, ok_x, P, mod, start, end_excl)
+    out = {}
+    for H, g in rows.items():
+        pos = ctx.labels.get_indexer(g.index)
+        out[H] = pd.DataFrame({"rv": g["rv"], "h": g["h_b"], "R": g["R"],
+                               "E": pd.DatetimeIndex(ctx.win[H].E_ns[pos], tz="UTC"),
+                               "I": run.reindex(g.index, fill_value=False).astype(int).to_numpy()}, index=g.index)
+    return out
+
+
+def gamma(rows: pd.DataFrame) -> float:
+    """Q1_AUG_ESTIMATOR: ln(mean(RV / h_HAR)) over the rows with I = 1 (the
+    QLIKE-minimising gamma given h_HAR); NaN without such a row."""
+    p = rows[rows["I"] == 1]
+    return float(np.log(np.mean(p["rv"].to_numpy() / p["h"].to_numpy()))) if len(p) else float("nan")
+
+
+def folds(rows: pd.DataFrame, test_years: list[int], first_train: pd.Timestamp, embargo: pd.Timedelta):
+    """Q1_FOLDS: per test year Y, block [Y-01-01, Y+1-01-01) UTC; gamma from the
+    training rows first_train <= t <= s_k - embargo with E <= s_k; on the
+    test rows h_aug = h × exp(gamma × I). Returns the per-fold records and the
+    test rows of all folds in time order. A fold without a training pattern
+    row raises (the estimator has no fallback)."""
+    recs, tests = [], []
+    for Y in test_years:
+        s, e = pd.Timestamp(f"{Y}-01-01", tz="UTC"), pd.Timestamp(f"{Y + 1}-01-01", tz="UTC")
+        tr = rows[(rows.index >= first_train) & (rows.index <= s - embargo) & (rows["E"] <= s)]
+        g = gamma(tr)
+        if not np.isfinite(g):
+            raise ValueError(f"fold {Y}: no training row with a run, gamma undefined")
+        te = rows[(rows.index >= s) & (rows.index < e)].copy()
+        te["fold"], te["gamma"] = Y, g
+        te["h_aug"] = te["h"] * np.exp(g * te["I"])
+        recs.append({"fold": Y, "gamma": g, "n_train": int(len(tr)), "n_train_pattern": int(tr["I"].sum()),
+                     "n_test": int(len(te)), "n_test_pattern": int(te["I"].sum())})
+        tests.append(te)
+    return recs, pd.concat(tests).sort_index()
+
+
+def dm_two_sided(loss_a: np.ndarray, loss_b: np.ndarray, lag: int) -> dict:
+    """Diebold-Mariano on d = loss_a - loss_b with research/vol_features'
+    Newey-West dm_test (lag in rows); two-sided normal p. stat > 0: b has the
+    lower loss. Identical losses: stat 0, p 1 (as run_sigma.dm)."""
+    from scipy import stats
+    d = np.asarray(loss_a) - np.asarray(loss_b)
+    if not np.any(d != 0):
+        return {"stat": 0.0, "p": 1.0, "mean_d": 0.0, "n": int(len(d))}
+    stat, _ = rs.r1.dm_test(np.asarray(loss_a), np.asarray(loss_b), lag)
+    return {"stat": float(stat), "p": float(2 * stats.norm.sf(abs(stat))), "mean_d": float(np.mean(d)), "n": int(len(d))}
+
+
+def q2_gate(adds_information: bool, pooled_gamma: float, year_gammas: list[float], min_years: int) -> bool:
+    """Q1 reading rule: Q2 proceeds only if the pattern adds information, the
+    pooled gamma > 0 and gamma > 0 in at least min_years of the test years."""
+    return bool(adds_information and pooled_gamma > 0 and sum(g > 0 for g in year_gammas) >= min_years)
+
+
+def losses(te: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """QLIKE (run_sigma.qlike) of HAR's h and of h_aug on the test rows."""
+    return (np.asarray(rs.qlike(te["rv"].to_numpy(), te["h"].to_numpy()), dtype=float),
+            np.asarray(rs.qlike(te["rv"].to_numpy(), te["h_aug"].to_numpy()), dtype=float))

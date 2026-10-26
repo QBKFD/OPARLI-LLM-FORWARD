@@ -255,3 +255,109 @@ def test_thresholds_per_hour_use_only_that_hour_and_past_years():
     assert q1.small(sc, thr, pd.DatetimeIndex(sc.index), "America/New_York").tolist() == [True, True]
     sc["score"] = [5.0, 5.0]
     assert q1.small(sc, thr, pd.DatetimeIndex(sc.index), "America/New_York").tolist() == [False, True]
+
+
+# --- the Q1 test, on synthetic rows (no data) ---------------------------------------
+
+def _rows(seed=1, years=range(2013, 2021), ratio=2.0):
+    rng = np.random.default_rng(seed)
+    idx = pd.DatetimeIndex([t for y in years for t in pd.date_range(f"{y}-01-02", f"{y}-12-28", freq="7h", tz="UTC")])
+    h = rng.uniform(0.5, 1.5, len(idx))
+    ind = (rng.uniform(size=len(idx)) < 0.05).astype(int)
+    rv = h * rng.exponential(1.0, len(idx)) * np.where(ind == 1, ratio, 1.0)
+    return pd.DataFrame({"rv": rv, "h": h, "R": np.sqrt(rv), "E": idx + pd.Timedelta(hours=4), "I": ind}, index=idx)
+
+
+def test_gamma_is_the_qlike_minimiser():
+    r = _rows()
+    g = q1.gamma(r)
+    p = r[r["I"] == 1]
+    assert g == pytest.approx(math.log(np.mean(p.rv / p.h)))
+    from scipy.optimize import minimize_scalar
+    import run_sigma as rs_
+    best = minimize_scalar(lambda x: np.mean(rs_.qlike(p.rv, p.h * math.exp(x))), bounds=(-3, 3), method="bounded").x
+    assert g == pytest.approx(best, abs=1e-4)
+    assert math.isnan(q1.gamma(r[r["I"] == 0]))
+
+
+def test_folds_use_only_past_rows_with_the_embargo():
+    r = _rows()
+    first, emb = pd.Timestamp("2013-01-01", tz="UTC"), pd.Timedelta(hours=24)
+    recs, te = q1.folds(r, list(range(2014, 2021)), first, emb)
+    assert [x["fold"] for x in recs] == list(range(2014, 2021)) and te.index.is_monotonic_increasing
+    for x in recs:
+        s = pd.Timestamp(f"{x['fold']}-01-01", tz="UTC")
+        tr = r[(r.index >= first) & (r.index <= s - emb) & (r["E"] <= s)]
+        assert x["gamma"] == q1.gamma(tr) and x["n_train"] == len(tr)
+        # changing every row from s on leaves the fold's gamma alone
+        r2 = r.copy()
+        r2.loc[r2.index >= s - emb + pd.Timedelta(seconds=1), "rv"] *= 100
+        r2.loc[(r2.index <= s - emb) & (r2["E"] > s), "rv"] *= 100           # windows reaching the block
+        assert q1.folds(r2, [x["fold"]], first, emb)[0][0]["gamma"] == pytest.approx(x["gamma"])
+    assert (te.loc[te.I == 0, "h_aug"] == te.loc[te.I == 0, "h"]).all()
+    assert te.index.min() >= pd.Timestamp("2014-01-01", tz="UTC")
+    assert np.mean([x["gamma"] for x in recs]) == pytest.approx(math.log(2), abs=0.25)   # the planted ratio
+
+
+def test_a_fold_without_a_training_pattern_row_raises():
+    r = _rows()
+    r.loc[r.index < pd.Timestamp("2014-01-01", tz="UTC"), "I"] = 0
+    with pytest.raises(ValueError, match="gamma undefined"):
+        q1.folds(r, [2014], pd.Timestamp("2013-01-01", tz="UTC"), pd.Timedelta(hours=24))
+
+
+def test_dm_two_sided():
+    rng = np.random.default_rng(3)
+    a = rng.uniform(1, 2, 2000)
+    b = a - 0.05 + rng.normal(0, 0.1, 2000)
+    up, down = q1.dm_two_sided(a, b, 8), q1.dm_two_sided(b, a, 8)
+    assert up["stat"] > 0 and up["stat"] == pytest.approx(-down["stat"]) and up["p"] == pytest.approx(down["p"])
+    assert up["p"] < 1e-6
+    assert q1.dm_two_sided(a, a, 8) == {"stat": 0.0, "p": 1.0, "mean_d": 0.0, "n": 2000}
+
+
+def test_q2_gate():
+    years_ok = [0.1, 0.2, -0.1, 0.3, 0.1, -0.2, 0.05]                    # 5 of 7 positive
+    assert q1.q2_gate(True, 0.1, years_ok, 5)
+    assert not q1.q2_gate(False, 0.1, years_ok, 5)
+    assert not q1.q2_gate(True, -0.01, years_ok, 5)
+    assert not q1.q2_gate(True, 0.1, [0.1, 0.2, -0.1, 0.3, -0.1, -0.2, 0.05], 5)
+
+
+def test_scored_rows_equal_posthoc_rows_plus_window_end_and_indicator():
+    m = synthetic(first="2019-03-04", days=12)
+    model = vb.load_sigma_model("parquet2021_2023")
+    start, end = pd.Timestamp("2019-03-01", tz="UTC"), pd.Timestamp("2019-03-16", tz="UTC")
+    ctx = stage1.context(m, end, (60, 240), 0.90)
+    grid = stage1.state_table(ctx, model, start, end)
+    run = pd.Series(False, index=grid.index)
+    run.iloc[::5] = True
+    rows = q1.scored_rows(ctx, model, start, end, run)
+    for H, g in rows.items():
+        ok = grid[grid[f"calib_row_{H}"]]
+        assert set(g.index) <= set(ok.index) and len(g) > 30
+        np.testing.assert_allclose(g["h"], ok.loc[g.index, f"sigma_ret_{H}"] ** 2, rtol=1e-9)
+        assert (g["I"] == run.reindex(g.index).astype(int)).all()
+        assert ((g["E"] - g.index) >= pd.Timedelta(minutes=H)).all()
+
+
+def test_q1_test_run_reporting_on_synthetic_rows():
+    """The reporting path of q1_test_run.py after the attempt is counted, on synthetic rows."""
+    import importlib.util
+    import json as json_
+    spec = importlib.util.spec_from_file_location("q1_test_run", Path(__file__).resolve().parent / "q1_test_run.py")
+    tr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tr)
+    import run_sigma as rs_
+    res = {}
+    for H in (60, 240):
+        recs, te = q1.folds(_rows(seed=H), list(range(2014, 2021)), pd.Timestamp("2013-01-01", tz="UTC"), pd.Timedelta(hours=24))
+        la, lb = q1.losses(te)
+        res[H] = {"recs": recs, "te": te, "la": la, "lb": lb, "pat": te["I"].to_numpy() == 1, "dm": q1.dm_two_sided(la, lb, 8)}
+    d = tr.describe(res[240], 240, "America/New_York")
+    assert d["n_test_pattern_rows"] == int(res[240]["pat"].sum()) and len(d["gamma_per_fold"]) == 7
+    assert d["dm"]["stat"] > 0                                          # the planted ratio 2 is found
+    bh = rs_.bh({H: res[H]["dm"]["p"] for H in res}, 0.05)
+    assert q1.q2_gate(bool(bh[240]["reject"]), d["gamma_pooled_oos"], list(d["gamma_per_test_year_oos"].values()), 5)
+    json_.dumps({"bh": {str(H): v for H, v in bh.items()}, "d": d},
+                default=lambda x: x.item() if isinstance(x, np.generic) else str(x))

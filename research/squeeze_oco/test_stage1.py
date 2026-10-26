@@ -226,12 +226,13 @@ def test_q1_counts_reads_the_notebook_register():
     for open_id in ("Q2_SEED",):
         with pytest.raises(ns["RegisterError"], match="OPEN"):
             need(open_id)
-    for proposed in ("Q1_FOLDS", "Q1_AUG_ESTIMATOR"):
+    assert need("Q1_FOLDS")["embargo"] == "24 h" and need("Q1_READING_RULE")["min_positive_years"] == 5
+    for proposed in ("Q1_GATE_GAMMA",):
         with pytest.raises(ns["RegisterError"], match="PROPOSED"):
             need(proposed)
     statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
     assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
-    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_AUG_ESTIMATOR", "Q1_FOLDS"]
+    assert sorted(i for i, st in statuses.items() if st == "PROPOSED") == ["Q1_GATE_GAMMA"]
     assert not [i for i, st in statuses.items() if st == "OPEN" and i.startswith("Q1_")]           # Q1: nothing OPEN
     assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled
 
