@@ -24,7 +24,9 @@ The motivation is the owner's discretionary observation; that motivates the hypo
 - **Rule number one.** Every number, threshold, window, cost, seed or definition comes from the notebook's
   register. Code reads it through `need(id)`, which raises unless the entry is APPROVED. A missing value is
   added as OPEN or PROPOSED, with the reasoning, and work stops there.
-- **The dev period only:** 2007-01-01 .. 2020-12-31 UTC. Every frame goes through `stage1.dev_guard`.
+- **The dev period only:** 2012-01-01 .. 2020-12-31 UTC. 2007–2011 are excluded: a different feed or session
+  convention, found by the data check (decision log #16; research/README.md, "Data eras in XAUUSD.txt"). Every
+  frame goes through `stage1.dev_guard`.
 - **Data licence.** `XAUUSD.txt` is IBKR data, for the owner's own use only. Committed outputs show aggregates
   and charts only, never a price row.
 
@@ -38,11 +40,9 @@ place (`database/ohlcv_data/XAUUSD.txt` and `research/vol_features_r2/cache/`):
 
 ## Stages
 
-1. The vol state, described, and HAR's calibration on the dev period (descriptive).
-   - Step 1 and the data check have run.
-   - The data check found that 2007–2011 differ from 2012+: no daily break, and trading on CME holidays and on
-     Friday evenings.
-   - So steps 2–4 are stopped until the owner decides (DATA_CHECK_ACCEPTED, OPEN).
+1. The vol state, described, and HAR's calibration on the dev period (descriptive). **Done, on 2012–2020.**
+   - The data check on 2007–2020 found a different era in 2007–2011, which the owner excluded.
+   - Steps 2–4 then ran (summary in the notebook's "What Stage 1 found").
 2. Q1: the small-candle pattern against HAR, after its parameters are approved.
 3. The squeeze definition and event counts.
 4. An order/fill simulator, tested on synthetic data.

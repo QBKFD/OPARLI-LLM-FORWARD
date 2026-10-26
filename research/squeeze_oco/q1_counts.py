@@ -8,7 +8,9 @@ outcome, no forward return, no price. Writes results/q1_event_counts.json.
 The dev period and data come from the notebook's register (the code cell that
 defines REGISTER and need), read through need(): the notebook stays the one source.
 The timeframes are the two options Q1_TIMEFRAME (OPEN) names; both are counted,
-neither is chosen."""
+neither is chosen. The committed results/q1_event_counts.json was written at commit
+338c180, when DEV_START was 2007-01-01; a rerun now covers the dev period
+2012-2020 (decision log #16) and writes only the spans it holds."""
 import json
 import sys
 from pathlib import Path
@@ -54,7 +56,8 @@ def main() -> int:
            # sums of the per-year rows over the regimes the data check shows (notebook "Data check:
            # result"); nothing is excluded, both are reported
            "subtotals": {span: {k: sum(years[str(y)][k] for y in range(a, b + 1)) for k in next(iter(years.values()))}
-                         for span, (a, b) in {"2007-2011": (2007, 2011), "2012-2020": (2012, 2020)}.items()}}
+                         for span, (a, b) in {"2007-2011": (2007, 2011), "2012-2020": (2012, 2020)}.items()
+                         if all(str(y) in years for y in range(a, b + 1))}}
     OUT.parent.mkdir(exist_ok=True)
     OUT.write_text(json.dumps(out, indent=1) + "\n")
     print(json.dumps(out["totals"], indent=1))

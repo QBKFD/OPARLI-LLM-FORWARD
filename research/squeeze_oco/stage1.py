@@ -155,7 +155,9 @@ def describe(tbl: pd.DataFrame, cols: list[str], quantiles: list[float], by: str
     hour of the label)."""
     if by is None:
         return tbl[cols].quantile(quantiles).T
-    key = tbl.index.year if by == "year" else tbl.index.hour
+    if by not in ("year", "hour"):
+        raise ValueError(f"by must be None, 'year' or 'hour', not {by!r}")
+    key = pd.Index(tbl.index.year if by == "year" else tbl.index.hour, name="year" if by == "year" else "hour_utc")
     return tbl[cols].groupby(key).quantile(quantiles).unstack()
 
 

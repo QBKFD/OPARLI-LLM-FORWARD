@@ -40,6 +40,13 @@ def test_dev_guard_refuses_outside_the_dev_period(bad):
         stage1.dev_guard(pd.DatetimeIndex([bad], tz="UTC"), START, END, "x")
 
 
+def test_dev_guard_with_the_owners_2012_start():
+    start = pd.Timestamp("2012-01-01", tz="UTC")
+    with pytest.raises(AssertionError, match="OUTSIDE"):
+        stage1.dev_guard(pd.DatetimeIndex(["2011-12-30 21:59"], tz="UTC"), start, END, "x")
+    stage1.dev_guard(pd.DatetimeIndex(["2012-01-02 23:00"], tz="UTC"), start, END, "x")
+
+
 def test_dev_guard_accepts_the_dev_period():
     stage1.dev_guard(pd.DatetimeIndex(["2007-01-01 00:00", "2020-12-31 23:59"], tz="UTC"), START, END, "x")
 
@@ -203,12 +210,24 @@ def test_q1_counts_reads_the_notebook_register():
     q = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(q)
     ns = q.register()
-    assert ns["need"]("DEV_START") == "2007-01-01T00:00:00+00:00" and ns["need"]("HORIZONS") == (60, 240)
-    for open_id in ("Q1_TIMEFRAME", "DATA_CHECK_ACCEPTED", "L_TERCILES", "Q2_SEED"):
+    need = ns["need"]
+    assert need("DEV_START") == "2012-01-01T00:00:00+00:00" and need("DEV_END_EXCL") == "2021-01-01T00:00:00+00:00"
+    assert need("HORIZONS") == (60, 240)
+    assert need("L_TERCILES") == (-0.4144399979178456, -0.018438540066194775)       # PR #42's file, :6-7
+    assert "2007-2011 excluded" in need("DATA_CHECK_ACCEPTED") and need("Q1_SCORING").startswith("sigma_compare")
+    for open_id in ("Q1_TIMEFRAME", "Q1_SMALL_DEF", "Q1_RUN_LENGTH", "Q1_H", "Q2_SEED"):
         with pytest.raises(ns["RegisterError"], match="OPEN"):
-            ns["need"](open_id)
-    with pytest.raises(ns["RegisterError"], match="PROPOSED"):
-        ns["need"]("Q1_SCORING")
+            need(open_id)
     statuses = {r["id"]: r["status"] for r in ns["REGISTER"]}
     assert statuses["EVAL_GRID"] == statuses["DESCRIBE_QUANTILES"] == statuses["DESCRIBE_HOUR"] == "APPROVED"
+    assert "PROPOSED" not in statuses.values()
     assert all(r["value"] is None for r in ns["REGISTER"] if r["status"] == "OPEN")      # no OPEN item filled
+
+
+def test_describe_names_its_groups_and_refuses_others():
+    idx = pd.date_range("2019-03-04 01:00", periods=48, freq="1h", tz="UTC")
+    tbl = pd.DataFrame({"L": np.arange(48.0)}, index=idx)
+    assert stage1.describe(tbl, ["L"], [0.5], "hour").index.name == "hour_utc"
+    assert stage1.describe(tbl, ["L"], [0.5], "year").index.name == "year"
+    with pytest.raises(ValueError):
+        stage1.describe(tbl, ["L"], [0.5], "month")

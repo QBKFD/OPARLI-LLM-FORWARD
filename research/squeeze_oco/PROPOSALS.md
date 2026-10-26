@@ -10,6 +10,11 @@
 - **INFERRED:** my reasoning or arithmetic.
 - **UNVERIFIED:** can't be checked without computations that are blocked.
 
+**Update 2026-10-26 (owner, decision log #16): the dev period is now 2012-01-01 .. 2020-12-31.** Read the
+**2012–2020** column below. The other columns stay as the record of the check that led to the decision; the
+counts file was computed before it, at commit `338c180`. Q1_SCORING is now APPROVED (sigma_compare's method,
+decision log #18). The other Q1 items wait for the owner.
+
 **One thing first: the data check affects every sample size.** 2007–2011 differ from 2012–2020 (no daily
 break, trading on CME holidays and Friday evenings; notebook "Data check: result"), and that decision is open
 (DATA_CHECK_ACCEPTED). The counts are given for the whole dev period and for both spans; neither is chosen.
