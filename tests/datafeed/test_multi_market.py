@@ -1,0 +1,244 @@
+"""tools/data/backfill_ibkr.py --instrument (the resumable multi-market download)
+against a fake IBKR client. No network, no real data."""
+import json
+from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+
+from tests.datafeed.test_backfill import Contract, Event, NoPacer, bi, price, syn
+
+UTC = timezone.utc
+
+
+class FakeIB:
+    """Answers durationStr '1 W' / '1 D' with the open minutes before endDateTime.
+    fail_at: call numbers that raise ConnectionError once; err_at: {call: code};
+    short_weeks: answer week requests with only 10 bars."""
+
+    def __init__(self, fail_at=(), err_at=None, short_weeks=False):
+        self.errorEvent, self.calls, self.connects = Event(), [], 0
+        self.fail_at, self.err_at, self.short_weeks = set(fail_at), dict(err_at or {}), short_weeks
+        self.up = False
+
+    def connect(self, host, port, clientId, readonly=False, timeout=4):
+        self.connects += 1
+        self.up = True
+        self.client = (host, port, clientId, readonly)
+
+    def disconnect(self):
+        self.up = False
+
+    def isConnected(self):
+        return self.up
+
+    def qualifyContracts(self, c):
+        c.conId, c.localSymbol = 12087792, f"{c.symbol}.{c.currency}"
+        return [c]
+
+    def reqHistoricalData(self, contract, endDateTime, durationStr, barSizeSetting, whatToShow, useRTH,
+                          formatDate=1, keepUpToDate=False, timeout=60):
+        n = len(self.calls) + 1
+        self.calls.append(dict(end=endDateTime, dur=durationStr, what=whatToShow, fmt=formatDate,
+                               sym=(contract.symbol, contract.secType, contract.exchange, contract.currency)))
+        if n in self.fail_at:
+            self.fail_at.discard(n)
+            self.up = False
+            raise ConnectionError("socket closed")
+        if n in self.err_at:
+            code = self.err_at.pop(n)
+            self.errorEvent.emit(1, code, "pacing violation" if code == 162 else "competing session", contract)
+            return []
+        end = datetime.strptime(endDateTime, "%Y%m%d-%H:%M:%S").replace(tzinfo=UTC)
+        t = end - timedelta(days=7 if durationStr == "1 W" else 1)
+        out = []
+        while t < end:
+            if syn.is_open(t):
+                o, h, lo, c, v = price(t)
+                out.append(SimpleNamespace(date=t, open=o, high=h, low=lo, close=c, volume=v))
+            t += timedelta(minutes=1)
+        return out[:10] if (self.short_weeks and durationStr == "1 W") else out
+
+
+def run(tmp_path, ib, *args, sleep=lambda s: None):
+    a = bi.argparse.Namespace(instrument=args[0], out_dir=str(tmp_path), first=args[1], last=args[2],
+                              host="ibgateway", port=4004, client_id=bi.MULTI_CLIENT_ID)
+    return bi.main_instrument(a, ib=ib, contract_cls=Contract, pacer=NoPacer(),
+                              now=lambda: datetime(2026, 10, 28, 1, 0, tzinfo=UTC), sleep=sleep)
+
+
+def test_contracts_and_what_to_show():
+    assert bi.INSTRUMENTS["EURUSD"] == ("EUR", "CASH", "IDEALPRO", "USD")
+    assert bi.INSTRUMENTS["USDJPY"] == ("USD", "CASH", "IDEALPRO", "JPY")
+    assert bi.INSTRUMENTS["XAGUSD"] == ("XAGUSD", "CMDTY", "SMART", "USD")      # as XAUUSD
+    assert "XAUUSD" not in bi.MULTI and bi.MULTI_WHAT == "MIDPOINT"
+
+
+def test_chunks_cover_the_range_and_stop_at_the_seal():
+    ends = bi.week_chunks(date(2016, 1, 1), date(2026, 9, 30))
+    assert ends[0] == datetime(2016, 1, 2, tzinfo=UTC) and ends[-1] == datetime(2026, 10, 1, tzinfo=UTC)
+    assert all(e.weekday() == 5 for e in ends[:-1]) and all(e <= bi.SEAL for e in ends)
+    assert len(ends) == len(set(ends)) and 555 < len(ends) < 565
+    with pytest.raises(bi.Stop) as e:
+        bi.week_chunks(date(2016, 1, 1), date(2026, 10, 1))
+    assert e.value.status == 3
+
+
+def test_a_sealed_range_is_refused_before_connecting(tmp_path):
+    ib = FakeIB()
+    assert run(tmp_path, ib, "XAGUSD", date(2026, 9, 1), date(2026, 10, 2)) == 3
+    assert ib.connects == 0 and ib.calls == []
+
+
+def test_download_writes_day_files_and_resumes(tmp_path):
+    ib = FakeIB()
+    assert run(tmp_path, ib, "EURUSD", date(2026, 9, 1), date(2026, 9, 30)) == 0
+    c = ib.calls
+    assert {x["what"] for x in c} == {"MIDPOINT"} and {x["fmt"] for x in c} == {2}
+    assert {x["sym"] for x in c} == {("EUR", "CASH", "IDEALPRO", "USD")} and ib.client[2] == 65
+    assert c[-1]["end"] == "20261001-00:00:00" and all(x["dur"] == "1 W" for x in c)
+    base = tmp_path / "EURUSD"
+    days = sorted(p.name for p in base.glob("2026-*.jsonl"))
+    assert days[0] == "2026-09-01.jsonl" and days[-1] == "2026-09-30.jsonl"
+    last = json.loads((base / "2026-09-30.jsonl").read_text().splitlines()[-1])
+    assert last["kind"] == "day_end" and last["bars"] > 1000
+    assert (base / "_complete.json").exists() and json.loads((base / "_meta.json").read_text())["contract"]["sec_type"] == "CASH"
+    ib2 = FakeIB()
+    assert run(tmp_path, ib2, "EURUSD", date(2026, 9, 1), date(2026, 9, 30)) == 0
+    assert ib2.calls == []                                  # every chunk has its marker
+
+
+def test_reconnects_after_a_lost_connection(tmp_path):
+    slept = []
+    ib = FakeIB(fail_at={2})
+    assert run(tmp_path, ib, "USDJPY", date(2026, 8, 1), date(2026, 8, 31), sleep=slept.append) == 0
+    assert ib.connects == 2 and (tmp_path / "USDJPY" / "_complete.json").exists()
+
+
+def test_waits_out_10197_and_pacing(tmp_path):
+    slept = []
+    ib = FakeIB(err_at={1: 10197, 3: 162})
+    assert run(tmp_path, ib, "GBPUSD", date(2026, 8, 1), date(2026, 8, 31), sleep=slept.append) == 0
+    assert bi.WAIT_10197_S in slept and bi.WAIT_PACING_S in slept
+
+
+def test_short_week_falls_back_to_days(tmp_path):
+    ib = FakeIB(short_weeks=True)
+    assert run(tmp_path, ib, "USDCHF", date(2026, 9, 7), date(2026, 9, 12)) == 0
+    assert any(x["dur"] == "1 D" for x in ib.calls)
+    marker = json.loads(next((tmp_path / "USDCHF" / "_done").glob("*.json")).read_text())
+    assert marker["mode"] == "day" and marker["bars"] > 4000
+
+
+def test_interrupted_run_resumes_where_it_stopped(tmp_path, monkeypatch):
+    monkeypatch.setattr(bi, "RECONNECT_FOR_S", 0)
+    ib = FakeIB(fail_at={3})
+    ib.connect_fails = True
+    orig = ib.connect
+
+    def connect_once(*a, **k):                              # the gateway stays down after call 3
+        if ib.connects >= 1 and not ib.up and len(ib.calls) >= 3:
+            raise ConnectionRefusedError
+        return orig(*a, **k)
+    ib.connect = connect_once
+    assert run(tmp_path, ib, "USDCAD", date(2026, 8, 1), date(2026, 9, 30)) == 6
+    done = len(list((tmp_path / "USDCAD" / "_done").glob("*.json")))
+    assert done == 2 and not (tmp_path / "USDCAD" / "_complete.json").exists()
+    ib2 = FakeIB()
+    assert run(tmp_path, ib2, "USDCAD", date(2026, 8, 1), date(2026, 9, 30)) == 0
+    assert len(ib2.calls) == len(bi.week_chunks(date(2026, 8, 1), date(2026, 9, 30))) - 2
+
+
+# --- tools/data/multi_market_build.py ----------------------------------------------
+
+import importlib.util  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+import pandas as pd  # noqa: E402
+
+from backend.datafeed.store import manifest  # noqa: E402
+
+_spec = importlib.util.spec_from_file_location("multi_market_build", Path(bi.__file__).with_name("multi_market_build.py"))
+mb = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(mb)
+
+
+class ShiftedIB(FakeIB):
+    """The 2026-02-01 failure: US-Eastern times labelled UTC."""
+
+    def reqHistoricalData(self, contract, endDateTime, durationStr, *a, **k):
+        bars = super().reqHistoricalData(contract, endDateTime, durationStr, *a, **k)
+        return [SimpleNamespace(**{**b.__dict__, "date": b.date - timedelta(hours=5)}) for b in bars]
+
+
+@pytest.fixture
+def tmp_manifest(tmp_path, monkeypatch):
+    m = tmp_path / "manifest.json"
+    m.write_text(manifest.MANIFEST.read_text())
+    monkeypatch.setattr(manifest, "MANIFEST", m)
+    manifest._load.cache_clear()
+    manifest._verified.clear()
+    yield m
+    manifest._load.cache_clear()
+
+
+def _download(tmp_path, sym, ib=None, first=date(2026, 6, 1), last=date(2026, 9, 30)):
+    assert run(tmp_path / "days", ib or FakeIB(), sym, first, last) == 0
+
+
+def test_instrument_build_passes_reports_no_price_and_registers(tmp_path, tmp_manifest, capsys):
+    _download(tmp_path, "XAGUSD")
+    rc = mb.main(["instrument", "XAGUSD", str(tmp_path / "days"), "--out-dir", str(tmp_path / "out"), "--update-manifest"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "passed: yes" in out and "best whole-hour shift 0 h" in out
+    df = pd.read_parquet(tmp_path / "out" / "XAGUSD_ibkr_1min_20160101_20260930.parquet")
+    assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]" and df["timestamp"].max() < pd.Timestamp("2026-10-01", tz="UTC")
+    for p in set(df[["open", "high", "low", "close"]].to_numpy().ravel().round(3).tolist()):
+        assert f" {p}" not in out and f"{p} " not in out
+    e = json.loads(tmp_manifest.read_text())["files"][mb.key("XAGUSD")]
+    assert e["status"] == "unused by any study" and "planned" not in e and len(e["sha256"]) == 64
+    assert e["validation"]["passed"] and e["validation"]["session_utc"]                 # silver: the daily break too
+
+
+def test_shifted_timestamps_are_rejected(tmp_path, tmp_manifest, capsys):
+    _download(tmp_path, "EURUSD", ShiftedIB())
+    rc = mb.main(["instrument", "EURUSD", str(tmp_path / "days"), "--out-dir", str(tmp_path / "out")])
+    out = capsys.readouterr().out
+    assert rc == 1 and "passed: NO" in out and "timezone" in out
+    assert (tmp_path / "out" / "EURUSD_ibkr_1min_20160101_20260930.rejected.parquet").exists()
+
+
+def test_an_unfinished_download_is_rejected(tmp_path, tmp_manifest, capsys):
+    _download(tmp_path, "USDSEK")
+    (tmp_path / "days" / "USDSEK" / "_complete.json").unlink()
+    assert mb.main(["instrument", "USDSEK", str(tmp_path / "days"), "--out-dir", str(tmp_path / "out")]) == 1
+    assert "incomplete download" in capsys.readouterr().out
+
+
+def test_dxy_on_common_minutes_only(tmp_path, tmp_manifest, capsys):
+    for s in mb.FX:
+        _download(tmp_path, s, first=date(2026, 8, 30), last=date(2026, 9, 25))
+        assert mb.main(["instrument", s, str(tmp_path / "days"), "--out-dir", str(tmp_path / "data"), "--update-manifest"]) in (0, 1)
+    # make the pairs differ: drop 7 minutes from USDJPY, then re-register it
+    p = tmp_path / "data" / "USDJPY_ibkr_1min_20160101_20260930.parquet"
+    if not p.exists():
+        pytest.skip("the 5-day synthetic window fails completeness for a pair")
+    df = pd.read_parquet(p)
+    df.drop(index=df.index[100:107]).to_parquet(p, index=False)
+    doc = json.loads(tmp_manifest.read_text())
+    doc["files"][mb.key("USDJPY")].update(manifest.describe(p))
+    tmp_manifest.write_text(json.dumps(doc))
+    manifest._load.cache_clear()
+    manifest._verified.clear()
+    capsys.readouterr()
+    assert mb.main(["dxy", "--data-dir", str(tmp_path / "data"), "--update-manifest"]) == 0
+    out = capsys.readouterr().out
+    dx = pd.read_parquet(tmp_path / "data" / "DXY_PROXY_1min_20160101_20260930.parquet")
+    assert len(dx) == len(df) - 7 and "high/low bounds hold: True" in out
+    e = json.loads(tmp_manifest.read_text())["files"][mb.DXY_KEY]
+    assert e["validation"]["dropped_not_all_six"]["USDJPY"] == 0 and e["validation"]["dropped_not_all_six"]["EURUSD"] == 7
+    eur = pd.read_parquet(tmp_path / "data" / "EURUSD_ibkr_1min_20160101_20260930.parquet").set_index("timestamp")
+    t = dx["timestamp"].iloc[0]
+    want = mb.DXY_K * pd.Series({s: pd.read_parquet(tmp_path / "data" / Path(mb.key(s)).name).set_index("timestamp").loc[t, "close"] ** w
+                                 for s, w in mb.DXY_W.items()}).prod()
+    assert abs(dx["close"].iloc[0] - want) < 1e-9 and t in eur.index
