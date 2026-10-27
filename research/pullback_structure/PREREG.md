@@ -36,9 +36,9 @@ study. Nothing below has been computed. The commit that merges this file into
 | P19 | Bull and bear | the bull side is the mirror. Both are pooled for the tests and also reported apart (descriptive) | APPROVED (owner, 2026-10-27) |
 | P20 | Costs | no Q1–Q3 metric is a return, so no spread is deducted. A trading rule built on a result would need its own PREREG with costs | APPROVED (owner, 2026-10-27) |
 | P20a | Spread value, if P20 is rejected | no measured XAUUSD spread for 2016–2023 is in the repo. A provisional proportional cost exists: 1.0 bp spread (CITED `research/level_target/DECISIONS.md:16`, T7) | not needed: P20 approved (no spread deducted) |
-| P21 | Data | `database/ohlcv_data/XAUUSD.txt` (manifest sha256 `dc2d30cd…abfb9`), 1-min, UTC. Events from 2016-01-01; warm-up from 2015-07-01 for structure and the HAR state | APPROVED (owner, 2026-10-27) |
-| P22 | Dev period | 2016-01-01 .. 2020-12-31 | APPROVED (owner, 2026-10-27) |
-| P23 | Holdout period | 2021-01-01 .. 2023-12-31 (σ in sample there, §2) | APPROVED (owner, 2026-10-27) |
+| P21 | Data | 2016-01-01 .. 2026-01-30: `database/ohlcv_data/XAUUSD.txt` (manifest sha256 `dc2d30cd…abfb9`), 1-min, UTC. 2026-02-01 .. 2026-09-30: the IBKR backfill, manifest key `database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet` (named here for `research/data_guard.py`), read only after the manifest's `timezone_break` check passes. Events from 2016-01-01; warm-up from 2015-07-01 for structure and the HAR state | APPROVED (owner, 2026-10-27; periods changed the same day) |
+| P22 | Dev period | 2016-01-01 .. 2023-12-31 | APPROVED (owner, 2026-10-27; changed from 2016–2020 the same day) |
+| P23 | Holdout period | 2024-01-01 .. 2026-09-30, read once (σ out of sample throughout, §2) | APPROVED (owner, 2026-10-27; changed from 2021–2023 the same day) |
 | P24 | Events at a period end | an event whose horizon runs past its period's end is dropped, and counted ("truncated") | APPROVED (owner, 2026-10-27) |
 | P25 | Q2 null | Q2 needs a p-value for the BH family. The null is B / (B + C) from the same pipeline run on the simulated random walk (§5) | APPROVED (owner, 2026-10-27) |
 | P26 | Q3 baseline | at the moment C is fixed: P = (H − close) / (H − swing_low), with H = the highest high since the swing low | APPROVED (owner, 2026-10-27) |
@@ -50,9 +50,9 @@ study. Nothing below has been computed. The commit that merges this file into
 | P32 | Pass rule | on holdout, at least one dev-fixed bucket has Q1 excess ≥ 5 pp, a 95 % CI excluding 0, and BH p < 0.05 | APPROVED (owner, 2026-10-27) |
 | P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | APPROVED (owner, 2026-10-27) |
 | P34 | Attempt counter | §9: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | APPROVED (owner, 2026-10-27) |
-| P35 | 2026-02-01 .. 2026-09-30 | not used by this study (the unread backfill; §2). If P32 passes, it is the planned **second confirmation**, under its own pre-registered run; it is not part of this test | APPROVED (owner, 2026-10-27) |
+| P35 | 2026-02-01 .. 2026-09-30 | part of the holdout (P23). There is no separate second confirmation from the backfill; data from 2026-10-01 stays sealed for the final strategy test | APPROVED (owner, 2026-10-27; replaces "planned second confirmation") |
 | P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | APPROVED (owner, 2026-10-27), with all four details |
-| P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2020 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | APPROVED (owner, 2026-10-27) |
+| P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2023 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | APPROVED (owner, 2026-10-27) |
 
 ## 1. Hypothesis
 
@@ -85,27 +85,35 @@ questions in `research/README.md`). The nearest is `trend_features`, which
 found a 24h trend-exhaustion signal (Z24); that's a different variable on
 1-hour data.
 
-**Periods (approved, P22–P23).**
-- **Dev 2016–2020 and holdout 2021–2023** (P22, P23): the brief's start, and
-  every unspent, downloaded year.
-- **σ is in sample on the holdout.** The pinned model was fitted on
-  2021–2023, so σ there is in sample. INFERRED: σ only normalises depth (the
-  bucket) and X. The fit used realised variance, never swing outcomes, so the
-  in-sample part makes σ more accurate on the holdout than on dev. It can't
-  have been tuned toward the hypothesis.
-- **On dev, σ uses parameters fitted later** (2021–2023 applied to 2016–2020).
-  That is a look-ahead in parameters, not in prices. The same applied in
-  `sigma_compare`'s frozen check.
-- **Alternatives considered, not chosen:**
-  1. Fit a HAR on 2007–2015 only for this study, as `level_target` proposed
-     (CITED `research/level_target/DECISIONS.md:20`, T11). That departs from
-     "pinned 240-min model".
-  2. Use 2026-02..09 as the holdout (P35). That data is unread, but it's 8
-     months, needs the backfill run on EC2, and needs the timezone check in
-     the manifest (`timezone_break`).
-- **Source:** `XAUUSD.txt` covers 2016–2023 in one file. The clean parquet
-  starts in 2020, and equals the file close for close from 2020 to 2023
-  (CITED: manifest, `verified`).
+**Periods (approved, P22–P23; changed by the owner on 2026-10-27 to use all
+data from 2016 on).**
+- **Dev 2016-01-01 .. 2023-12-31, holdout 2024-01-01 .. 2026-09-30.** Together
+  they are every unsealed year from the brief's start. The holdout is read
+  once.
+- **The holdout includes the spent period** 2024-01-01 .. 2026-01-30, by the
+  owner's decision. `levels_confirm` read it once, on PDH/PDL breaks, a
+  different question. No study has read it for pullbacks or swing structure.
+  For this question it is as fresh as the seen years of dev (INFERRED).
+- **σ is out of sample on the whole holdout.** The pinned model was fitted on
+  2021–2023 (training rows), so on dev σ is in sample for 2021–2023 and uses
+  later-fitted parameters for 2016–2020. That is a look-ahead in parameters,
+  not prices. INFERRED: σ only normalises depth (the bucket) and X; the fit
+  used realised variance, never swing outcomes.
+- **The backfill must exist before the holdout runs.** The owner runs it on
+  EC2. Its timestamps must pass the manifest's `timezone_break` check (IBKR
+  data after 2026-02-01 switched to US-Eastern time), and it is read through
+  `assert_may_read` with this study's name. The two files meet over a
+  weekend: 2026-01-30 21:59 UTC, then 2026-02-01.
+- **Nothing from 2026-10-01 on is read** (`sealing.assert_before_global_seal`).
+- **Alternative considered, not chosen:** fit a HAR on 2007–2015 only for this
+  study, as `level_target` proposed (CITED
+  `research/level_target/DECISIONS.md:20`, T11). That departs from "pinned
+  240-min model", and with the holdout from 2024 it isn't needed for an
+  out-of-sample σ.
+- **Source:** `XAUUSD.txt` covers 2016-01-01 .. 2026-01-30 in one file, UTC
+  throughout (CITED: manifest, `timezone`). The clean parquet starts in 2020,
+  and equals the file close for close from 2020 to 2023 (CITED: manifest,
+  `verified`).
 
 ## 3. Definitions
 
@@ -198,9 +206,9 @@ rule, and neither does the ATR robustness line (P36).
 
 ## 8. After the verdict
 
-- **If P32 passes:** the 2026-02-01 .. 2026-09-30 backfill is the planned
-  second confirmation (P35). It runs under its own pre-registered run, with the
-  dev-fixed buckets and this file's definitions, and is not part of this test.
+- **If P32 passes:** the next confirmation is the sealed forward period (from
+  2026-10-01), under its own pre-registration. The backfill is part of this
+  holdout (P35), not a separate confirmation.
 - **ATR robustness (P36):** reported with the holdout result, whatever it shows.
 - **Inspection gallery (P37):** dev only; never on holdout.
 
@@ -215,7 +223,7 @@ rule, and neither does the ATR robustness line (P36).
 ## 10. Inspection gallery (P37)
 
 **Purpose:** finding bugs and understanding the events, on the **dev period
-only** (2016–2020). The holdout is never plotted.
+only** (2016–2023). The holdout is never plotted.
 
 **One chart per event:**
 - 4h candles from 20 candles before the swing low to up to 30 candles after
