@@ -1,0 +1,51 @@
+"""Every value of research/pullback_structure, each with its PREREG.md id.
+All are APPROVED (owner, 2026-10-27; PREREG merged in 42675bb). Nothing else
+in the study may hold a number of its own."""
+
+import pandas as pd
+
+STUDY = "pullback_structure"
+
+# P1, P2 are replaced by Amendment 2 (PREREG §12): 1h candles on the UTC hour. The
+# 4h settings stay for the record and for run_variants.py.
+TIMEFRAME = "1h"                                # A2 §12 (was P1: 4h)
+# P1-P3 (original): 4h candles, New York anchor, slot starts (NY hour) and the end of the last slot
+CANDLE_EDGES_NY = (18, 22, 2, 6, 10, 14)       # P2
+CANDLE_END_NY = 17                              # P2: the last candle ends at the daily break
+MIN_SHARE = 0.5                                 # P3
+
+K = 3                                           # P4
+N_SWINGS = 2                                    # A2 §12 (was P6: 3): the last 2 swing highs and 2 swing lows descending
+# P11 (the depth buckets) is replaced by Amendment 1 §11.1: Q1 is pooled, and the
+# depth terciles of dev are descriptive only
+TERCILES = (1 / 3, 2 / 3)                       # A1 §11.1
+X_SIGMA = 1.0                                   # P15
+W = 5                                           # P15 (A2: in 1h candles)
+W_ALT = (4, 5, 6)                               # P37: the audit compares W - 1 and W + 1
+HORIZON = 30                                    # P17 (A2: in 1h candles)
+
+SIGMA_MODEL = "parquet2021_2023"                # P9
+SIGMA_MODEL_SHA256 = "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"   # P9
+SIGMA_H = 240                                   # P9
+
+DATA_KEY = "database/ohlcv_data/XAUUSD.txt"     # P21
+WARMUP_START = pd.Timestamp("2015-07-01", tz="UTC")   # P21
+EVENTS_FROM = pd.Timestamp("2016-01-01", tz="UTC")    # P21, P22
+DEV_END_EXCL = pd.Timestamp("2024-01-01", tz="UTC")   # P22: dev is 2016-01-01 .. 2023-12-31
+
+BOOT_B = 10_000                                 # P28
+BOOT_SEED = 20261027                            # P28
+BH_Q = 0.05                                     # P29
+MIN_EVENTS = 50                                 # P30, A1 §11.2: per question
+PASS_EXCESS = 0.05                              # P32, A1 §11.4: 5 percentage points
+
+RW_REPS = 200                                   # P33: 200 dev-sized samples
+RW_MIN_FACTOR = 20                              # §5: >= 20 x the dev event count
+RW_TOL = 0.01                                   # P33, A1 §11.3: pooled |excess| <= 1 pp
+RW_COVERAGE = (0.93, 0.97)                      # P33
+
+GALLERY_SEED = 20261037                         # P37
+GALLERY_PER_LABEL = 20                          # P37
+GALLERY_AUDIT_EACH = 10                         # P37
+GALLERY_BEFORE = 20                             # P37: candles before the swing low
+GALLERY_AFTER = 30                              # P37: candles after the outcome
