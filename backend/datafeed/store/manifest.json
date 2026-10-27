@@ -97,6 +97,163 @@
    ],
    "note": "Not built yet: no hashes, so verify() refuses any file with this name. backfill_build.py --update-manifest replaces this entry with the built one. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
    "doc": "docs/BACKFILL_2026_PROPOSAL.md"
+  },
+  "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "XAGUSD CMDTY SMART USD",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "EUR CASH IDEALPRO USD",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/USDJPY_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "USD CASH IDEALPRO JPY",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/GBPUSD_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "GBP CASH IDEALPRO USD",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/USDCAD_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "USD CASH IDEALPRO CAD",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/USDSEK_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "USD CASH IDEALPRO SEK",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/USDCHF_ibkr_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "provider": "IBKR historical data: tools/data/backfill_ibkr.py --instrument on the EC2 paper gateway, then tools/data/backfill_build.py build-instrument",
+    "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+    "contract": "USD CASH IDEALPRO CHF",
+    "what_to_show": "MIDPOINT",
+    "bar_size": "1 min"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods: dev 2016-2023, holdout 2024-01-01 .. 2026-09-30, sealed from 2026-10-01",
+   "note": "Not built yet: no hashes, so verify() refuses any file with this name. research/data_guard.py refuses it to any study whose PREREG doesn't name it.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/ohlcv_data/DXY_PROXY_1min_20160101_20260930.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "planned": true,
+   "source": {
+    "derived_from": [
+     "database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet",
+     "database/ohlcv_data/USDJPY_ibkr_1min_20160101_20260930.parquet",
+     "database/ohlcv_data/GBPUSD_ibkr_1min_20160101_20260930.parquet",
+     "database/ohlcv_data/USDCAD_ibkr_1min_20160101_20260930.parquet",
+     "database/ohlcv_data/USDSEK_ibkr_1min_20160101_20260930.parquet",
+     "database/ohlcv_data/USDCHF_ibkr_1min_20160101_20260930.parquet"
+    ],
+    "how": "DXY = 50.14348112 * EURUSD^-0.576 * USDJPY^0.136 * GBPUSD^-0.119 * USDCAD^0.091 * USDSEK^0.042 * USDCHF^0.036 on each OHLC field, on the minutes where all six pairs have a bar (tools/data/build_dxy_proxy.py)",
+    "licence": "derived from IBKR market data, the owner's own use only"
+   },
+   "range_utc": [
+    "2016-01-01",
+    "2026-10-01"
+   ],
+   "periods": "research/SEALING.md, Instrument periods",
+   "note": "Not built yet. Guarded like the six inputs.",
+   "doc": "docs/MULTI_MARKET_DATA.md"
   }
  }
 }
