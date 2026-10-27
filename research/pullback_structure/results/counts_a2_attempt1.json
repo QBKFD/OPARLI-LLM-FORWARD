@@ -1,0 +1,63 @@
+{
+ "what": "pullback_structure step 2 (Amendment 2: 1h, k = 3, 2 swings): event counts on dev (2016-01-01 .. 2023-12-31); counts only, no outcome",
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAUUSD.txt",
+  "manifest_sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9",
+  "cache_equals_fresh_parse": true,
+  "rows": 3010074
+ },
+ "model": {
+  "name": "parquet2021_2023",
+  "sha256": "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"
+ },
+ "candles": {
+  "candles_kept": 50196,
+  "candles_dropped_incomplete": 85
+ },
+ "candles_without_sigma": 117,
+ "refused_starts": {
+  "bear": {
+   "swing_lows": 4982,
+   "before_events_start": 292,
+   "not_bearish": 3367,
+   "while_live": 143,
+   "no_sigma": 0
+  },
+  "bull": {
+   "swing_lows": 4889,
+   "before_events_start": 299,
+   "not_bearish": 3194,
+   "while_live": 152,
+   "no_sigma": 0
+  }
+ },
+ "counts": {
+  "bear": {
+   "events_started": 1180,
+   "truncated": 0,
+   "q1_turns": 632,
+   "q2_breaks": 494
+  },
+  "bull": {
+   "events_started": 1244,
+   "truncated": 0,
+   "q1_turns": 645,
+   "q2_breaks": 473
+  },
+  "pooled": {
+   "events_started": 2424,
+   "truncated": 0,
+   "q1_turns": 1277,
+   "q2_breaks": 967
+  }
+ },
+ "depth_tercile_cuts_sigma": [
+  1.4829935657383657,
+  2.117368707154584
+ ],
+ "gate_p30": {
+  "min_events": 50,
+  "pooled_turns": 1277,
+  "pass": true
+ }
+}

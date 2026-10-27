@@ -84,7 +84,7 @@ def test_outcome_A_and_baseline():
 
 
 def test_outcome_B_break_in_pullback():
-    ev, _, _ = bear_events([42, 44])                      # straight up through LH, then +1 sigma
+    ev, _, _ = bear_events([37, 41, 43])                  # below LH through the confirmation, then up through it
     e = ev[0]
     assert e.turn == -1 and e.brk_from == "pullback"
     assert e.bc == "B" and e.label == "B"
@@ -99,10 +99,24 @@ def test_outcome_C_then_q3():
     assert e.a3 == 1
 
 
-def test_break_during_confirmation_counts():
-    ev, _, _ = bear_events([44] * 8)                     # 34 -> 44: closes above LH = 38.2 at i + 2
-    e = ev[0]
-    assert e.brk == e.i + 2 and e.brk <= e.conf and e.brk_from == "pullback" and e.bc == "B"
+def test_break_during_confirmation_refuses_the_start():
+    """D19: 34 -> 44 closes above LH = 38.2 at i + 2, before the swing low is confirmed."""
+    ev, cnt, _ = bear_events([44] * 8)
+    assert ev == [] and cnt["lh_broken_before_start"] == 1
+
+
+def test_outside_candle_high_counts_in_the_structure():
+    """D18: the swing-low candle is also a swing high above the previous one, so
+    the last 2 confirmed swing highs are not falling: no event."""
+    mids = path(BEAR_PREFIX + [37, 31])
+    cd, mt, mh, ml, sig = series_from_mids(mids)
+    i = 24                                                # the 34 trough
+    cd.loc[i, "high"] = 45.0
+    mh[cd.loc[i, "i0"]] = 45.0
+    s = pb.series(cd, mt, mh, ml, sig, bull=False)
+    assert i in pb.swings(s.h, 3, low=False) and i in pb.swings(s.lo, 3, low=True)
+    ev, cnt = pb.run_events(s, events_from_ns=0, **RUN)
+    assert [e for e in ev if e.i == i] == [] and cnt["not_bearish"] >= 1
 
 
 def test_w_sensitivity_recorded():
@@ -230,7 +244,7 @@ def test_terciles():
 def test_gallery_samples_and_renders(tmp_path):
     import gallery
     evs, series = [], {}
-    for tail, sign in (([37, 31], 1), ([42, 44], 1), ([39] * 7 + [30], 1)):
+    for tail, sign in (([37, 31], 1), ([37, 41, 43], 1), ([39] * 7 + [30], 1)):
         mids = path(BEAR_PREFIX + tail)
         cd, mt, mh, ml, sig = series_from_mids(mids)
         s = pb.series(cd, mt, mh, ml, sig, bull=False)

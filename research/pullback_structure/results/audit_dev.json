@@ -1,0 +1,96 @@
+{
+ "1_q2_break_before_confirmation": {
+  "count": 0,
+  "of": 668,
+  "share": 0.0,
+  "examples_break_candle": [],
+  "by_label": {
+   "B": 0,
+   "C": 0
+  }
+ },
+ "2_structure_violations": {
+  "count": 0,
+  "of": 2151,
+  "share": 0.0,
+  "examples_swing_candle": [],
+  "info_outside_candles_kept": {
+   "count": 57,
+   "examples_swing_candle": [
+    3595,
+    4781,
+    5207,
+    5697,
+    6385
+   ]
+  }
+ },
+ "3_near_ties_below_0.05_sigma": {
+  "count_either": 152,
+  "of": 2151,
+  "share": 0.0706648070664807,
+  "swing_highs": 78,
+  "swing_lows": 77,
+  "examples_swing_candle": [
+   4610,
+   6099,
+   6107,
+   7715,
+   8543
+  ]
+ },
+ "4_q1_with_close_beyond_lh_during_confirmation": {
+  "count": 0,
+  "of": 1292,
+  "share": 0.0,
+  "examples_swing_candle": []
+ },
+ "5_same_candle_A_close_beyond_pullback_high": {
+  "count": 8,
+  "of": 622,
+  "share": 0.012861736334405145,
+  "examples_candle": [
+   9436,
+   21061,
+   29372,
+   46481,
+   47806
+  ]
+ },
+ "6_depth_sigma": {
+  "used": "sigma_px_240 at the label equal to the confirmation candle's close (P9, D10); the gallery's band uses the turn candle's close",
+  "median_abs_rel_diff_conf_vs_turn": 0.15495895546960353,
+  "p90_abs_rel_diff": 0.4597481389646449,
+  "events_near": {
+   "41324": {
+    "dir": "bear",
+    "swing_candle": 41288,
+    "conf_candle": 41291,
+    "turn_candle": 41292,
+    "break_candle": -1,
+    "label": "A",
+    "kind": "A",
+    "sigma_at_conf_close_px": 3.749,
+    "sigma_at_turn_close_px": 4.248,
+    "depth_sigma_conf (P9, used)": 1.286,
+    "depth_if_sigma_turn": 1.135,
+    "lh_break_during_confirmation": false
+   },
+   "15381": {
+    "dir": "bear",
+    "swing_candle": 15371,
+    "conf_candle": 15374,
+    "turn_candle": 15383,
+    "break_candle": -1,
+    "label": "A",
+    "kind": "A",
+    "sigma_at_conf_close_px": 3.878,
+    "sigma_at_turn_close_px": 5.409,
+    "depth_sigma_conf (P9, used)": 3.121,
+    "depth_if_sigma_turn": 2.237,
+    "lh_break_during_confirmation": false
+   }
+  }
+ },
+ "events_audited": 2151
+}

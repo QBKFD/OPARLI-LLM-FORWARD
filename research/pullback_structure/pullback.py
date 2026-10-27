@@ -246,7 +246,7 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
     sh_idx = swings(s.h, k, low=False)
     events: list[Event] = []
     cnt = {"swing_lows": int(len(sl_idx)), "before_events_start": 0, "not_bearish": 0,
-           "while_live": 0, "no_sigma": 0}
+           "lh_broken_before_start": 0, "while_live": 0, "no_sigma": 0}
     live_until = -1
     for i in sl_idx:
         conf = i + k
@@ -254,10 +254,20 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
             cnt["before_events_start"] += 1
             continue
         lows = sl_idx[sl_idx <= i][-n_swings:]
-        highs = sh_idx[sh_idx < i][-n_swings:]
-        if len(lows) < n_swings or len(highs) < n_swings or not (np.diff(s.lo[lows]) < 0).all() \
-                or not (np.diff(s.h[highs]) < 0).all():
+        # D18: the structure uses every swing high confirmed by the event's start
+        # (index <= i, so an outside candle's own high counts); LH (P7) is the
+        # newest swing high before the swing-low candle
+        highs = sh_idx[sh_idx <= i][-n_swings:]
+        before = sh_idx[sh_idx < i]
+        if len(lows) < n_swings or len(highs) < n_swings or not len(before) \
+                or not (np.diff(s.lo[lows]) < 0).all() or not (np.diff(s.h[highs]) < 0).all():
             cnt["not_bearish"] += 1
+            continue
+        lh_i = int(before[-1])
+        # D19: a close beyond LH on the swing-low candle or during its confirmation
+        # breaks the structure before the event exists: no event (no look-ahead)
+        if (s.c[i:conf + 1] > s.h[lh_i]).any():
+            cnt["lh_broken_before_start"] += 1
             continue
         if s.cend[conf] <= live_until:
             cnt["while_live"] += 1
@@ -266,8 +276,7 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
         if not np.isfinite(sig) or sig <= 0:
             cnt["no_sigma"] += 1
             continue
-        e = Event(s.sign, int(i), int(conf), float(s.lo[i]), float(s.h[highs[-1]]), int(highs[-1]),
-                  int(highs[-1] + k), float(sig))
+        e = Event(s.sign, int(i), int(conf), float(s.lo[i]), float(s.h[lh_i]), lh_i, lh_i + k, float(sig))
         _track(s, e, x_sigma, w, horizon, w_alt, n)
         events.append(e)
         live_until = e.term_ns if e.kind != "truncated" else np.iinfo(np.int64).max
@@ -276,16 +285,9 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
 
 def _track(s: Series, e: Event, x_sigma: float, w: int, horizon: int, w_alt: tuple[int, ...], n: int) -> None:
     sl, lh, i = e.sl, e.lh, e.i
-    # ---- phase 1: pullback. A close above LH counts from the candle after the swing
-    # low (PREREG §3.4: "before the turn"; D3); a lower low and the turn from the
-    # candle after the confirmation (no lower low can come earlier: P5)
+    # ---- phase 1: pullback, from the candle after the confirmation. A close above LH
+    # before that never starts an event (D19, which replaces D3)
     t0 = e.conf + 1
-    b_rel = _first(s.c[i + 1:] > lh)
-    b_abs = i + 1 + b_rel if b_rel >= 0 else n
-    if b_abs <= e.conf:
-        e.brk, e.brk_from = b_abs, "pullback"
-        _break(s, e, x_sigma, w, horizon, w_alt, n)
-        return
     if t0 >= n:
         e.kind = "truncated"
         return

@@ -1,0 +1,98 @@
+{
+ "1_q2_break_before_confirmation": {
+  "count": 300,
+  "of": 967,
+  "share": 0.31023784901758017,
+  "examples_break_candle": [
+   3326,
+   3505,
+   3573,
+   4103,
+   4976
+  ],
+  "by_label": {
+   "B": 77,
+   "C": 223
+  }
+ },
+ "2_structure_violations": {
+  "count": 55,
+  "of": 2424,
+  "share": 0.02268976897689769,
+  "examples_swing_candle": [
+   3595,
+   5207,
+   6222,
+   6699,
+   7042
+  ]
+ },
+ "3_near_ties_below_0.05_sigma": {
+  "count_either": 183,
+  "of": 2424,
+  "share": 0.07549504950495049,
+  "swing_highs": 86,
+  "swing_lows": 101,
+  "examples_swing_candle": [
+   4610,
+   6099,
+   6107,
+   7715,
+   8543
+  ]
+ },
+ "4_q1_with_close_beyond_lh_during_confirmation": {
+  "count": 0,
+  "of": 1277,
+  "share": 0.0,
+  "examples_swing_candle": []
+ },
+ "5_same_candle_A_close_beyond_pullback_high": {
+  "count": 8,
+  "of": 612,
+  "share": 0.013071895424836602,
+  "examples_candle": [
+   9436,
+   21061,
+   29372,
+   46481,
+   47806
+  ]
+ },
+ "6_depth_sigma": {
+  "used": "sigma_px_240 at the label equal to the confirmation candle's close (P9, D10); the gallery's band uses the turn candle's close",
+  "median_abs_rel_diff_conf_vs_turn": 0.15591222474326938,
+  "p90_abs_rel_diff": 0.4665666616007874,
+  "events_near": {
+   "41324": {
+    "dir": "bear",
+    "swing_candle": 41324,
+    "conf_candle": 41327,
+    "turn_candle": 41329,
+    "break_candle": -1,
+    "label": "A",
+    "kind": "A",
+    "sigma_at_conf_close_px": 5.765,
+    "sigma_at_turn_close_px": 5.776,
+    "depth_sigma_conf (P9, used)": 3.884,
+    "depth_if_sigma_turn": 3.877,
+    "lh_break_during_confirmation": false
+   },
+   "15381": {
+    "dir": "bear",
+    "swing_candle": 15371,
+    "conf_candle": 15374,
+    "turn_candle": 15383,
+    "break_candle": -1,
+    "label": "A",
+    "kind": "A",
+    "sigma_at_conf_close_px": 3.878,
+    "sigma_at_turn_close_px": 5.409,
+    "depth_sigma_conf (P9, used)": 3.121,
+    "depth_if_sigma_turn": 2.237,
+    "lh_break_during_confirmation": false
+   }
+  }
+ },
+ "events_audited": 2424
+}

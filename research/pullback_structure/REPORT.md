@@ -1,61 +1,48 @@
 # pullback_structure: report
 
-## 1. Verdict (PREREG §11.4, Amendment 2 settings): **FAIL on dev**. The holdout stays unread
+## 1. Verdict (PREREG §11.4, Amendment 2 settings, after bug fixes D18–D19): **FAIL on dev**. The holdout stays unread
 
-Q1 asks whether, after the turn, a new lower low comes more often than the
-random-walk baseline P. The answer on dev 2016–2023 is **no**:
-- the excess is **−2.3 pp**, with a 95 % CI of [−4.7, +0.1] pp;
-- the CI's upper bound is below +5 pp, which is **FAIL** by §11.4;
-- the point estimate even goes the other way: a new lower low came 48.7 % of
-  the time, against a mean baseline of 51.0 %.
+**Outcome analysis 2** (`ATTEMPTS.json`): a dev rerun after two bugs found by
+the owner's exhaustive audit (§2) were fixed and logged (DECISIONS D18–D20).
+Attempt 1's outputs are kept as `results/*_attempt1.json`.
 
-By §11.4 the holdout runs only after a dev PASS, so 2024-01 .. 2026-09 stays
-unread. This was outcome analysis 1 (`ATTEMPTS.json`), run once.
+All OBSERVED: `results/dev.json` and `results/rw.json` (attempt 2), and
+`results/dev_attempt1.json` and `results/rw_attempt1.json`.
 
-All OBSERVED: `results/dev.json`, `results/rw.json`.
+| | attempt 1 (before the fixes) | **attempt 2 (after D18–D19)** |
+|---|---|---|
+| events started on dev | 2,424 | 2,151 |
+| **Q1** excess (lower-low rate − baseline) | −2.3 pp [−4.7, +0.1], n 1,256 | **−2.1 pp [−4.4, +0.2]**, n 1,271 (21 unresolved) |
+| Q1 rate A / mean P | 48.7 % / 51.0 % | 48.9 % / 51.0 % |
+| Q1 verdict | FAIL | **FAIL** (the CI's upper bound is below +5 pp) |
+| **Q2** share B | 28.1 % (272 of 967) | **29.0 % (194 of 668)**, CI [25.8, 32.3] % |
+| Q2 random-walk share | 34.0 % | **34.4 %** |
+| Q2 p (two-sided) raw / BH | 0.0002 / 0.0006 | **0.0008 / 0.0024** |
+| **Q3** excess after C | −4.9 pp [−8.0, −1.8], n 556 | **−4.5 pp [−8.2, −0.9]**, n 384 (48 unresolved; 42 left Q3 with a lower low inside W) |
+| Q3 p one-sided raw / BH | 0.999 / 1.00 | 0.992 / 0.99 |
+| random walk: pooled excess / coverage of 0 | −0.44 pp / 93.5 % | −0.44 pp / 94.0 % (PASS) |
 
-| | n | statistic | 95 % CI | p (raw) | p (BH) |
-|---|---:|---:|---|---:|---:|
-| **Q1** lower-low rate − baseline (pooled) | 1,256 resolved of 1,277 turns (21 unresolved) | **−2.3 pp** | [−4.7, +0.1] | 0.97 (one-sided) | 1.00 |
-| **Q2** share of LH breaks that become B | 967 breaks (272 B, 695 C) | **28.1 %**, against 34.0 % on the random walk | [25.5, 30.7] % | 0.0002 (two-sided) | 0.0006 |
-| **Q3** after C: lower-low rate − baseline | 556 resolved of 623 C (67 unresolved; 72 left Q3 with a lower low inside W) | **−4.9 pp** | [−8.0, −1.8] | 0.999 (one-sided) | 1.00 |
+**What the fixes changed:**
+- **Q1 barely moved.** The fixed events are mostly Q2 events.
+- **Q2 lost 299 breaks:** the 300 that came before the event existed, less
+  any made up by new starts. Its result holds after the fix. The B share is
+  still below the random walk's, at 29.0 % against 34.4 %, and BH-significant.
+- **Q3** shrank with Q2.
 
-**Q2 is the only BH-significant result, and it goes against a "confirmed
-reversal" story.** After a close beyond the last lower high, the +1σ
-follow-through within 5 candles came less often than on a driftless random
-walk with the same σ. Q2 is reported, but it isn't part of the pass rule.
+INFERRED: D19's look-ahead didn't create the Q2 effect.
 
-**Descriptive only** (no test):
-- **Q1 by depth tercile** (cuts 1.48 σ and 2.12 σ): −1.6 pp (n 426),
-  −3.9 pp (n 425), −1.3 pp (n 405).
-- **By direction:**
-  - Q1: bear −3.7 pp (n 622), bull −0.9 pp (n 634);
-  - Q2 B share: bear 29.1 %, bull 27.1 %;
-  - Q3: bear −4.7 pp, bull −5.1 pp.
-- **Event kinds:** 2,424 events, 0 truncated.
-  - Q1 path: A 612, lower low before the turn 505, lower low after Q1
-    resolved 211, no break 108, unresolved 21.
-  - Breaks: B 272, C 695.
-  - Breaks came 642 times during the pullback and 325 times after the turn.
+## 2. The owner's audit of all dev events (`audit.py`; dev 2016–2023 only)
 
-**Machinery check (§5 / §11.3): PASS**, `results/rw.json`:
-- 200 random-walk runs on the dev timestamps, with 249,002 resolved simulated
-  events;
-- pooled excess −0.44 pp (tolerance ±1 pp);
-- the CI covered 0 in 93.5 % of runs (band 93–97 %, near its lower edge);
-- by tercile: −1.2 / −0.4 / −0.1 pp. INFERRED: a small negative bias from
-  1-min discreteness, largest for shallow pullbacks. It is about a tenth of
-  dev's effect size, and dev's sign is the same.
+Each row gives the count, the share and up to 5 example candle indices.
 
-**Gallery (P37):** 140 charts of dev only, under
-`research/pullback_structure/gallery/` (local, git-ignored). A spot-check of
-an A event in each direction found no bug: the swing and LH are marked at
-their confirmations, P and the ±1σ band sit at the turn, and the end is where
-price passes the swing level.
-
-INFERRED: on 1h gold in 2016–2023, a turn after a pullback in a 1-swing
-structure gives no edge for continuation beyond the random-walk baseline. The
-point estimates sit slightly below it.
+| # | check | before the fixes (`audit_dev_attempt1.json`) | after (`audit_dev.json`) | verdict |
+|---|---|---|---|---|
+| 1 | Q2 break (close beyond LH) before the swing low is confirmed | **300 of 967 (31.0 %)**; 77 B, 223 C; e.g. breaks at 3326, 3505, 3573, 4103, 4976 | 0 of 668 | **bug, fixed (D19)** |
+| 2 | structure: the last 2 swing lows or the last 2 confirmed swing highs not falling | **25 of 2,424 (1.0 %)**, all outside candles (the swing-low candle is also a swing high, here above the previous one); 55 outside candles in all, e.g. 3595, 5207, 6222, 6699, 7042 | 0 of 2,151; 57 outside candles kept, each with a falling high, e.g. 3595, 4781, 5207, 5697, 6385 | **bug, fixed (D18)** |
+| 3 | near-ties: the last 2 swing highs or lows within 0.05 σ | 183 of 2,424 (7.5 %); 86 highs, 101 lows | 152 of 2,151 (7.1 %); e.g. 4610, 6099, 6107, 7715, 8543 (before) | definition, not changed |
+| 4 | Q1 event with a close beyond LH during the confirmation | 0 of 1,277 (such events went to Q2 under D3); the event near 41324 (bear, swing 41324, conf 41327, turn 41329, A) has none | 0 of 1,292 | no bug |
+| 5 | same-candle A: the candle that decides A also closes beyond the pullback high | 8 of 612 A (1.3 %); e.g. 9436, 21061, 29372, 46481, 47806 | 8 of 622 (1.3 %) | definition, not changed (the order inside the candle comes from the 1-min bars, P13) |
+| 6 | the σ behind the depth | σ_240 at the label equal to the **confirmation** candle's close (P9, D10). The gallery's ±1σ band uses the **turn** candle's close (§10). Over Q1 events the two differ by a median of 16 % (90th percentile 47 %). Event near 15381 (bear, swing 15371, conf 15374, turn 15383, A): σ at conf 3.878, σ at turn 5.409 (price units); depth 3.12 σ as used, 2.24 σ with the turn's σ | same | as specified, not a bug; Q1 is pooled, so depth enters only the descriptive terciles |
 
 ## The original step 2: STOPPED (before the amendment)
 
@@ -100,7 +87,7 @@ buckets would leave room.
   value with its PREREG id).
 - `run_counts.py` (step 2).
 - Synthetic tests: `test_pullback.py`.
-- Implementation choices: `DECISIONS.md` (D1–D17).
+- Implementation choices: `DECISIONS.md` (D1–D20; D3 replaced by D19).
 - `run_variants.py`: the owner's count-only comparison
   (`results/variant_counts.json`).
 - `run_rw.py`, `run_dev.py`, `gallery.py`: written and tested on synthetic

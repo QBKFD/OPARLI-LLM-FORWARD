@@ -2,7 +2,7 @@
  "about": "Attempts of research/pullback_structure. prereg_attempts counts registrations of this question; amendments counts amendments to it; outcome_analyses counts analyses that read an outcome (incremented before the analysis runs). See PREREG.md sections 9 and 11.7.",
  "prereg_attempts": 1,
  "amendments": 2,
- "outcome_analyses": 1,
+ "outcome_analyses": 2,
  "log": [
   {
    "n": 1,
@@ -31,6 +31,13 @@
    "date": "2026-10-27",
    "what": "dev (2016-2023): Q1 pooled, Q2, Q3, BH; verdict by PREREG \u00a711.4",
    "by": "owner, 2026-10-27 (Amendment 1; run on dev only)"
+  },
+  {
+   "n": 5,
+   "kind": "outcome_analysis",
+   "date": "2026-10-27",
+   "what": "dev rerun after bug fixes D18, D19 (DECISIONS.md): Q1 pooled, Q2, Q3, BH; verdict by \u00a711.4",
+   "by": "owner, 2026-10-27 (exhaustive audit of the dev events)"
   }
  ]
 }
