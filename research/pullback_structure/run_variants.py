@@ -27,7 +27,7 @@ HOLDOUT = (pd.Timestamp("2024-01-01", tz="UTC"), pd.Timestamp("2026-10-01", tz="
 
 
 def main() -> int:
-    d = common.prepare(verify_cache=False)
+    d = common.prepare(verify_cache=False, timeframe="4h")
     h1, h1_info = pb.candles_hourly(d["m"], P.MIN_SHARE)
     sig_h1 = data.at_labels(d["tbl"], f"sigma_px_{P.SIGMA_H}", pd.DatetimeIndex(h1["end"]))
     dev_years = (P.DEV_END_EXCL - P.EVENTS_FROM).days / 365.25

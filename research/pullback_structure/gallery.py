@@ -51,7 +51,7 @@ def sample(events: list[pb.Event], series: dict, seed: int, per_label: int, audi
 
 
 def chart(e: pb.Event, s: pb.Series, path: Path, title: str) -> dict:
-    """One event: 4h candles from GALLERY_BEFORE before the swing low to
+    """One event: candles (1h under Amendment 2) from GALLERY_BEFORE before the swing low to
     GALLERY_AFTER after the end; the marks of §10. Prices are shown as traded
     (a bull event's negated view is turned back)."""
     import matplotlib
@@ -90,7 +90,7 @@ def chart(e: pb.Event, s: pb.Series, path: Path, title: str) -> dict:
     ax.axvline(end, color="#999", lw=0.8, ls="-.", label="event end")
     p_txt = f"P at turn {e.p:.3f}" if e.turn >= 0 else "no turn (broke LH in the pullback)"
     ax.set_title(f"{title} | label {info['label']} ({e.kind}) | {p_txt}", fontsize=10)
-    ax.set_xlabel("4h candle index (dev)")
+    ax.set_xlabel(f"{P.TIMEFRAME} candle index (dev)")
     ax.legend(fontsize=7, loc="best")
     fig.tight_layout()
     fig.savefig(path, dpi=90)

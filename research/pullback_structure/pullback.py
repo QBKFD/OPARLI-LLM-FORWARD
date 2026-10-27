@@ -88,8 +88,12 @@ def candles(m: pd.DataFrame, edges_ny: tuple[int, ...], end_ny: int, min_share: 
 
 
 def candles_hourly(m: pd.DataFrame, min_share: float) -> tuple[pd.DataFrame, dict]:
-    """1h candles on the UTC hour, for the owner's count-only variants (not a
-    PREREG timeframe). Same columns as candles(); kept with >= min_share of 60."""
+    """1h candles on the UTC hour (Amendment 2, §12; first used for the owner's
+    count-only variants). Same columns as candles(); kept with >= min_share of
+    the hour's 60 minutes. A New York hour is a UTC hour, so the daily break
+    (17:00-18:00 NY) is never inside a candle."""
+    if not m.index.is_monotonic_increasing or m.index.has_duplicates:
+        raise AssertionError("1-min index must be sorted and unique")
     key = m.index.floor("1h").asi8
     p0 = np.flatnonzero(np.concatenate([[True], np.diff(key) != 0]))
     i1 = np.concatenate([p0[1:], [len(m)]])

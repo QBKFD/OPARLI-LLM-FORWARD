@@ -15,7 +15,8 @@ sys.path.insert(0, str(HERE))
 import params as P  # noqa: E402
 import pullback as pb  # noqa: E402
 
-RUN = dict(k=P.K, x_sigma=P.X_SIGMA, w=P.W, horizon=P.HORIZON, w_alt=P.W_ALT, n_swings=P.N_SWINGS)
+# the state-machine tests use 3 swings on paths built for it; test_two_swings covers P.N_SWINGS = 2
+RUN = dict(k=P.K, x_sigma=P.X_SIGMA, w=P.W, horizon=P.HORIZON, w_alt=P.W_ALT, n_swings=3)
 
 
 def path(points, steps=4):
@@ -257,3 +258,32 @@ def test_sim_candles_match_candles():
     cs = run_rw.sim_candles(cd, *(m[x].to_numpy() for x in ("open", "high", "low", "close")))
     for col in ("open", "high", "low", "close"):
         assert np.allclose(cs[col].to_numpy(), cd[col].to_numpy())
+
+
+def test_hourly_candles_and_drops():
+    idx = pd.date_range("2021-03-12 00:00", "2021-03-12 05:59", freq="1min", tz="UTC")
+    rng = np.random.default_rng(2)
+    c = 1800 + np.cumsum(rng.normal(0, 0.1, len(idx)))
+    m = pd.DataFrame({"open": c, "high": c + 0.05, "low": c - 0.05, "close": c}, index=idx)
+    m = m[(m.index < pd.Timestamp("2021-03-12 02:00", tz="UTC")) | (m.index >= pd.Timestamp("2021-03-12 02:40", tz="UTC"))]
+    cd, info = pb.candles_hourly(m, P.MIN_SHARE)
+    assert info == {"candles_kept": 5, "candles_dropped_incomplete": 1}       # 02:00 has 20 of 60 minutes
+    first = m[m.index < pd.Timestamp("2021-03-12 01:00", tz="UTC")]
+    assert cd.loc[0, "high"] == first["high"].max() and cd.loc[0, "close"] == first["close"].iloc[-1]
+    assert (cd["end"] - cd["start"] == pd.Timedelta(hours=1)).all()
+
+
+def test_params_are_amendment_2():
+    assert (P.TIMEFRAME, P.K, P.N_SWINGS, P.X_SIGMA, P.W, P.HORIZON) == ("1h", 3, 2, 1.0, 5, 30)
+
+
+def test_two_swings():
+    """Amendment 2: 2 swings (1 lower high, 1 lower low) start an event at the
+    second trough already; 3 swings need the third."""
+    mids = path([37, 40, 36, 39, 35, 38, 31])
+    cd, mt, mh, ml, sig = series_from_mids(mids)
+    s = pb.series(cd, mt, mh, ml, sig, bull=False)
+    ev2, _ = pb.run_events(s, events_from_ns=0, **{**RUN, "n_swings": 2})
+    ev3, _ = pb.run_events(s, events_from_ns=0, **RUN)
+    assert [e.i for e in ev2][:1] == [16] and ev3 == []   # the second trough (35); the first has 1 swing high before it
+    assert ev2[0].lh == pytest.approx(39.2)        # LH = the newer of the 2 swing highs

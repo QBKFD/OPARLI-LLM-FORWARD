@@ -1,15 +1,16 @@
 # pullback_structure: report
 
-## Status: Amendment 1 (PREREG §11), awaiting the owner's merge. Then the random-walk check, then dev
+## Status: Amendment 2 (PREREG §12), awaiting the owner's merge. Then the random-walk check, dev and the gallery
 
-- **Amendment 1:** Q1 is pooled over all turns, the depth terciles are
-  descriptive only, and the verdicts are PASS, FAIL and INCONCLUSIVE.
-- **Amended step 2:** passes, with 155 pooled turns on dev
-  (`results/counts_a1.json`). The dev depth tercile cut-points are 3.37 σ
-  and 4.53 σ.
+- **Amendment 2:** variant (f), 1h candles, k = 3, 2 swings, for power. It
+  keeps Amendment 1's pooled Q1, descriptive terciles and the PASS / FAIL /
+  INCONCLUSIVE verdicts.
+- **Amended step 2:** passes, with 1,277 pooled turns on dev
+  (`results/counts_a2.json`). The tercile cut-points are 1.48 σ and 2.12 σ.
+- **Power bound:** MDE ≤ 3.9 pp on dev and ≤ 6.7 pp on the holdout (about 439
+  turns).
 - **No outcome read:** `outcome_analyses` is 0.
-- **Next:** the random walk (`run_rw.py`), then dev (`run_dev.py`), then the
-  gallery (`gallery.py`). None has run.
+- **Next:** `run_rw.py`, then `run_dev.py`, then `gallery.py`. None has run.
 
 ## The original step 2: STOPPED (before the amendment)
 
@@ -54,7 +55,7 @@ buckets would leave room.
   value with its PREREG id).
 - `run_counts.py` (step 2).
 - Synthetic tests: `test_pullback.py`.
-- Implementation choices: `DECISIONS.md` (D1–D15).
+- Implementation choices: `DECISIONS.md` (D1–D17).
 - `run_variants.py`: the owner's count-only comparison
   (`results/variant_counts.json`).
 - `run_rw.py`, `run_dev.py`, `gallery.py`: written and tested on synthetic

@@ -1,5 +1,8 @@
 # pullback_structure: pre-registration
 
+**Amendment 2 (2026-10-27, owner, before any outcome): §12.** It switches to
+1h candles, k = 3, 2 swings. Rows marked "AMENDED (A2)" are read as §12 says.
+
 **Amendment 1 (2026-10-27, owner, before any outcome): §11.** It replaces the
 depth buckets with one pooled Q1 test and sets the verdicts. Rows marked
 "AMENDED (A1)" in §0 are read as §11 says.
@@ -19,12 +22,12 @@ study. Nothing below has been computed. The commit that merges this file into
 
 | id | item | value | status |
 |---|---|---|---|
-| P1 | Timeframe | 4h candles built from 1-min bars | APPROVED (owner, 2026-10-27) |
-| P2 | Candle anchor | New York time: 18–22, 22–02, 02–06, 06–10, 10–14, 14–17 (the last candle is 3h, ending at the daily break) | APPROVED (owner, 2026-10-27) |
+| P1 | Timeframe | 4h candles built from 1-min bars | AMENDED (A2, §12) |
+| P2 | Candle anchor | New York time: 18–22, 22–02, 02–06, 06–10, 10–14, 14–17 (the last candle is 3h, ending at the daily break) | AMENDED (A2, §12) |
 | P3 | Incomplete candles | a candle with < 50 % of its scheduled open minutes is dropped, and counted | APPROVED (owner, 2026-10-27) |
 | P4 | Swing confirmation | k = 3 candles each side. A swing exists only once the k-th candle after it has closed | APPROVED (owner, 2026-10-27) |
 | P5 | Swing tie rule | swing low: the candle's low is strictly below the lows of the k candles on each side (mirror for highs); ties make no swing | APPROVED (owner, 2026-10-27) |
-| P6 | Bearish structure | the last 3 confirmed swing highs are strictly descending (2 lower highs), **and** the last 3 confirmed swing lows are strictly descending (2 lower lows), the newest being the swing low that starts the event | APPROVED (owner, 2026-10-27) |
+| P6 | Bearish structure | the last 3 confirmed swing highs are strictly descending (2 lower highs), **and** the last 3 confirmed swing lows are strictly descending (2 lower lows), the newest being the swing low that starts the event | AMENDED (A2, §12) |
 | P7 | Last lower high (LH) | the newest confirmed swing high before the event's swing low | APPROVED (owner, 2026-10-27) |
 | P8 | Turn | the first 4h close below the previous candle's low, after the swing is confirmed (mirror for bull) | APPROVED (owner, 2026-10-27) |
 | P9 | σ | HAR σ over 240 min, `sigma_over(model, state, 240).sigma_px`, pinned model `parquet2021_2023` (SHA-256 `dc0eb3c5…0dde`, CITED `backend/datafeed/features/vol_block.py:336-337`). State as of the close of the confirmation candle | APPROVED (owner, 2026-10-27) |
@@ -33,9 +36,9 @@ study. Nothing below has been computed. The commit that merges this file into
 | P12 | **Q1 outcome** | **first passage:** A = a 1-min low below swing_low before a 1-min high above pullback_high. This is the event the baseline P is exact for (§3.6) | APPROVED (owner, 2026-10-27) |
 | P13 | Order within a candle | resolved on the 1-min bars; a single 1-min bar that holds both levels counts **against** the hypothesis (not A) | APPROVED (owner, 2026-10-27) |
 | P14 | B | a 4h close above LH, then a high ≥ that close + X·σ within W candles; σ as of the breaking close | APPROVED (owner, 2026-10-27) |
-| P15 | X, W | X = 1.0 σ, W = 5 candles | APPROVED (owner, 2026-10-27) |
+| P15 | X, W | X = 1.0 σ, W = 5 candles | AMENDED (A2, §12) |
 | P16 | C | a 4h close above LH that does not become B within W candles. C is fixed when the W-th candle closes | APPROVED (owner, 2026-10-27) |
-| P17 | Max horizon | 30 candles from the turn (Q1), from the break (Q2) and from the moment C is fixed (Q3); otherwise "unresolved", counted and reported | APPROVED (owner, 2026-10-27) |
+| P17 | Max horizon | 30 candles from the turn (Q1), from the break (Q2) and from the moment C is fixed (Q3); otherwise "unresolved", counted and reported | AMENDED (A2, §12) |
 | P18 | Overlapping events | per direction, at most one live event; a new event can start only after the previous one is resolved | APPROVED (owner, 2026-10-27) |
 | P19 | Bull and bear | the bull side is the mirror. Both are pooled for the tests and also reported apart (descriptive) | APPROVED (owner, 2026-10-27) |
 | P20 | Costs | no Q1–Q3 metric is a return, so no spread is deducted. A trading rule built on a result would need its own PREREG with costs | APPROVED (owner, 2026-10-27) |
@@ -56,7 +59,7 @@ study. Nothing below has been computed. The commit that merges this file into
 | P34 | Attempt counter | §9: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | APPROVED (owner, 2026-10-27) |
 | P35 | 2026-02-01 .. 2026-09-30 | part of the holdout (P23). There is no separate second confirmation from the backfill; data from 2026-10-01 stays sealed for the final strategy test | APPROVED (owner, 2026-10-27; replaces "planned second confirmation") |
 | P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | AMENDED (A1, §11) |
-| P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2023 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | APPROVED (owner, 2026-10-27) |
+| P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2023 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | AMENDED (A2, §12) |
 
 ## 1. Hypothesis
 
@@ -353,3 +356,69 @@ INFERRED:
 `ATTEMPTS.json` records this amendment (`amendments` = 1). `prereg_attempts`
 stays 1, because this is the same registration amended. `outcome_analyses`
 stays 0.
+
+## 12. Amendment 2 (2026-10-27)
+
+**Decided by the owner on 2026-10-27, before any outcome was read**
+(`ATTEMPTS.json`: `outcome_analyses` 0).
+
+**Reason: power.** On the original variant (4h, k = 3, 3 swings), the holdout
+of about 53 turns could detect only about 19 pp (§11.6). Variant (f) has 1,277
+dev turns and about 439 holdout turns. That gives about 6.7 pp on the
+holdout, close to the 5 pp pass bar.
+
+The choice was made from counts only (`results/variant_counts.json`: turns,
+median pullback length, holdout estimate). No outcome, baseline or label was
+read for any variant.
+
+### 12.1 What changes
+- **Timeframe (replaces P1, P2):** 1h candles on the UTC hour, built from
+  1-min bars.
+  - A New York hour is a UTC hour, so the daily break (17:00–18:00 NY) is
+    never inside a candle.
+  - P3 is unchanged: a candle with < 50 % of its 60 minutes is dropped, and
+    counted.
+- **Structure (replaces P6):** the last **2** confirmed swing highs strictly
+  descending (1 lower high) **and** the last 2 confirmed swing lows strictly
+  descending (1 lower low), the newer being the swing low that starts the
+  event. The bull side is the mirror. LH (P7) is the newer of the 2 swing
+  highs.
+- **In 1h candles now:** W = 5 candles (P15), the 30-candle horizon (P17),
+  the swing confirmation k = 3 (P4), and the gallery's 20 candles before and
+  30 after (P37).
+
+### 12.2 What stays
+- **σ:** the depth unit is σ_240 of the pinned HAR model (P9), as of the
+  confirmation candle's close.
+- **Unchanged:** X = 1.0 σ, pooled Q1 (§11.1), the terciles as description
+  (§11.1), the BH family and minimum events (§11.2), the random-walk check
+  (§11.3), the verdict rules (§11.4) and the periods (P22, P23).
+- **The owner approved both readings of Amendment 1:**
+  - BH stays in the pass rule;
+  - the holdout runs only if dev is PASS.
+- **ATR robustness (§11.5):** ATR(14) is computed on the study's candles,
+  which are now 1h.
+
+### 12.3 Step 2 under Amendment 2
+`results/counts_a2.json`, counts only:
+- **Turns:** 1,277 pooled on dev (632 bear, 645 bull), so the step 2 gate
+  passes.
+- **Other counts:** 2,424 events started, 0 truncated, 967 breaks of LH
+  (Q2).
+- **Candles:** 50,196 kept, 85 dropped.
+- **Dev depth tercile cut-points** (descriptive): 1.48 σ and 2.12 σ.
+
+### 12.4 Power (replaces the numbers of §11.6; same method)
+MDE at 80 % power for a 95 % CI that excludes 0, with sd(A − P) ≤ 0.5:
+- **Dev, n = 1,277 turns:** MDE ≤ 2.80 × 0.5 / √1277 = **3.9 pp**.
+- **Holdout:** n estimated from the dev turn rate is 1,277 / 8.0 years ×
+  2.75 years = **439 turns**, so MDE ≤ **6.7 pp**.
+
+INFERRED: as in §11.6, resolved events will be fewer than turns, and the
+month-block bootstrap can widen the CI, so the real MDE is somewhat larger. A
+true excess near 5 pp is still more likely INCONCLUSIVE than PASS on the
+holdout.
+
+### 12.5 Attempt counter
+`ATTEMPTS.json` records this amendment (`amendments` = 2). `prereg_attempts`
+stays 1, and `outcome_analyses` stays 0.

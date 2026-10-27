@@ -14,9 +14,14 @@ RUN = dict(k=P.K, x_sigma=P.X_SIGMA, w=P.W, horizon=P.HORIZON, w_alt=P.W_ALT, n_
 TERCILE_NAMES = ("T1 (shallow)", "T2", "T3 (deep)")
 
 
-def prepare(verify_cache: bool) -> dict:
+def prepare(verify_cache: bool, timeframe: str = P.TIMEFRAME) -> dict:
     m, checks = data.load(P.WARMUP_START, P.DEV_END_EXCL, verify_cache)
-    cd, info = pb.candles(m, P.CANDLE_EDGES_NY, P.CANDLE_END_NY, P.MIN_SHARE)
+    if timeframe == "1h":
+        cd, info = pb.candles_hourly(m, P.MIN_SHARE)          # A2 §12
+    elif timeframe == "4h":
+        cd, info = pb.candles(m, P.CANDLE_EDGES_NY, P.CANDLE_END_NY, P.MIN_SHARE)
+    else:
+        raise ValueError(f"timeframe {timeframe!r}")
     tbl, model = data.sigma_table(m, P.DEV_END_EXCL)
     ends = pd.DatetimeIndex(cd["end"])
     return {"m": m, "cd": cd, "candle_info": info, "tbl": tbl, "checks": checks,

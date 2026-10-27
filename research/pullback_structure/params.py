@@ -6,20 +6,23 @@ import pandas as pd
 
 STUDY = "pullback_structure"
 
-# P1-P3: 4h candles, New York anchor, slot starts (NY hour) and the end of the last slot
+# P1, P2 are replaced by Amendment 2 (PREREG §12): 1h candles on the UTC hour. The
+# 4h settings stay for the record and for run_variants.py.
+TIMEFRAME = "1h"                                # A2 §12 (was P1: 4h)
+# P1-P3 (original): 4h candles, New York anchor, slot starts (NY hour) and the end of the last slot
 CANDLE_EDGES_NY = (18, 22, 2, 6, 10, 14)       # P2
 CANDLE_END_NY = 17                              # P2: the last candle ends at the daily break
 MIN_SHARE = 0.5                                 # P3
 
 K = 3                                           # P4
-N_SWINGS = 3                                    # P6: the last 3 swing highs and 3 swing lows descending
+N_SWINGS = 2                                    # A2 §12 (was P6: 3): the last 2 swing highs and 2 swing lows descending
 # P11 (the depth buckets) is replaced by Amendment 1 §11.1: Q1 is pooled, and the
 # depth terciles of dev are descriptive only
 TERCILES = (1 / 3, 2 / 3)                       # A1 §11.1
 X_SIGMA = 1.0                                   # P15
-W = 5                                           # P15
+W = 5                                           # P15 (A2: in 1h candles)
 W_ALT = (4, 5, 6)                               # P37: the audit compares W - 1 and W + 1
-HORIZON = 30                                    # P17
+HORIZON = 30                                    # P17 (A2: in 1h candles)
 
 SIGMA_MODEL = "parquet2021_2023"                # P9
 SIGMA_MODEL_SHA256 = "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"   # P9

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PREREG §5 / §11.3: the random-walk machinery check, before dev. No real outcome
+"""PREREG §5 / §11.3 / §12: the random-walk machinery check, before dev. No real outcome
 is read: the pipeline runs on simulated 1-min paths over the dev period's real
 timestamps, with per-minute sd = the dev HAR sigma_240 / sqrt(240) (data.per_minute_sigma).
 Writes results/rw.json; exits 4 if the gate fails (the study then stops).
@@ -23,7 +23,7 @@ import params as P  # noqa: E402
 import pullback as pb  # noqa: E402
 
 OUT = HERE / "results" / "rw.json"
-COUNTS = HERE / "results" / "counts_a1.json"
+COUNTS = HERE / "results" / "counts_a2.json"
 
 
 def sim_candles(cd: pd.DataFrame, o, h, lo, c) -> pd.DataFrame:

@@ -21,7 +21,7 @@ import params as P  # noqa: E402
 OUT = HERE / "results" / "dev.json"
 ATTEMPTS = HERE / "ATTEMPTS.json"
 RW = HERE / "results" / "rw.json"
-COUNTS = HERE / "results" / "counts_a1.json"
+COUNTS = HERE / "results" / "counts_a2.json"
 
 
 def bump_attempt(what: str, by: str) -> int:
