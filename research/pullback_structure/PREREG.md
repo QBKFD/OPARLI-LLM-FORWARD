@@ -1,20 +1,17 @@
-# pullback_structure: pre-registration (approved except P37, OPEN)
+# pullback_structure: pre-registration
 
-**Status: P1–P35 APPROVED by the owner, 2026-10-27; P36 (robustness) and P37
-(inspection gallery) added at the owner's request.** P37 is OPEN, so this file
-is not yet final. It was written before any code, and before any price data was
-loaded or looked at for this study. Nothing below has been computed. The commit
-that merges this file with no OPEN item left is the pre-registration.
+**Status: every choice (P1–P37) APPROVED by the owner, 2026-10-27.** Written
+before any code, and before any price data was loaded or looked at for this
+study. Nothing below has been computed. The commit that merges this file into
+`main` is the pre-registration.
 
 **Labels.**
-- **PROPOSED (owner):** a value from the owner's brief, waiting for the
-  owner's approval.
-- **PROPOSED (Claude):** a value the brief doesn't give, which I propose.
-- **OPEN:** a value I can't propose without a source.
+- Every value in §0 is APPROVED. Which ones came from the owner's brief and
+  which from Claude is in the draft at commit 243b26d.
 - **CITED** means file:line on `main` at 2b1950d. **INFERRED** means my
   reasoning, not a measurement.
 
-## 0. Choices (P1–P35 approved; P36 details and P37 open)
+## 0. Choices (all approved)
 
 | id | item | value | status |
 |---|---|---|---|
@@ -54,8 +51,8 @@ that merges this file with no OPEN item left is the pre-registration.
 | P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | APPROVED (owner, 2026-10-27) |
 | P34 | Attempt counter | §9: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | APPROVED (owner, 2026-10-27) |
 | P35 | 2026-02-01 .. 2026-09-30 | not used by this study (the unread backfill; §2). If P32 passes, it is the planned **second confirmation**, under its own pre-registered run; it is not part of this test | APPROVED (owner, 2026-10-27) |
-| P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | the line itself: APPROVED (owner, 2026-10-27). Its details (Wilder smoothing, the as-of time, the same cut-points, the 5 pp flag): PROPOSED (Claude) |
-| P37 | Inspection gallery (dev only) | **OPEN.** The owner asked for "the inspection gallery as described earlier"; no description of it exists in this repo or in any session I can read. Waiting for the owner's description | OPEN |
+| P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | APPROVED (owner, 2026-10-27), with all four details |
+| P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2020 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | APPROVED (owner, 2026-10-27) |
 
 ## 1. Hypothesis
 
@@ -214,3 +211,46 @@ rule, and neither does the ATR robustness line (P36).
   this draft.
 - **`outcome_analyses`:** 0. Nothing has been run, so I did not count an
   analysis (P34).
+
+## 10. Inspection gallery (P37)
+
+**Purpose:** finding bugs and understanding the events, on the **dev period
+only** (2016–2020). The holdout is never plotted.
+
+**One chart per event:**
+- 4h candles from 20 candles before the swing low to up to 30 candles after
+  the outcome;
+- the swing low and the last lower high (LH), each marked at the candle where
+  it was **confirmed**, not where it occurred;
+- the pullback peak, with its depth in σ (P10);
+- the turn candle;
+- the outcome label: A, B or C;
+- the baseline probability P at the turn;
+- the HAR σ band at the turn: turn close ± 1σ, with σ_240 as of the turn
+  close (pinned model, P9).
+
+**Sampling** (seed **20261037**, numpy `default_rng`):
+- **Per direction (bear, bull):** 20 random events per outcome label (A, B,
+  C), so 60 charts per direction. A label with fewer than 20 events shows
+  all of them.
+- **20 audit events,** pooled over both directions:
+  - the 10 with the largest clock-time gap between the swing candle and the
+    candle that confirms it (k = 3 candles, so the gap is larger only across
+    weekends, holidays or dropped candles);
+  - 10 drawn with the seed from the events whose label changes when W moves
+    by ±1 candle (W = 4 or 6).
+
+  An event already in the per-label sample may be drawn again here.
+
+**Output:**
+- One local HTML page plus PNGs under `research/pullback_structure/gallery/`.
+  This is **git-ignored**, because the charts show real prices.
+- Only the generator script and its test are committed. The test uses
+  synthetic bars.
+
+**Use:**
+- A bug fixed through the gallery is allowed, and is logged in
+  `DECISIONS.md`.
+- **Any parameter change motivated by the gallery counts as a new attempt on
+  dev,** and the counter is incremented (§9).
+- The gallery never decides pass or fail; the holdout does.

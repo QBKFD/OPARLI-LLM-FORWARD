@@ -46,3 +46,6 @@ database/*.sqlite
 # LangGraph Studio (docs/LANGGRAPH_STUDIO.md): its venv, and the dev server's state
 .venv-studio/
 .langgraph_api/
+
+# research/pullback_structure inspection gallery: charts of real prices, local only (PREREG P37)
+research/pullback_structure/gallery/
