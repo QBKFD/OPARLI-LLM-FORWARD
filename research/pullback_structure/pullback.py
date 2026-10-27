@@ -87,6 +87,21 @@ def candles(m: pd.DataFrame, edges_ny: tuple[int, ...], end_ny: int, min_share: 
     return out[keep].reset_index(drop=True), info
 
 
+def candles_hourly(m: pd.DataFrame, min_share: float) -> tuple[pd.DataFrame, dict]:
+    """1h candles on the UTC hour, for the owner's count-only variants (not a
+    PREREG timeframe). Same columns as candles(); kept with >= min_share of 60."""
+    key = m.index.floor("1h").asi8
+    p0 = np.flatnonzero(np.concatenate([[True], np.diff(key) != 0]))
+    i1 = np.concatenate([p0[1:], [len(m)]])
+    start = pd.DatetimeIndex(key[p0]).tz_localize("UTC")
+    out = pd.DataFrame({"open": m["open"].to_numpy()[p0], "high": np.maximum.reduceat(m["high"].to_numpy(), p0),
+                        "low": np.minimum.reduceat(m["low"].to_numpy(), p0), "close": m["close"].to_numpy()[i1 - 1],
+                        "start": start, "end": start + pd.Timedelta(hours=1), "i0": p0, "i1": i1, "n_min": i1 - p0,
+                        "slot": 0, "scheduled": 60})
+    keep = out["n_min"].to_numpy() >= min_share * 60
+    return out[keep].reset_index(drop=True), {"candles_kept": int(keep.sum()), "candles_dropped_incomplete": int((~keep).sum())}
+
+
 # ----------------------------------------------------------------- swings (P4, P5)
 
 
@@ -219,7 +234,7 @@ def _bc(s: Series, b: int, target: float, sl: float, w: int, n: int) -> tuple[st
 
 
 def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: tuple[int, ...],
-               events_from_ns: int) -> tuple[list[Event], dict]:
+               events_from_ns: int, n_swings: int) -> tuple[list[Event], dict]:
     """The state machine of PREREG §3 for one direction (bear view). Returns the
     events (every one that started) and counts of the starts that were refused."""
     n = len(s.c)
@@ -234,10 +249,10 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
         if s.cend[conf] < events_from_ns:
             cnt["before_events_start"] += 1
             continue
-        lows = sl_idx[sl_idx <= i][-3:]
-        highs = sh_idx[sh_idx < i][-3:]
-        if len(lows) < 3 or len(highs) < 3 or not (s.lo[lows[0]] > s.lo[lows[1]] > s.lo[lows[2]]) \
-                or not (s.h[highs[0]] > s.h[highs[1]] > s.h[highs[2]]):
+        lows = sl_idx[sl_idx <= i][-n_swings:]
+        highs = sh_idx[sh_idx < i][-n_swings:]
+        if len(lows) < n_swings or len(highs) < n_swings or not (np.diff(s.lo[lows]) < 0).all() \
+                or not (np.diff(s.h[highs]) < 0).all():
             cnt["not_bearish"] += 1
             continue
         if s.cend[conf] <= live_until:
@@ -247,8 +262,8 @@ def run_events(s: Series, k: int, x_sigma: float, w: int, horizon: int, w_alt: t
         if not np.isfinite(sig) or sig <= 0:
             cnt["no_sigma"] += 1
             continue
-        e = Event(s.sign, int(i), int(conf), float(s.lo[i]), float(s.h[highs[2]]), int(highs[2]),
-                  int(highs[2] + k), float(sig))
+        e = Event(s.sign, int(i), int(conf), float(s.lo[i]), float(s.h[highs[-1]]), int(highs[-1]),
+                  int(highs[-1] + k), float(sig))
         _track(s, e, x_sigma, w, horizon, w_alt, n)
         events.append(e)
         live_until = e.term_ns if e.kind != "truncated" else np.iinfo(np.int64).max
@@ -361,25 +376,25 @@ def _break(s: Series, e: Event, x_sigma: float, w: int, horizon: int, w_alt: tup
 
 
 def run_both(cd: pd.DataFrame, mt: np.ndarray, mh: np.ndarray, ml: np.ndarray, sig: np.ndarray, *, k: int,
-             x_sigma: float, w: int, horizon: int, w_alt: tuple[int, ...], edges: tuple[float, ...],
-             events_from_ns: int) -> tuple[pd.DataFrame, list[Event], dict]:
+             x_sigma: float, w: int, horizon: int, w_alt: tuple[int, ...],
+             events_from_ns: int, n_swings: int) -> tuple[pd.DataFrame, list[Event], dict]:
     """Bear on the prices, bull on the negated prices (P19)."""
     evs: list[Event] = []
     counts = {}
     for bull in (False, True):
         s = series(cd, mt, mh, ml, sig, bull)
-        e, c = run_events(s, k, x_sigma, w, horizon, w_alt, events_from_ns)
+        e, c = run_events(s, k, x_sigma, w, horizon, w_alt, events_from_ns, n_swings)
         evs += e
         counts["bull" if bull else "bear"] = c
-    return records(evs, edges), evs, counts
+    return records(evs), evs, counts
 
 
-def bucket_of(depth: np.ndarray, edges: tuple[float, ...]) -> np.ndarray:
-    """P11: [0, e1), [e1, e2), ..., [e_last, inf) -> 0..len(edges)-1."""
-    return np.searchsorted(np.asarray(edges), depth, side="right") - 1
+def tercile_of(depth: np.ndarray, cuts: tuple[float, float]) -> np.ndarray:
+    """Amendment 1 §11.1: 0, 1, 2 for depth < cut1, < cut2, >= cut2 (descriptive only)."""
+    return np.searchsorted(np.asarray(cuts), depth, side="right")
 
 
-def records(events: list[Event], edges: tuple[float, ...]) -> pd.DataFrame:
+def records(events: list[Event]) -> pd.DataFrame:
     """One row per event that started. P24: an event not terminal inside the data
     (kind 'truncated') stays a row and is excluded from every question."""
     rows = []
@@ -389,10 +404,9 @@ def records(events: list[Event], edges: tuple[float, ...]) -> pd.DataFrame:
                      "bc": e.bc, "q2_month": e.q2_month, "brk_from": e.brk_from,
                      "p3": e.p3, "a3": np.nan if e.a3 is None else e.a3, "q3_month": e.q3_month, "q3_excluded": e.q3_excluded,
                      **{f"bc_w{ww}": v for ww, v in e.bc_w.items()}})
-    df = pd.DataFrame(rows)
-    if len(df):
-        df["bucket"] = np.where(np.isfinite(df["depth"]), bucket_of(df["depth"].fillna(0).to_numpy(), edges), -1)
-    return df
+    cols = ["dir", "kind", "label", "depth", "p", "a", "q1_month", "bc", "q2_month", "brk_from", "p3", "a3",
+            "q3_month", "q3_excluded"]
+    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=cols)
 
 
 # ----------------------------------------------------------------- statistics (P27-P29)

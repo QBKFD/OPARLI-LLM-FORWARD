@@ -12,7 +12,10 @@ CANDLE_END_NY = 17                              # P2: the last candle ends at th
 MIN_SHARE = 0.5                                 # P3
 
 K = 3                                           # P4
-DEPTH_EDGES = (0.0, 0.5, 1.0, 1.5)              # P11: [0, 0.5), [0.5, 1.0), [1.0, 1.5), >= 1.5
+N_SWINGS = 3                                    # P6: the last 3 swing highs and 3 swing lows descending
+# P11 (the depth buckets) is replaced by Amendment 1 §11.1: Q1 is pooled, and the
+# depth terciles of dev are descriptive only
+TERCILES = (1 / 3, 2 / 3)                       # A1 §11.1
 X_SIGMA = 1.0                                   # P15
 W = 5                                           # P15
 W_ALT = (4, 5, 6)                               # P37: the audit compares W - 1 and W + 1
@@ -30,12 +33,12 @@ DEV_END_EXCL = pd.Timestamp("2024-01-01", tz="UTC")   # P22: dev is 2016-01-01 .
 BOOT_B = 10_000                                 # P28
 BOOT_SEED = 20261027                            # P28
 BH_Q = 0.05                                     # P29
-MIN_EVENTS = 50                                 # P30
-FIX_EXCESS = 0.05                               # P31, P32: 5 percentage points
+MIN_EVENTS = 50                                 # P30, A1 §11.2: per question
+PASS_EXCESS = 0.05                              # P32, A1 §11.4: 5 percentage points
 
 RW_REPS = 200                                   # P33: 200 dev-sized samples
 RW_MIN_FACTOR = 20                              # §5: >= 20 x the dev event count
-RW_TOL = 0.01                                   # P33: |excess| <= 1 pp
+RW_TOL = 0.01                                   # P33, A1 §11.3: pooled |excess| <= 1 pp
 RW_COVERAGE = (0.93, 0.97)                      # P33
 
 GALLERY_SEED = 20261037                         # P37

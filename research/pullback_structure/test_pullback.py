@@ -15,7 +15,7 @@ sys.path.insert(0, str(HERE))
 import params as P  # noqa: E402
 import pullback as pb  # noqa: E402
 
-RUN = dict(k=P.K, x_sigma=P.X_SIGMA, w=P.W, horizon=P.HORIZON, w_alt=P.W_ALT)
+RUN = dict(k=P.K, x_sigma=P.X_SIGMA, w=P.W, horizon=P.HORIZON, w_alt=P.W_ALT, n_swings=P.N_SWINGS)
 
 
 def path(points, steps=4):
@@ -204,3 +204,56 @@ def test_simulated_bars_are_consistent():
     o, h, lo, c = pb.simulate_minutes(100.0, np.full(1000, 1e-3), np.random.default_rng(3))
     assert np.all(h >= np.maximum(o, c)) and np.all(lo <= np.minimum(o, c)) and o[0] == 100.0
     assert np.allclose(o[1:], c[:-1])
+
+
+# ----------------------------------------------------------------- amendment 1: verdicts and terciles
+
+
+def test_verdicts():
+    import common
+    bh_ok, bh_no = {"Q1": {"p_adj": 0.01}}, {"Q1": {"p_adj": 0.2}}
+    assert common.verdict({"excess": 0.08, "ci95": [0.01, 0.15]}, bh_ok) == "PASS"
+    assert common.verdict({"excess": 0.08, "ci95": [0.01, 0.15]}, bh_no) == "INCONCLUSIVE"
+    assert common.verdict({"excess": 0.01, "ci95": [-0.03, 0.04]}, bh_no) == "FAIL"
+    assert common.verdict({"excess": 0.03, "ci95": [-0.02, 0.08]}, bh_no) == "INCONCLUSIVE"
+    assert common.verdict({"too_few": True}, bh_no).startswith("INCONCLUSIVE")
+
+
+def test_terciles():
+    assert list(pb.tercile_of(np.array([1.0, 2.0, 3.0, 4.0]), (2.0, 3.5))) == [0, 1, 1, 2]
+
+
+# ----------------------------------------------------------------- the gallery (P37), synthetic bars
+
+
+def test_gallery_samples_and_renders(tmp_path):
+    import gallery
+    evs, series = [], {}
+    for tail, sign in (([37, 31], 1), ([42, 44], 1), ([39] * 7 + [30], 1)):
+        mids = path(BEAR_PREFIX + tail)
+        cd, mt, mh, ml, sig = series_from_mids(mids)
+        s = pb.series(cd, mt, mh, ml, sig, bull=False)
+        ev, _ = pb.run_events(s, events_from_ns=0, **RUN)
+        series[1] = s
+        evs += [(e, s) for e in ev]
+    labels = sorted(e.label for e, _ in evs)
+    assert labels == ["A", "B", "C"]
+    picks = gallery.sample([e for e, _ in evs], {1: series[1], -1: series[1]}, 7, 20, 10)
+    assert sorted(g for g, _ in picks if not g.startswith("audit")) == ["bear A", "bear B", "bear C"]
+    assert gallery.sample([e for e, _ in evs], {1: series[1], -1: series[1]}, 7, 20, 10) == picks   # seeded
+    for e, s in evs:
+        page = gallery.render([("t", e)], {1: s}, tmp_path / e.label)
+        assert (tmp_path / e.label / "event_000.png").stat().st_size > 1000
+        assert "event_000.png" in page.read_text()
+
+
+def test_sim_candles_match_candles():
+    import run_rw
+    idx = pd.date_range("2021-03-10 00:00", "2021-03-17 23:59", freq="1min", tz="UTC")
+    o, h, lo, c = pb.simulate_minutes(1800.0, np.full(len(idx), 5e-4), np.random.default_rng(1))
+    m = pd.DataFrame({"open": o, "high": h, "low": lo, "close": c}, index=idx)
+    m = m[(m.index < pd.Timestamp("2021-03-16 02:00", tz="UTC")) | (m.index >= pd.Timestamp("2021-03-16 04:30", tz="UTC"))]
+    cd, _ = pb.candles(m, P.CANDLE_EDGES_NY, P.CANDLE_END_NY, P.MIN_SHARE)
+    cs = run_rw.sim_candles(cd, *(m[x].to_numpy() for x in ("open", "high", "low", "close")))
+    for col in ("open", "high", "low", "close"):
+        assert np.allclose(cs[col].to_numpy(), cd[col].to_numpy())

@@ -1,5 +1,9 @@
 # pullback_structure: pre-registration
 
+**Amendment 1 (2026-10-27, owner, before any outcome): §11.** It replaces the
+depth buckets with one pooled Q1 test and sets the verdicts. Rows marked
+"AMENDED (A1)" in §0 are read as §11 says.
+
 **Status: every choice (P1–P37) APPROVED by the owner, 2026-10-27.** Written
 before any code, and before any price data was loaded or looked at for this
 study. Nothing below has been computed. The commit that merges this file into
@@ -25,7 +29,7 @@ study. Nothing below has been computed. The commit that merges this file into
 | P8 | Turn | the first 4h close below the previous candle's low, after the swing is confirmed (mirror for bull) | APPROVED (owner, 2026-10-27) |
 | P9 | σ | HAR σ over 240 min, `sigma_over(model, state, 240).sigma_px`, pinned model `parquet2021_2023` (SHA-256 `dc0eb3c5…0dde`, CITED `backend/datafeed/features/vol_block.py:336-337`). State as of the close of the confirmation candle | APPROVED (owner, 2026-10-27) |
 | P10 | Pullback depth | (pullback_high − swing_low) / σ, at the turn | APPROVED (owner, 2026-10-27) |
-| P11 | Depth buckets | [0, 0.5), [0.5, 1.0), [1.0, 1.5), ≥ 1.5 σ | APPROVED (owner, 2026-10-27) |
+| P11 | Depth buckets | [0, 0.5), [0.5, 1.0), [1.0, 1.5), ≥ 1.5 σ | AMENDED (A1, §11) |
 | P12 | **Q1 outcome** | **first passage:** A = a 1-min low below swing_low before a 1-min high above pullback_high. This is the event the baseline P is exact for (§3.6) | APPROVED (owner, 2026-10-27) |
 | P13 | Order within a candle | resolved on the 1-min bars; a single 1-min bar that holds both levels counts **against** the hypothesis (not A) | APPROVED (owner, 2026-10-27) |
 | P14 | B | a 4h close above LH, then a high ≥ that close + X·σ within W candles; σ as of the breaking close | APPROVED (owner, 2026-10-27) |
@@ -44,14 +48,14 @@ study. Nothing below has been computed. The commit that merges this file into
 | P26 | Q3 baseline | at the moment C is fixed: P = (H − close) / (H − swing_low), with H = the highest high since the swing low | APPROVED (owner, 2026-10-27) |
 | P27 | Tests | Q1 and Q3: one-sided, excess > 0. Q2: two-sided against the P25 null | APPROVED (owner, 2026-10-27) |
 | P28 | Bootstrap | block bootstrap of events by calendar month, 10,000 resamples, seed 20261027; 95 % percentile CI | APPROVED (owner, 2026-10-27) |
-| P29 | BH family | dev: Q1 × 4 buckets, Q2, Q3 (6 p-values); holdout: Q1 in the dev-fixed buckets, Q2, Q3. BH q = 0.05 | APPROVED (owner, 2026-10-27) |
-| P30 | Minimum events | a bucket needs ≥ 50 resolved events in a period to be tested, else it's reported as "too few" | APPROVED (owner, 2026-10-27) |
-| P31 | Bucket fixed on dev | every bucket with dev excess ≥ 5 pp, 95 % CI excluding 0 and BH p < 0.05. If none: stop at dev, verdict "not supported on dev", and no holdout look | APPROVED (owner, 2026-10-27) |
-| P32 | Pass rule | on holdout, at least one dev-fixed bucket has Q1 excess ≥ 5 pp, a 95 % CI excluding 0, and BH p < 0.05 | APPROVED (owner, 2026-10-27) |
-| P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | APPROVED (owner, 2026-10-27) |
+| P29 | BH family | dev: Q1 × 4 buckets, Q2, Q3 (6 p-values); holdout: Q1 in the dev-fixed buckets, Q2, Q3. BH q = 0.05 | AMENDED (A1, §11) |
+| P30 | Minimum events | a bucket needs ≥ 50 resolved events in a period to be tested, else it's reported as "too few" | AMENDED (A1, §11) |
+| P31 | Bucket fixed on dev | every bucket with dev excess ≥ 5 pp, 95 % CI excluding 0 and BH p < 0.05. If none: stop at dev, verdict "not supported on dev", and no holdout look | AMENDED (A1, §11) |
+| P32 | Pass rule | on holdout, at least one dev-fixed bucket has Q1 excess ≥ 5 pp, a 95 % CI excluding 0, and BH p < 0.05 | AMENDED (A1, §11) |
+| P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | AMENDED (A1, §11) |
 | P34 | Attempt counter | §9: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | APPROVED (owner, 2026-10-27) |
 | P35 | 2026-02-01 .. 2026-09-30 | part of the holdout (P23). There is no separate second confirmation from the backfill; data from 2026-10-01 stays sealed for the final strategy test | APPROVED (owner, 2026-10-27; replaces "planned second confirmation") |
-| P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | APPROVED (owner, 2026-10-27), with all four details |
+| P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | AMENDED (A1, §11) |
 | P37 | Inspection gallery (dev only) | §10: one chart per event, dev 2016–2023 only, 60 sampled events per direction plus 20 audit events, seed 20261037; local and git-ignored; bug-finding only, never a pass/fail input | APPROVED (owner, 2026-10-27) |
 
 ## 1. Hypothesis
@@ -196,6 +200,7 @@ without a new, recorded attempt.
 
 | Result | Verdict |
 |---|---|
+| *(replaced by §11.4; kept for the record)* | |
 | P33 fails | STOPPED at machinery |
 | no bucket fixed on dev (P31) | NOT SUPPORTED on dev; holdout unread |
 | P32 holds | SUPPORTED on holdout, for the passing buckets |
@@ -262,3 +267,89 @@ only** (2016–2023). The holdout is never plotted.
 - **Any parameter change motivated by the gallery counts as a new attempt on
   dev,** and the counter is incremented (§9).
 - The gallery never decides pass or fail; the holdout does.
+
+## 11. Amendment 1 (2026-10-27)
+
+**Decided by the owner on 2026-10-27, before any outcome was read**
+(`ATTEMPTS.json`: `outcome_analyses` 0).
+
+**Reason:** the depth-bucket edges (P11) did not fit the structure of a
+pullback. Step 2 (§6) stopped: the dev turns per bucket were 0 / 0 / 1 / 154
+(`results/counts.json`).
+- A swing needs k = 3 confirming candles, and the turn comes only after them.
+  So a pullback spans at least 4 candles, and its depth was never below
+  1.38 σ (median 3.94 σ).
+- These depth figures are descriptive. Depth is not an outcome.
+
+**Seen before this amendment** (counts only; no outcome, baseline or label):
+- the step 2 counts;
+- the depth quantiles;
+- the turn counts of six timeframe, k and swing variants
+  (`results/variant_counts.json`). The owner kept the original variant: 4h,
+  k = 3, 3 swings.
+
+### 11.1 Q1 (replaces P11, P31, P32)
+- **One pooled test on all turns.** Statistic: the mean over events of
+  (A − P), where A is the event's outcome indicator (P12) and P is its
+  baseline (§1).
+- **Inference:** block-bootstrap CI as in P28, one-sided p as in P27.
+- **Depth terciles:** cut-points are the 1/3 and 2/3 quantiles of dev depth.
+  They are **descriptive only**: no test, not in the BH family. The holdout
+  uses the dev cut-points.
+
+### 11.2 BH family and minimum events (replaces P29, P30)
+- **BH family:** Q1 (pooled), Q2, Q3, with BH q = 0.05, on dev and on holdout.
+- **Minimum events:** a question is tested only with ≥ 50 resolved events
+  (P30). With fewer, its verdict is INCONCLUSIVE (too few).
+- **Q2 and Q3** are unchanged. Each result is reported with its event counts:
+  events, resolved, unresolved, truncated.
+- **Step 2's gate (§6.2)** becomes: at least 50 pooled turns on dev (155 at
+  step 2, so the gate passes).
+
+### 11.3 The random-walk check (replaces the bucket form of P33)
+- **Pass:** pooled Q1 |excess| ≤ 1 pp over all simulated events, and the 95 %
+  CI covers 0 in 93–97 % of the 200 dev-sized samples.
+- The terciles are reported for description only.
+- A fail stops the study before dev.
+
+### 11.4 Verdicts (replace §7)
+Applied to Q1 on dev, and on holdout if it runs:
+- **PASS:** excess ≥ 5 pp, the 95 % CI excludes 0 (lower bound > 0), and BH
+  p < 0.05. The BH part is kept from P32, so the pass rule is unchanged.
+- **FAIL:** the 95 % CI excludes +5 pp (upper bound < 5 pp).
+- **INCONCLUSIVE:** neither PASS nor FAIL, or too few events. It is
+  **reported as INCONCLUSIVE, never as a null and never as a pass.**
+
+**The holdout runs only if dev is PASS** (as P31). Otherwise dev's verdict is
+the study's, and the holdout stays unread. A failed random-walk check is still
+STOPPED at machinery.
+
+### 11.5 ATR robustness (replaces the bucket form of P36)
+On holdout only, the depth terciles are also reported with depth in ATR(14)
+units (Wilder, as of the confirmation close). The tercile cut-points come from
+dev in each unit. The pooled Q1 statistic doesn't depend on the depth unit, so
+this line is descriptive only.
+
+### 11.6 Power (stated before any outcome)
+**Smallest excess detectable with 80 % power,** for a 95 % CI that excludes 0:
+MDE = (z₀.₉₇₅ + z₀.₈₀) × sd(A − P) / √n.
+- No outcome or baseline is used, so sd(A − P) is bounded. Given P,
+  Var(A − P) = P(1 − P) ≤ 0.25 under the null, so sd ≤ 0.5.
+- **Dev, n = 155 turns:** MDE ≤ 2.80 × 0.5 / √155 = **11.2 pp**.
+- **Holdout:** n estimated from the dev turn rate is 155 / 8.0 years ×
+  2.75 years = **53 turns** (`results/variant_counts.json`), so MDE ≤
+  **19.2 pp**.
+
+INFERRED:
+- The resolved events will be fewer than the turns (unresolved events drop
+  out), and the month-block bootstrap can widen the CI. Both raise the MDE.
+- The 5 pp pass threshold is below both MDEs, so a true excess of 5–11 pp on
+  dev is more likely to come out INCONCLUSIVE than PASS. On a holdout of about
+  53, anything under about 19 pp is likely INCONCLUSIVE.
+- About 53 holdout turns is close to the 50-event minimum, so the holdout
+  could be INCONCLUSIVE for too few events.
+
+### 11.7 Attempt counter
+`ATTEMPTS.json` records this amendment (`amendments` = 1). `prereg_attempts`
+stays 1, because this is the same registration amended. `outcome_analyses`
+stays 0.

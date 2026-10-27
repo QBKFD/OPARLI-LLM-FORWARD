@@ -1,6 +1,7 @@
 {
- "about": "Attempts of research/pullback_structure. prereg_attempts counts registrations of this question; outcome_analyses counts analyses that read an outcome (incremented before the analysis runs). See PREREG.md section 8.",
+ "about": "Attempts of research/pullback_structure. prereg_attempts counts registrations of this question; amendments counts amendments to it; outcome_analyses counts analyses that read an outcome (incremented before the analysis runs). See PREREG.md sections 9 and 11.7.",
  "prereg_attempts": 1,
+ "amendments": 1,
  "outcome_analyses": 0,
  "log": [
   {
@@ -9,6 +10,13 @@
    "date": "2026-10-27",
    "what": "PREREG draft: pullback depth and structure on XAUUSD 4h (Q1-Q3); every choice PROPOSED or OPEN; no data loaded",
    "by": "owner brief, 2026-10-27"
+  },
+  {
+   "n": 2,
+   "kind": "amendment",
+   "date": "2026-10-27",
+   "what": "Amendment 1 (PREREG \u00a711): Q1 pooled, depth terciles descriptive, BH family Q1/Q2/Q3, verdicts PASS/FAIL/INCONCLUSIVE, power statement. Reason: the depth-bucket edges did not fit the structure of a pullback (step 2 counts 0/0/1/154). No outcome read.",
+   "by": "owner, 2026-10-27"
   }
  ]
 }

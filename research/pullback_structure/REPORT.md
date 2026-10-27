@@ -1,6 +1,17 @@
 # pullback_structure: report
 
-## Status: STOPPED at step 2 (event counts), before the random-walk check and before any outcome
+## Status: Amendment 1 (PREREG §11), awaiting the owner's merge. Then the random-walk check, then dev
+
+- **Amendment 1:** Q1 is pooled over all turns, the depth terciles are
+  descriptive only, and the verdicts are PASS, FAIL and INCONCLUSIVE.
+- **Amended step 2:** passes, with 155 pooled turns on dev
+  (`results/counts_a1.json`). The dev depth tercile cut-points are 3.37 σ
+  and 4.53 σ.
+- **No outcome read:** `outcome_analyses` is 0.
+- **Next:** the random walk (`run_rw.py`), then dev (`run_dev.py`), then the
+  gallery (`gallery.py`). None has run.
+
+## The original step 2: STOPPED (before the amendment)
 
 PREREG §6.2: "If a bucket can't reach P30 on dev, stop and report." Three of
 the four depth buckets (P11) have fewer than 50 turns (P30) on dev,
@@ -43,5 +54,8 @@ buckets would leave room.
   value with its PREREG id).
 - `run_counts.py` (step 2).
 - Synthetic tests: `test_pullback.py`.
-- Implementation choices: `DECISIONS.md` (D1–D11).
-- Not run: the random-walk check (§5), dev (step 4) and the gallery (P37).
+- Implementation choices: `DECISIONS.md` (D1–D15).
+- `run_variants.py`: the owner's count-only comparison
+  (`results/variant_counts.json`).
+- `run_rw.py`, `run_dev.py`, `gallery.py`: written and tested on synthetic
+  bars only. Not run.
