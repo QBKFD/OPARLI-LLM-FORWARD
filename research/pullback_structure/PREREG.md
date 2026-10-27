@@ -1,10 +1,10 @@
-# pullback_structure: pre-registration (DRAFT, awaiting the owner's approvals)
+# pullback_structure: pre-registration (approved except P37, OPEN)
 
-**Status: DRAFT, 2026-10-27.** Written before any code, and before any price
-data was loaded or looked at for this study. Nothing below has been computed.
-The study may not load data until every item in §0 is APPROVED (or replaced by
-the owner). After approval, this file is committed again, and that commit is
-the pre-registration.
+**Status: P1–P35 APPROVED by the owner, 2026-10-27; P36 (robustness) and P37
+(inspection gallery) added at the owner's request.** P37 is OPEN, so this file
+is not yet final. It was written before any code, and before any price data was
+loaded or looked at for this study. Nothing below has been computed. The commit
+that merges this file with no OPEN item left is the pre-registration.
 
 **Labels.**
 - **PROPOSED (owner):** a value from the owner's brief, waiting for the
@@ -14,46 +14,48 @@ the pre-registration.
 - **CITED** means file:line on `main` at 2b1950d. **INFERRED** means my
   reasoning, not a measurement.
 
-## 0. Choices to approve
+## 0. Choices (P1–P35 approved; P36 details and P37 open)
 
 | id | item | value | status |
 |---|---|---|---|
-| P1 | Timeframe | 4h candles built from 1-min bars | PROPOSED (owner) |
-| P2 | Candle anchor | New York time: 18–22, 22–02, 02–06, 06–10, 10–14, 14–17 (the last candle is 3h, ending at the daily break) | PROPOSED (Claude) |
-| P3 | Incomplete candles | a candle with < 50 % of its scheduled open minutes is dropped, and counted | PROPOSED (Claude) |
-| P4 | Swing confirmation | k = 3 candles each side. A swing exists only once the k-th candle after it has closed | PROPOSED (owner) |
-| P5 | Swing tie rule | swing low: the candle's low is strictly below the lows of the k candles on each side (mirror for highs); ties make no swing | PROPOSED (Claude) |
-| P6 | Bearish structure | the last 3 confirmed swing highs are strictly descending (2 lower highs), **and** the last 3 confirmed swing lows are strictly descending (2 lower lows), the newest being the swing low that starts the event | PROPOSED (Claude: my reading of "≥ 2 lower highs and ≥ 2 lower lows") |
-| P7 | Last lower high (LH) | the newest confirmed swing high before the event's swing low | PROPOSED (Claude) |
-| P8 | Turn | the first 4h close below the previous candle's low, after the swing is confirmed (mirror for bull) | PROPOSED (owner) |
-| P9 | σ | HAR σ over 240 min, `sigma_over(model, state, 240).sigma_px`, pinned model `parquet2021_2023` (SHA-256 `dc0eb3c5…0dde`, CITED `backend/datafeed/features/vol_block.py:336-337`). State as of the close of the confirmation candle | PROPOSED (owner: pinned 240-min model; Claude: the as-of time) |
-| P10 | Pullback depth | (pullback_high − swing_low) / σ, at the turn | PROPOSED (owner) |
-| P11 | Depth buckets | [0, 0.5), [0.5, 1.0), [1.0, 1.5), ≥ 1.5 σ | PROPOSED (owner) |
-| P12 | **Q1 outcome** | **first passage:** A = a 1-min low below swing_low before a 1-min high above pullback_high. This is the event the baseline P is exact for (§3.6) | PROPOSED (Claude), see §3.7 |
-| P13 | Order within a candle | resolved on the 1-min bars; a single 1-min bar that holds both levels counts **against** the hypothesis (not A) | PROPOSED (Claude) |
-| P14 | B | a 4h close above LH, then a high ≥ that close + X·σ within W candles; σ as of the breaking close | PROPOSED (owner: X, W; Claude: the reference price and σ time) |
-| P15 | X, W | X = 1.0 σ, W = 5 candles | PROPOSED (owner) |
-| P16 | C | a 4h close above LH that does not become B within W candles. C is fixed when the W-th candle closes | PROPOSED (owner, Claude: the time C is fixed) |
-| P17 | Max horizon | 30 candles from the turn (Q1), from the break (Q2) and from the moment C is fixed (Q3); otherwise "unresolved", counted and reported | PROPOSED (owner) |
-| P18 | Overlapping events | per direction, at most one live event; a new event can start only after the previous one is resolved | PROPOSED (Claude) |
-| P19 | Bull and bear | the bull side is the mirror. Both are pooled for the tests and also reported apart (descriptive) | PROPOSED (Claude) |
-| P20 | Costs | no Q1–Q3 metric is a return, so no spread is deducted. A trading rule built on a result would need its own PREREG with costs | PROPOSED (Claude) |
-| P20a | Spread value, if P20 is rejected | no measured XAUUSD spread for 2016–2023 is in the repo. A provisional proportional cost exists: 1.0 bp spread (CITED `research/level_target/DECISIONS.md:16`, T7) | OPEN |
-| P21 | Data | `database/ohlcv_data/XAUUSD.txt` (manifest sha256 `dc2d30cd…abfb9`), 1-min, UTC. Events from 2016-01-01; warm-up from 2015-07-01 for structure and the HAR state | PROPOSED (owner: from 2016; Claude: source and warm-up) |
-| P22 | Dev period | 2016-01-01 .. 2020-12-31 | PROPOSED (Claude), §2 |
-| P23 | Holdout period | 2021-01-01 .. 2023-12-31 (σ in sample there, §2) | PROPOSED (Claude), §2 |
-| P24 | Events at a period end | an event whose horizon runs past its period's end is dropped, and counted ("truncated") | PROPOSED (Claude) |
-| P25 | Q2 null | Q2 needs a p-value for the BH family. The null is B / (B + C) from the same pipeline run on the simulated random walk (§5) | PROPOSED (Claude) |
-| P26 | Q3 baseline | at the moment C is fixed: P = (H − close) / (H − swing_low), with H = the highest high since the swing low | PROPOSED (Claude) |
-| P27 | Tests | Q1 and Q3: one-sided, excess > 0. Q2: two-sided against the P25 null | PROPOSED (Claude) |
-| P28 | Bootstrap | block bootstrap of events by calendar month, 10,000 resamples, seed 20261027; 95 % percentile CI | PROPOSED (owner: block bootstrap, 95 %; Claude: block, B and seed) |
-| P29 | BH family | dev: Q1 × 4 buckets, Q2, Q3 (6 p-values); holdout: Q1 in the dev-fixed buckets, Q2, Q3. BH q = 0.05 | PROPOSED (owner: BH across Q1–Q3; Claude: the family) |
-| P30 | Minimum events | a bucket needs ≥ 50 resolved events in a period to be tested, else it's reported as "too few" | PROPOSED (Claude) |
-| P31 | Bucket fixed on dev | every bucket with dev excess ≥ 5 pp, 95 % CI excluding 0 and BH p < 0.05. If none: stop at dev, verdict "not supported on dev", and no holdout look | PROPOSED (Claude: my reading of "a depth bucket fixed on dev") |
-| P32 | Pass rule | on holdout, at least one dev-fixed bucket has Q1 excess ≥ 5 pp, a 95 % CI excluding 0, and BH p < 0.05 | PROPOSED (owner, Claude: BH p) |
-| P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | PROPOSED (owner: "excess ~0"; Claude: the tolerances) |
-| P34 | Attempt counter | §8: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | PROPOSED (Claude: my reading of "increment the attempt counter") |
-| P35 | 2026-02-01 .. 2026-09-30 | not used by this study (the unread backfill; §2) | PROPOSED (Claude) |
+| P1 | Timeframe | 4h candles built from 1-min bars | APPROVED (owner, 2026-10-27) |
+| P2 | Candle anchor | New York time: 18–22, 22–02, 02–06, 06–10, 10–14, 14–17 (the last candle is 3h, ending at the daily break) | APPROVED (owner, 2026-10-27) |
+| P3 | Incomplete candles | a candle with < 50 % of its scheduled open minutes is dropped, and counted | APPROVED (owner, 2026-10-27) |
+| P4 | Swing confirmation | k = 3 candles each side. A swing exists only once the k-th candle after it has closed | APPROVED (owner, 2026-10-27) |
+| P5 | Swing tie rule | swing low: the candle's low is strictly below the lows of the k candles on each side (mirror for highs); ties make no swing | APPROVED (owner, 2026-10-27) |
+| P6 | Bearish structure | the last 3 confirmed swing highs are strictly descending (2 lower highs), **and** the last 3 confirmed swing lows are strictly descending (2 lower lows), the newest being the swing low that starts the event | APPROVED (owner, 2026-10-27) |
+| P7 | Last lower high (LH) | the newest confirmed swing high before the event's swing low | APPROVED (owner, 2026-10-27) |
+| P8 | Turn | the first 4h close below the previous candle's low, after the swing is confirmed (mirror for bull) | APPROVED (owner, 2026-10-27) |
+| P9 | σ | HAR σ over 240 min, `sigma_over(model, state, 240).sigma_px`, pinned model `parquet2021_2023` (SHA-256 `dc0eb3c5…0dde`, CITED `backend/datafeed/features/vol_block.py:336-337`). State as of the close of the confirmation candle | APPROVED (owner, 2026-10-27) |
+| P10 | Pullback depth | (pullback_high − swing_low) / σ, at the turn | APPROVED (owner, 2026-10-27) |
+| P11 | Depth buckets | [0, 0.5), [0.5, 1.0), [1.0, 1.5), ≥ 1.5 σ | APPROVED (owner, 2026-10-27) |
+| P12 | **Q1 outcome** | **first passage:** A = a 1-min low below swing_low before a 1-min high above pullback_high. This is the event the baseline P is exact for (§3.6) | APPROVED (owner, 2026-10-27) |
+| P13 | Order within a candle | resolved on the 1-min bars; a single 1-min bar that holds both levels counts **against** the hypothesis (not A) | APPROVED (owner, 2026-10-27) |
+| P14 | B | a 4h close above LH, then a high ≥ that close + X·σ within W candles; σ as of the breaking close | APPROVED (owner, 2026-10-27) |
+| P15 | X, W | X = 1.0 σ, W = 5 candles | APPROVED (owner, 2026-10-27) |
+| P16 | C | a 4h close above LH that does not become B within W candles. C is fixed when the W-th candle closes | APPROVED (owner, 2026-10-27) |
+| P17 | Max horizon | 30 candles from the turn (Q1), from the break (Q2) and from the moment C is fixed (Q3); otherwise "unresolved", counted and reported | APPROVED (owner, 2026-10-27) |
+| P18 | Overlapping events | per direction, at most one live event; a new event can start only after the previous one is resolved | APPROVED (owner, 2026-10-27) |
+| P19 | Bull and bear | the bull side is the mirror. Both are pooled for the tests and also reported apart (descriptive) | APPROVED (owner, 2026-10-27) |
+| P20 | Costs | no Q1–Q3 metric is a return, so no spread is deducted. A trading rule built on a result would need its own PREREG with costs | APPROVED (owner, 2026-10-27) |
+| P20a | Spread value, if P20 is rejected | no measured XAUUSD spread for 2016–2023 is in the repo. A provisional proportional cost exists: 1.0 bp spread (CITED `research/level_target/DECISIONS.md:16`, T7) | not needed: P20 approved (no spread deducted) |
+| P21 | Data | `database/ohlcv_data/XAUUSD.txt` (manifest sha256 `dc2d30cd…abfb9`), 1-min, UTC. Events from 2016-01-01; warm-up from 2015-07-01 for structure and the HAR state | APPROVED (owner, 2026-10-27) |
+| P22 | Dev period | 2016-01-01 .. 2020-12-31 | APPROVED (owner, 2026-10-27) |
+| P23 | Holdout period | 2021-01-01 .. 2023-12-31 (σ in sample there, §2) | APPROVED (owner, 2026-10-27) |
+| P24 | Events at a period end | an event whose horizon runs past its period's end is dropped, and counted ("truncated") | APPROVED (owner, 2026-10-27) |
+| P25 | Q2 null | Q2 needs a p-value for the BH family. The null is B / (B + C) from the same pipeline run on the simulated random walk (§5) | APPROVED (owner, 2026-10-27) |
+| P26 | Q3 baseline | at the moment C is fixed: P = (H − close) / (H − swing_low), with H = the highest high since the swing low | APPROVED (owner, 2026-10-27) |
+| P27 | Tests | Q1 and Q3: one-sided, excess > 0. Q2: two-sided against the P25 null | APPROVED (owner, 2026-10-27) |
+| P28 | Bootstrap | block bootstrap of events by calendar month, 10,000 resamples, seed 20261027; 95 % percentile CI | APPROVED (owner, 2026-10-27) |
+| P29 | BH family | dev: Q1 × 4 buckets, Q2, Q3 (6 p-values); holdout: Q1 in the dev-fixed buckets, Q2, Q3. BH q = 0.05 | APPROVED (owner, 2026-10-27) |
+| P30 | Minimum events | a bucket needs ≥ 50 resolved events in a period to be tested, else it's reported as "too few" | APPROVED (owner, 2026-10-27) |
+| P31 | Bucket fixed on dev | every bucket with dev excess ≥ 5 pp, 95 % CI excluding 0 and BH p < 0.05. If none: stop at dev, verdict "not supported on dev", and no holdout look | APPROVED (owner, 2026-10-27) |
+| P32 | Pass rule | on holdout, at least one dev-fixed bucket has Q1 excess ≥ 5 pp, a 95 % CI excluding 0, and BH p < 0.05 | APPROVED (owner, 2026-10-27) |
+| P33 | Random-walk check | §5. Pass: \|excess\| ≤ 1 pp in every bucket, and the 95 % CI covers 0 in 93–97 % of 200 dev-sized samples. A fail stops the study before dev | APPROVED (owner, 2026-10-27) |
+| P34 | Attempt counter | §9: `ATTEMPTS.json` records this registration as attempt 1 at the question; outcome analyses stay at 0 | APPROVED (owner, 2026-10-27) |
+| P35 | 2026-02-01 .. 2026-09-30 | not used by this study (the unread backfill; §2). If P32 passes, it is the planned **second confirmation**, under its own pre-registered run; it is not part of this test | APPROVED (owner, 2026-10-27) |
+| P36 | Robustness (ATR) | on holdout only, Q1 is also reported with depth = (pullback_high − swing_low) / ATR(14) on 4h (Wilder, as of the confirmation close), with the P11 cut-points in ATR units, for the dev-fixed buckets. Reported next to the σ result, not part of the pass rule; any difference of ≥ 5 pp in excess or in pass/fail is stated in the verdict section | the line itself: APPROVED (owner, 2026-10-27). Its details (Wilder smoothing, the as-of time, the same cut-points, the 5 pp flag): PROPOSED (Claude) |
+| P37 | Inspection gallery (dev only) | **OPEN.** The owner asked for "the inspection gallery as described earlier"; no description of it exists in this repo or in any session I can read. Waiting for the owner's description | OPEN |
 
 ## 1. Hypothesis
 
@@ -86,7 +88,7 @@ questions in `research/README.md`). The nearest is `trend_features`, which
 found a 24h trend-exhaustion signal (Z24); that's a different variable on
 1-hour data.
 
-**Proposed periods.**
+**Periods (approved, P22–P23).**
 - **Dev 2016–2020 and holdout 2021–2023** (P22, P23): the brief's start, and
   every unspent, downloaded year.
 - **σ is in sample on the holdout.** The pinned model was fitted on
@@ -97,7 +99,7 @@ found a 24h trend-exhaustion signal (Z24); that's a different variable on
 - **On dev, σ uses parameters fitted later** (2021–2023 applied to 2016–2020).
   That is a look-ahead in parameters, not in prices. The same applied in
   `sigma_compare`'s frozen check.
-- **Alternatives for the owner:**
+- **Alternatives considered, not chosen:**
   1. Fit a HAR on 2007–2015 only for this study, as `level_target` proposed
      (CITED `research/level_target/DECISIONS.md:20`, T11). That departs from
      "pinned 240-min model".
@@ -180,7 +182,7 @@ check measures how much. P33 is the gate.
 3. **Machinery check (§5).**
 4. **Dev:** Q1–Q3. Fix the buckets by P31.
 5. **Holdout, once:** only the dev-fixed buckets for Q1, plus Q2 and Q3.
-   Verdict by P32.
+   Verdict by P32. The ATR line (P36) is computed in the same run.
 
 The attempt is recorded before step 4 reads an outcome. No step is rerun
 without a new, recorded attempt.
@@ -195,9 +197,17 @@ without a new, recorded attempt.
 | otherwise | NOT CONFIRMED on holdout |
 
 Q2 and Q3 are reported with their BH p-values. They do not enter the pass
-rule.
+rule, and neither does the ATR robustness line (P36).
 
-## 8. Attempt counter
+## 8. After the verdict
+
+- **If P32 passes:** the 2026-02-01 .. 2026-09-30 backfill is the planned
+  second confirmation (P35). It runs under its own pre-registered run, with the
+  dev-fixed buckets and this file's definitions, and is not part of this test.
+- **ATR robustness (P36):** reported with the holdout result, whatever it shows.
+- **Inspection gallery (P37):** dev only; never on holdout.
+
+## 9. Attempt counter
 
 `ATTEMPTS.json` counts two things:
 - **`prereg_attempts`:** registrations of this question. It is set to 1 by
