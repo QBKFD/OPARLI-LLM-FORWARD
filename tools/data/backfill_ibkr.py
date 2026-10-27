@@ -56,6 +56,7 @@ SCHEMA = "backfill_ibkr/1"
 CLIENT_ID = 63                     # 61 options probe, 62 options snapshot, 11/21 scanner, 31 feed
 SEAL = datetime(2026, 10, 1, tzinfo=timezone.utc)
 RANGE = (date(2026, 2, 1), date(2026, 9, 30))           # inclusive, calendar days (UTC)
+LAST_DAY = date(2026, 9, 30)                            # the hard end: never request past it
 OVERLAP = (date(2026, 1, 19), date(2026, 1, 30))        # the last 10 trade days of XAUUSD.txt
 PROBE_TYPES = ("MIDPOINT", "BID", "ASK", "TRADES")
 BAR_SIZE, DURATION = "1 min", "1 D"
@@ -88,10 +89,20 @@ def end_of(d: date) -> str:
     return (d + timedelta(days=1)).strftime("%Y%m%d-00:00:00")
 
 
+def refuse_past_seal(d: date) -> None:
+    """The hard end: a request for a day after 2026-09-30, or whose endDateTime
+    lies after 2026-10-01 00:00 UTC, is refused before IBKR is asked (exit 3)."""
+    end = datetime(d.year, d.month, d.day, tzinfo=timezone.utc) + timedelta(days=1)
+    if d > LAST_DAY or end > SEAL:
+        raise Stop(f"request for {d} refused: data from {SEAL:%Y-%m-%d} is sealed (last day {LAST_DAY})", 3)
+
+
 def plan(mode: str, what: str | None) -> list[tuple[str, date]]:
-    if mode == "probe":
-        return [(t, d) for t in PROBE_TYPES for d in days(*OVERLAP)]
-    return [(what, d) for d in days(*RANGE)]
+    reqs = ([(t, d) for t in PROBE_TYPES for d in days(*OVERLAP)] if mode == "probe"
+            else [(what, d) for d in days(*RANGE)])
+    for _, d in reqs:
+        refuse_past_seal(d)
+    return reqs
 
 
 class Pacer:
@@ -168,6 +179,7 @@ class Backfill:
         log(f"{mode}: {len(reqs)} requests, contract conId {c.conId}")
         n_bars = 0
         for i, (t, d) in enumerate(reqs, 1):
+            refuse_past_seal(d)                          # again, per request, before IBKR is asked
             self.pacer.wait()
             self.req_errors = []
             bars = self.ib.reqHistoricalData(c, endDateTime=end_of(d), durationStr=DURATION,
@@ -204,6 +216,11 @@ def main(argv=None, *, ib=None, contract_cls=None, out=None, pacer=None, now=Non
     a = ap.parse_args(argv)
     mode, what = ("probe", None) if a.probe_overlap else ("download", a.download)
     out = out or sys.stdout
+    try:
+        plan(mode, what)                                 # refuses a sealed request before connecting
+    except Stop as e:
+        log(str(e))
+        return e.status
     if a.plan:
         for m, w in (("probe", None), ("download", "<TYPE>")):
             reqs = plan(m, w)

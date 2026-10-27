@@ -58,8 +58,12 @@ study uses**:
        that catches a 2026-02-01-style shift;
    - per-day completeness: the share of days with ≥ 90 % of the expected
      minutes (the audit's U2), and the holiday and short days listed;
-   - the seam: the first backfilled day against `XAUUSD.txt`'s last day
-     (price level, informational only).
+   - the seam: the first backfilled bar's time against `XAUUSD.txt`'s last
+     bar (times only; the price-level gap was dropped on 2026-10-27, because
+     the period is a holdout nobody has read);
+   - gaps inside sessions, exact and conflicting duplicates, rows per trade
+     date, and timestamps tz-aware UTC. A best whole-hour shift other than 0
+     is a failure.
 4. **Manifest entry:** bytes, sha256, content_sha256, rows and range. Also the
    source (provider, contract and conId, whatToShow and the overlap table, bar
    size, `formatDate=2`, request times, client id, number of requests), every
@@ -100,6 +104,11 @@ study uses**:
   it exists, see that module).
 
 ## Run it (the owner)
+
+**The current step-by-step is `docs/BACKFILL_2026_RUNBOOK.md`** (2026-10-27).
+It adds the gateway check, a hard refusal past 2026-09-30, no-price checks of
+the JSONL, the integrity report and the S3 copy. The steps below are the
+original plan.
 
 **When:** a weekday, 07:00–20:00 UTC. That is after the 05:00 options
 snapshot, away from the gateway's 17:15 New York restart, and not on Sunday
