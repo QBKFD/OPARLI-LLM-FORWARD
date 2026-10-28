@@ -3034,7 +3034,14 @@
     "close": "float64",
     "volume": "float64"
    },
-   "content_sha256": "a693ff8ba56ff586212061900b264c3e6c642f71f26113325cd75e6f1953fa1f"
+   "content_sha256": "a693ff8ba56ff586212061900b264c3e6c642f71f26113325cd75e6f1953fa1f",
+   "backup": {
+    "where": "the owner's S3 backup bucket, prefix oparli/multi-market/",
+    "uploaded_utc": "2026-10-28T17:34:04Z",
+    "sse": "AES256",
+    "checksum": "SHA256, verified by S3 on upload",
+    "confirmed": "size equal to bytes, by ListObjectsV2; the host role is write-only"
+   }
   },
   "database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet": {
    "in_git": false,
@@ -5949,7 +5956,14 @@
     "close": "float64",
     "volume": "float64"
    },
-   "content_sha256": "deffe751cbcaf32c64bd6d70b7dcacb23e978f619a73c9558c7845a664e5c84b"
+   "content_sha256": "deffe751cbcaf32c64bd6d70b7dcacb23e978f619a73c9558c7845a664e5c84b",
+   "backup": {
+    "where": "the owner's S3 backup bucket, prefix oparli/multi-market/",
+    "uploaded_utc": "2026-10-28T17:34:05Z",
+    "sse": "AES256",
+    "checksum": "SHA256, verified by S3 on upload",
+    "confirmed": "size equal to bytes, by ListObjectsV2; the host role is write-only"
+   }
   },
   "database/ohlcv_data/USDJPY_ibkr_1min_20160101_20260930.parquet": {
    "in_git": false,
@@ -8859,7 +8873,14 @@
     "close": "float64",
     "volume": "float64"
    },
-   "content_sha256": "7759e0652d276a6d8c9589bad402d67aa79e6717f468b869e2e677fb1280c85c"
+   "content_sha256": "7759e0652d276a6d8c9589bad402d67aa79e6717f468b869e2e677fb1280c85c",
+   "backup": {
+    "where": "the owner's S3 backup bucket, prefix oparli/multi-market/",
+    "uploaded_utc": "2026-10-28T17:34:06Z",
+    "sse": "AES256",
+    "checksum": "SHA256, verified by S3 on upload",
+    "confirmed": "size equal to bytes, by ListObjectsV2; the host role is write-only"
+   }
   },
   "database/ohlcv_data/GBPUSD_ibkr_1min_20160101_20260930.parquet": {
    "in_git": false,

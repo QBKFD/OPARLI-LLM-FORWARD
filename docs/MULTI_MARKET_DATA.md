@@ -7,6 +7,12 @@
 - **Download running on EC2 since 00:20 UTC** (tmux session `mm`).
 - **Scope (owner, 00:28 UTC):** XAGUSD and EURUSD tonight, then USDJPY if
   time allows.
+- **Done and backed up:** XAGUSD, EURUSD and USDJPY, in the owner's S3
+  backup bucket under `oparli/multi-market/` (AES256, SHA-256 checksum checked
+  by S3 on upload). Sizes were confirmed by ListObjectsV2, because the host
+  role is write-only.
+  - The host's aws-cli 2.31 (Python 3.14) crashes on `s3api list-objects-v2`
+    (an argparse bug), so use `aws s3 ls`, which calls the same API.
 - **Deferred:** GBPUSD, USDCAD, USDSEK, USDCHF and the DXY proxy. Their seals,
   manifest entries and the tools stay in place for later.
 
