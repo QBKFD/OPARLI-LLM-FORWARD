@@ -72,6 +72,30 @@ class Rejected(Exception):
     pass
 
 
+def read_days_dir(base: Path) -> tuple[dict, list[dict], list[dict], dict | None]:
+    """The resumable download (backfill_ibkr.py --instrument XAUUSD --what TYPE,
+    2026-10-28) in read_jsonl's shape: its meta as a download, one request entry
+    per week chunk, the day files' bars, and an end only if the run completed and
+    every day file is whole. A broken day file leaves the end out, so build()
+    rejects the download as incomplete."""
+    meta = json.loads((base / "_meta.json").read_text()) if (base / "_meta.json").exists() else {}
+    meta = {**meta, "mode": "download", "duration": "1 W (2 D per day refetched)",
+            "n_requests": len(list((base / "_done").glob("*.json")))}
+    reqs = [{"day": m["chunk_end"][:10], "bars": m["bars"], "errors": [{"code": c} for c in m["errors"]]}
+            for m in (json.loads(p.read_text()) for p in sorted((base / "_done").glob("*.json")))]
+    bars, whole = [], True
+    for f in sorted(base.glob("????-??-??.jsonl")):
+        lines = f.read_text().splitlines()
+        tail = json.loads(lines[-1]) if lines else {}
+        rows = [json.loads(x) for x in lines[:-1]]
+        if tail.get("kind") != "day_end" or tail.get("bars") != len(rows):
+            whole = False
+            continue
+        bars += [{**r, "type": meta.get("what_to_show")} for r in rows]
+    end = {"kind": "end"} if whole and (base / "_complete.json").exists() else None
+    return meta, reqs, bars, end
+
+
 def read_jsonl(path) -> tuple[dict, list[dict], list[dict], dict | None]:
     meta, reqs, bars, end = None, [], [], None
     with open(path, encoding="utf-8") as f:
@@ -367,6 +391,8 @@ def main(argv=None) -> int:
     b.add_argument("--out-dir", default=str(ROOT / "database" / "ohlcv_data"))
     b.add_argument("--update-manifest", action="store_true")
     b.add_argument("--json", action="store_true", help="also print the full manifest entry")
+    b.add_argument("--from-days", action="store_true",
+                   help="DOWNLOAD is a directory of day files from backfill_ibkr.py --instrument XAUUSD --what TYPE")
     a = ap.parse_args(argv)
 
     if a.cmd == "pick":
@@ -387,7 +413,7 @@ def main(argv=None) -> int:
     pk = json.loads(Path(a.pick).read_text(encoding="utf-8"))
     if not pk.get("chosen"):
         ap.error(f"{a.pick}: no type was picked; the backfill stops")
-    meta, reqs, bars, end = read_jsonl(a.download)
+    meta, reqs, bars, end = read_days_dir(Path(a.download)) if a.from_days else read_jsonl(a.download)
     ref = load_txt(Path(a.txt), *OVERLAP)
     last = ref["timestamp"].iloc[-1].isoformat() if len(ref) else None
     df, checks, fails = build(meta, reqs, bars, end, pk, last)

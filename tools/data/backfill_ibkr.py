@@ -88,6 +88,7 @@ INSTRUMENTS = {
 }
 MULTI = ("XAGUSD", "EURUSD", "USDJPY", "GBPUSD", "USDCAD", "USDSEK", "USDCHF")   # gold is never downloaded here
 MULTI_WHAT = "MIDPOINT"
+GOLD_RANGE = RANGE                 # XAUUSD through --instrument: only the backfill window, only the picked type
 MULTI_RANGE = (date(2016, 1, 1), LAST_DAY)
 MULTI_CLIENT_ID = 65               # 61-64 options probe / snapshot / gold backfill / sigma_now
 WEEK_MIN_BARS = 0.5 * 5 * 1380     # a week chunk with fewer bars is fetched again day by day
@@ -218,6 +219,7 @@ class Backfill:
         self.req_errors: list[dict] = []
         self.stop: Stop | None = None
         self.lost = False
+        self.what = MULTI_WHAT
         self.sleep = time.sleep
         self.conn: dict = {}
         ib.errorEvent += self.on_error
@@ -276,7 +278,7 @@ class Backfill:
             self.req_errors, self.stop = [], None
             try:
                 bars = self.ib.reqHistoricalData(c, endDateTime=ibkr_end(end), durationStr=duration,
-                                                 barSizeSetting=BAR_SIZE, whatToShow=MULTI_WHAT, useRTH=False,
+                                                 barSizeSetting=BAR_SIZE, whatToShow=self.what, useRTH=False,
                                                  formatDate=2, keepUpToDate=False, timeout=TIMEOUT_S)
             except (ConnectionError, OSError, TimeoutError) as e:
                 log(f"request failed ({type(e).__name__}); reconnecting")
@@ -349,7 +351,7 @@ class Backfill:
         c = self.contract(sym)
         ranges = chunk_ranges(first, last)
         ends = [e for _, e in ranges]
-        meta = {"kind": "meta", "schema": SCHEMA_DAY, "instrument": sym, "what_to_show": MULTI_WHAT,
+        meta = {"kind": "meta", "schema": SCHEMA_DAY, "instrument": sym, "what_to_show": self.what,
                 "started_utc": self.now().isoformat(), "client_id": self.conn.get("client_id"),
                 "contract": {"con_id": c.conId, "symbol": c.symbol, "sec_type": c.secType, "exchange": c.exchange,
                              "currency": c.currency, "local_symbol": getattr(c, "localSymbol", "")},
@@ -445,11 +447,12 @@ def main(argv=None, *, ib=None, contract_cls=None, out=None, pacer=None, now=Non
     g.add_argument("--plan", action="store_true")
     g.add_argument("--probe-overlap", action="store_true")
     g.add_argument("--download", metavar="TYPE", choices=PROBE_TYPES)
-    g.add_argument("--instrument", metavar="SYM", choices=MULTI,
+    g.add_argument("--instrument", metavar="SYM", choices=MULTI + ("XAUUSD",),
                    help="resumable multi-market download (docs/MULTI_MARKET_DATA.md); needs --out-dir")
     ap.add_argument("--out-dir", help="--instrument: day files go to OUT_DIR/SYM/")
     ap.add_argument("--first", type=date.fromisoformat, default=MULTI_RANGE[0])
     ap.add_argument("--last", type=date.fromisoformat, default=MULTI_RANGE[1])
+    ap.add_argument("--what", choices=PROBE_TYPES, help="--instrument: whatToShow (XAUUSD: required, the type pick chose)")
     ap.add_argument("--refetch-days", help="--instrument: comma-separated UTC days to ask for again, one by one")
     ap.add_argument("--host", default=os.environ.get("IB_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("IB_PORT", "4004")))
@@ -493,6 +496,15 @@ def main_instrument(a, *, ib=None, contract_cls=None, pacer=None, now=None, slee
     if not a.out_dir:
         log("--instrument needs --out-dir")
         return 2
+    what = getattr(a, "what", None)
+    if a.instrument == "XAUUSD":
+        # the gold backfill (docs/BACKFILL_2026_PROPOSAL.md): the picked type, its window only
+        if not what:
+            log("--instrument XAUUSD needs --what TYPE (the type backfill_build.py pick chose)")
+            return 2
+        if a.first < GOLD_RANGE[0] or a.last > GOLD_RANGE[1]:
+            log(f"--instrument XAUUSD only covers {GOLD_RANGE[0]} .. {GOLD_RANGE[1]}")
+            return 2
     try:
         week_chunks(a.first, a.last)                     # refuses a sealed range before connecting
         for x in (getattr(a, "refetch_days", None) or "").split(","):
@@ -507,6 +519,7 @@ def main_instrument(a, *, ib=None, contract_cls=None, pacer=None, now=None, slee
     job = Backfill(ib, contract_cls, None, pacer=pacer, now=now or (lambda: datetime.now(timezone.utc)))
     if sleep is not None:
         job.sleep = sleep
+    job.what = what or MULTI_WHAT
     job.conn = {"host": a.host, "port": a.port, "client_id": a.client_id}
     try:
         log(f"connecting to {a.host}:{a.port}, client id {a.client_id}, read-only")

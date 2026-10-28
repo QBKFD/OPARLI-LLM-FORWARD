@@ -33,7 +33,8 @@ class FakeIB:
         return self.up
 
     def qualifyContracts(self, c):
-        c.conId, c.localSymbol = 12087792, f"{c.symbol}.{c.currency}"
+        c.conId = 69067924 if c.symbol == "XAUUSD" else 12087792       # gold as test_backfill's probe
+        c.localSymbol = f"{c.symbol}.{c.currency}"
         return [c]
 
     def reqHistoricalData(self, contract, endDateTime, durationStr, barSizeSetting, whatToShow, useRTH,
@@ -190,7 +191,7 @@ def test_instrument_build_passes_reports_no_price_and_registers(tmp_path, tmp_ma
     _download(tmp_path, "XAGUSD")
     rc = mb.main(["instrument", "XAGUSD", str(tmp_path / "days"), "--out-dir", str(tmp_path / "out"), "--update-manifest"])
     out = capsys.readouterr().out
-    assert rc == 0 and "passed: yes" in out and "best whole-hour shift 0 h" in out
+    assert rc == 0 and "passed: yes" in out and "best whole-hour shift 0 h" in out, out.splitlines()[-1]
     df = pd.read_parquet(tmp_path / "out" / "XAGUSD_ibkr_1min_20160101_20260930.parquet")
     assert str(df["timestamp"].dtype) == "datetime64[ns, UTC]" and df["timestamp"].max() < pd.Timestamp("2026-10-01", tz="UTC")
     for p in set(df[["open", "high", "low", "close"]].to_numpy().ravel().round(3).tolist()):
@@ -277,3 +278,50 @@ def test_the_last_chunk_does_not_overwrite_the_week_before(tmp_path):
     assert run(tmp_path, LastWeekShort(), "EURUSD", date(2026, 9, 14), date(2026, 9, 30)) == 0
     tail = json.loads((tmp_path / "EURUSD" / "2026-09-24.jsonl").read_text().splitlines()[-1])
     assert tail["bars"] > 1000 and tail["chunk_end"].startswith("2026-09-26")
+
+
+# --- the gold backfill through --instrument XAUUSD (2026-10-28) --------------------
+
+from tests.datafeed.test_backfill import bb, env, txt_reference  # noqa: E402,F401
+
+
+def _gold(tmp_path, ib, what="MIDPOINT", first=date(2026, 2, 1), last=date(2026, 9, 30), sleep=lambda s: None):
+    a = bi.argparse.Namespace(instrument="XAUUSD", out_dir=str(tmp_path), first=first, last=last,
+                              host="ibgateway", port=4004, client_id=63, what=what, refetch_days=None)
+    return bi.main_instrument(a, ib=ib, contract_cls=Contract, pacer=NoPacer(),
+                              now=lambda: datetime(2026, 10, 28, 18, 0, tzinfo=UTC), sleep=sleep)
+
+
+def test_gold_needs_the_picked_type_and_only_its_window(tmp_path):
+    ib = FakeIB()
+    assert _gold(tmp_path, ib, what=None) == 2 and ib.calls == []
+    assert _gold(tmp_path, ib, first=date(2026, 1, 30)) == 2 and ib.calls == []        # before the backfill window
+    assert _gold(tmp_path, ib, last=date(2026, 10, 1)) in (2, 3) and ib.calls == []    # sealed
+
+
+def test_gold_keeps_its_type_through_a_reconnect(tmp_path):
+    ib = FakeIB(fail_at={2})
+    assert _gold(tmp_path, ib, what="BID", first=date(2026, 9, 1)) == 0
+    assert ib.connects == 2 and {c["what"] for c in ib.calls} == {"BID"}
+    assert {c["sym"] for c in ib.calls} == {("XAUUSD", "CMDTY", "SMART", "USD")}
+
+
+def test_gold_day_files_pass_the_backfill_build(env, capsys):  # noqa: F811  (the fixture from test_backfill)
+    tmp, txt, m = env
+    from tests.datafeed.test_backfill import download, FakeIB as ProbeIB
+    (tmp / "overlap.jsonl").write_text(download(ProbeIB(), "--probe-overlap")[1])
+    assert bb.main(["pick", str(tmp / "overlap.jsonl"), "--txt", str(txt), "--out", str(tmp / "pick.json")]) == 0
+    days = tmp / "days"
+    assert _gold(days, FakeIB(), what="MIDPOINT") == 0
+    capsys.readouterr()
+    rc = bb.main(["build", str(days / "XAUUSD"), "--from-days", "--pick", str(tmp / "pick.json"), "--txt", str(txt),
+                  "--out-dir", str(tmp / "out"), "--update-manifest"])
+    out = capsys.readouterr().out
+    assert rc == 0 and "passed: yes" in out and "best whole-hour shift 0 h" in out, out.splitlines()[-1]
+    e = json.loads(m.read_text())["files"][bb.KEY]
+    assert e["validation"]["passed"] and e["status"] == "unused by any study" and "planned" not in e
+    df = pd.read_parquet(tmp / "out" / Path(bb.KEY).name)
+    assert df["timestamp"].min() >= pd.Timestamp("2026-02-01", tz="UTC") and df["timestamp"].max() < pd.Timestamp("2026-10-01", tz="UTC")
+    (days / "XAUUSD" / "_complete.json").unlink()                                       # an unfinished run is rejected
+    assert bb.main(["build", str(days / "XAUUSD"), "--from-days", "--pick", str(tmp / "pick.json"), "--txt", str(txt),
+                    "--out-dir", str(tmp / "out2")]) == 1
