@@ -1,0 +1,9 @@
+{
+ "what": "breakout_fade Amendment 1: quartile edges of the H2 target distance (sigma) over all random-walk breaks, 200 paths on the silver dev timestamps; no real outcome",
+ "n_breaks": 141503,
+ "edges_sigma": [
+  1.8719060645009218,
+  2.595664058878719,
+  3.4947989787240825
+ ]
+}
