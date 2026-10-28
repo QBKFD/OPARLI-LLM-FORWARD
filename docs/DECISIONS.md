@@ -266,3 +266,11 @@ Built 2026-10-17, stacked on `feat/agents-discussion` (#23).
 | M7 | **`dist_sigma_<level>` rows** appear once the level library fills `snapshot.levels`. Today the levels slot is empty (unavailable), so there are none. | The rows follow the data; no placeholder rows. | One unavailable `dist_sigma` row. |
 | M8 | **Measured:** a snapshot with features takes ~373 ms against ~335 ms without, on the development Mac (30-day fetch; 5 runs after a warm-up). It runs once per alert, so nothing continuous is added. | Measured before deciding nothing needs optimising. | Cache the vol state. |
 | M9 | **The Technical v1 agent isn't built here.** It is agents v1's Technical agent (its own PREREG). The table it will read, and `metric(rows, name)`, are in place. | Job 5 is the shared table, as asked. | Build the deterministic agent too. |
+
+## data/multi-market (#52): owner decisions
+
+| # | Decision | Reason | Replaces |
+|---|---|---|---|
+| OD1 | **The gold backfill 2026-02-01 .. 2026-09-30 uses MIDPOINT** (owner, 2026-10-28, before any outcome was read). Recorded in the pick file by `backfill_build.py decide` and in the file's manifest entry (`source.what_to_show_pick.decision`). `XAUUSD.txt`'s `what_to_show` stays unknown. | No IBKR type reproduces `XAUUSD.txt` on the 2026-01-19 .. 01-30 overlap: exact OHLC match 0 % for BID, ASK and MIDPOINT (TRADES: no data). Median relative close difference: BID 2.4e-5 (best), MIDPOINT 6.8e-5, ASK 1.2e-4. MIDPOINT matches silver and the FX pairs. The owner puts the offset at about $0.27 at current prices, negligible against σ. | The 99.5 % pick rule of `docs/BACKFILL_2026_PROPOSAL.md`, step 1 |
+| OD2 | **The seam 2026-01-30 \| 2026-02-01 is marked in the manifest** (the backfill entry, `validation.seam`), with both sources named and the measured relative differences. **A study that uses the combined gold series must report how many events have a window crossing the seam, and exclude them or show the result both ways.** | The two halves come from different IBKR types; the offset is small but not zero. | — |
+| OD3 | `XAUUSD.txt` is neither touched nor rebuilt. | It is the record of what earlier studies read. | — |
