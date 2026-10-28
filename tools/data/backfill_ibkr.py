@@ -26,7 +26,7 @@ Modes:
 
 Requests: Contract XAUUSD CMDTY SMART USD (qualified; conId recorded), 1 min,
 useRTH=False, formatDate=2 (UTC epoch, so the login's time zone can't leak
-in), durationStr "1 D", endDateTime "<next day>-00:00:00" (UTC), one per
+in), durationStr "2 D" (D = trading sessions), endDateTime "<next day>-00:00:00" (UTC), one per
 calendar day except Saturdays (no trading), walking backwards. At most 50
 requests per 10 minutes (IBKR allows 60). Nothing at or after 2026-10-01 is
 requested, and a bar at or after it stops the run (exit 3).
@@ -65,7 +65,12 @@ RANGE = (date(2026, 2, 1), date(2026, 9, 30))           # inclusive, calendar da
 LAST_DAY = date(2026, 9, 30)                            # the hard end: never request past it
 OVERLAP = (date(2026, 1, 19), date(2026, 1, 30))        # the last 10 trade days of XAUUSD.txt
 PROBE_TYPES = ("MIDPOINT", "BID", "ASK", "TRADES")
-BAR_SIZE, DURATION = "1 min", "1 D"
+BAR_SIZE = "1 min"
+# IBKR counts D in trading sessions, not 24 h: "1 D" ending at 00:00 UTC returns only
+# the session that opened the evening before (found on the multi-market run,
+# 2026-10-28). "2 D" covers the whole UTC day; the overlap between requests is
+# equal duplicates, which backfill_build.py drops.
+DURATION = "2 D"
 MAX_PER_WINDOW, WINDOW_S = 50, 600
 TIMEOUT_S = 120
 
