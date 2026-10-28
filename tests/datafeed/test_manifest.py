@@ -93,13 +93,28 @@ def test_the_synthetic_fixture_regenerates_to_the_manifest():
     assert not any(not gen.is_open(t.to_pydatetime()) for t in df["timestamp"])
 
 
-def test_the_planned_backfill_is_unused_and_unreadable(tmp_path):
-    e = manifest.load()["files"][BACKFILL]
-    assert e["planned"] is True and e["status"] == "unused by any study" and not e["in_git"]
+def test_a_planned_entry_is_unreadable(tmp_path, monkeypatch):
+    """A planned entry (no hashes yet) refuses any file with its name. The shipped
+    backfill entry was built on 2026-10-28 (#53), so the planned case is set up
+    in a copy of the manifest."""
+    shipped = manifest.load()["files"][BACKFILL]
+    assert shipped["status"] == "unused by any study" and not shipped["in_git"] and len(shipped["sha256"]) == 64
+    doc = json.loads(manifest.MANIFEST.read_text())
+    doc["files"][BACKFILL] = {"in_git": False, "status": "unused by any study", "planned": True,
+                              "source": shipped["source"], "range_utc": ["2026-02-01", "2026-10-01"]}
+    m = tmp_path / "manifest.json"
+    m.write_text(json.dumps(doc))
+    monkeypatch.setattr(manifest, "MANIFEST", m)
+    manifest._load.cache_clear()
+    manifest._verified.clear()
     p = tmp_path / Path(BACKFILL).name
     bars().to_parquet(p, index=False)
-    with pytest.raises(manifest.ManifestError, match="planned, not built yet"):
-        manifest.verify(p)
+    try:
+        with pytest.raises(manifest.ManifestError, match="planned, not built yet"):
+            manifest.verify(p)
+    finally:
+        manifest._load.cache_clear()
+        manifest._verified.clear()
 
 
 def test_manifest_ships_as_package_data():

@@ -269,6 +269,7 @@ def test_build_passes_and_updates_the_manifest(env, capsys):
 def test_a_shifted_download_is_rejected_by_the_session_check(env, capsys):
     """The 2026-02-01 break: US-Eastern times labelled UTC (4-5 h off)."""
     tmp, txt, m = env
+    before = json.loads(m.read_text())["files"][bb.KEY]
     assert _pick_and_download(tmp, txt, FakeIB(shift_h=-5)) == 0
     rc = bb.main(["build", str(tmp / "dl.jsonl"), "--pick", str(tmp / "pick.json"), "--txt", str(txt),
                   "--out-dir", str(tmp / "out"), "--update-manifest"])
@@ -276,10 +277,10 @@ def test_a_shifted_download_is_rejected_by_the_session_check(env, capsys):
     assert (tmp / "out" / Path(bb.KEY).name.replace(".parquet", ".rejected.parquet")).exists()
     assert not (tmp / "out" / Path(bb.KEY).name).exists()
     doc = json.loads(m.read_text())
-    assert doc["files"][bb.KEY].get("planned") is True             # the planned entry stays
+    assert doc["files"][bb.KEY] == before                          # a rejected build leaves the entry as it was
     rej = doc["files"][bb.KEY.replace(".parquet", ".rejected.parquet")]
     assert rej["validation"]["passed"] is False and rej["validation"]["best_whole_hour_shift"] == 5
-    assert any("UTC session check" in f for f in rej["validation"]["failures"])
+    assert any("UTC" in f or "timezone" in f for f in rej["validation"]["failures"])   # weekend or daily-break check
     assert doc["files"][bb.TXT_KEY]["source"]["what_to_show"] is None   # not filled from a rejected build
     assert "REJECTED" in capsys.readouterr().err
 
