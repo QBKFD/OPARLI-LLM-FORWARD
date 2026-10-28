@@ -31,11 +31,22 @@ RES = HERE / "results"
 ATTEMPTS = HERE / "ATTEMPTS.json"
 
 
+def check_prereg() -> None:
+    """Every step runs against the pinned pre-registration only."""
+    import hashlib
+    got = hashlib.sha256((HERE / "PREREG.md").read_bytes()).hexdigest()
+    if got != F.PREREG_SHA256:
+        raise SystemExit(f"PREREG.md differs from the pre-registration at {F.PREREG_COMMIT[:7]} "
+                         f"(sha256 {got[:12]} != {F.PREREG_SHA256[:12]}): nothing runs")
+
+
 def prepare() -> dict:
+    check_prereg()
     m, checks = D.load()
     cd, info = pb.candles_hourly(m, P0.MIN_SHARE)
     tbl, model = D.sigma_table(m)
     ends = pd.DatetimeIndex(cd["end"])
+    checks = {**checks, "prereg_commit": F.PREREG_COMMIT, "prereg_sha256": F.PREREG_SHA256}
     return {"m": m, "cd": cd, "candles": info, "tbl": tbl, "checks": checks,
             "model": {"name": model.name, "sha256": model.sha256},
             "sig": D.at_labels(tbl, f"sigma_px_{F.SIGMA_H}", ends), "ret": D.at_labels(tbl, f"sigma_ret_{F.SIGMA_H}", ends),

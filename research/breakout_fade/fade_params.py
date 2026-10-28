@@ -5,6 +5,11 @@ W, the horizon) are pullback_structure's, imported unchanged (B3)."""
 import pandas as pd
 
 STUDY = "breakout_fade"
+# The pre-registration: PREREG.md as merged into main by #55 (merge commit 3b2a56c;
+# content commit 5671276). fade_run.py refuses every step unless PREREG.md on disk
+# has exactly this SHA-256.
+PREREG_COMMIT = "3b2a56c240a9ccd361f7b4d3d1f212afe690825c"
+PREREG_SHA256 = "7e86afc40fa254a5e93530aa9e0bb9b7333b6b7813ad7b9793d172733d1bf4a2"
 INSTRUMENT = "XAGUSD"                                                  # B1
 # B1's file key lives in fade_data.py, next to its data_guard call (research/test_data_guard.py)
 DEV_START = pd.Timestamp("2016-01-01", tz="UTC")                      # B2

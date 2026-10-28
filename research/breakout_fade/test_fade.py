@@ -90,3 +90,14 @@ def test_the_data_guard_lets_this_study_read_silver_only():
     dg.assert_may_read(key, study=F.STUDY)                 # the committed PREREG names the key
     with pytest.raises(dg.DataGuardError):
         dg.assert_may_read("database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet", study=F.STUDY)
+
+
+def test_prereg_on_disk_is_the_pinned_pre_registration():
+    import hashlib
+    import subprocess
+    assert hashlib.sha256((HERE / "PREREG.md").read_bytes()).hexdigest() == F.PREREG_SHA256
+    pinned = subprocess.run(["git", "show", f"{F.PREREG_COMMIT}:research/breakout_fade/PREREG.md"],
+                            cwd=HERE, capture_output=True, check=False)
+    if pinned.returncode == 0:                                # the commit is present (not a shallow clone)
+        assert hashlib.sha256(pinned.stdout).hexdigest() == F.PREREG_SHA256
+    assert "B1–B20) APPROVED" in (HERE / "PREREG.md").read_text() and "| OPEN |" not in (HERE / "PREREG.md").read_text()
