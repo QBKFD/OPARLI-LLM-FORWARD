@@ -37,3 +37,16 @@ six FX pairs).
   PREREG doesn't name it.
 - **Gold's own history still holds:** 2024-01-01 .. 2026-01-30 was spent once
   by `levels_confirm` (above).
+
+## The gold seam 2026-01-30 | 2026-02-01 (owner, 2026-10-28)
+
+Gold from 2026-02-01 comes from the IBKR MIDPOINT backfill
+(`XAUUSD_ibkr_1min_20260201_20260930.parquet`). Before that it comes from
+`XAUUSD.txt`, whose IBKR type no IBKR type reproduces (median relative close
+difference on the overlap: MIDPOINT 6.8e-5; `docs/DECISIONS.md` OD1).
+
+- **The rule:** a study that uses the combined series must report how many
+  events have a window crossing the seam, and exclude them or show the result
+  both ways.
+- **The record:** the seam is in the backfill's manifest entry
+  (`validation.seam`).

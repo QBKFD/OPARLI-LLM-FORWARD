@@ -325,3 +325,32 @@ def test_gold_day_files_pass_the_backfill_build(env, capsys):  # noqa: F811  (th
     (days / "XAUUSD" / "_complete.json").unlink()                                       # an unfinished run is rejected
     assert bb.main(["build", str(days / "XAUUSD"), "--from-days", "--pick", str(tmp / "pick.json"), "--txt", str(txt),
                     "--out-dir", str(tmp / "out2")]) == 1
+
+
+def test_a_decided_type_builds_and_leaves_xauusd_txt_alone(env, capsys):  # noqa: F811
+    tmp, txt, m = env
+    from tests.datafeed.test_backfill import download, FakeIB as ProbeIB
+    lines = txt.read_bytes().decode().split("\r\n")                   # the txt matches no IBKR type: +0.07 on every price
+    out = [lines[0]] + [",".join(f[:3] + [f"{float(x) + 0.07:.3f}" for x in f[3:7]] + f[7:])
+                        for f in (ln.split(",") for ln in lines[1:] if ln)]
+    txt.write_bytes(("\r\n".join(out) + "\r\n").encode())
+    doc = json.loads(m.read_text())
+    doc["files"][bb.TXT_KEY].update(bytes=txt.stat().st_size, sha256=manifest.file_sha256(txt))
+    m.write_text(json.dumps(doc))
+    manifest._load.cache_clear()
+    manifest._verified.clear()
+    (tmp / "overlap.jsonl").write_text(download(ProbeIB(refuse=("TRADES",)), "--probe-overlap")[1])
+    assert bb.main(["pick", str(tmp / "overlap.jsonl"), "--txt", str(txt), "--out", str(tmp / "pick.json")]) == 1
+    assert bb.main(["decide", str(tmp / "pick.json"), "--type", "MIDPOINT", "--ref", "docs/DECISIONS.md OD1",
+                    "--date", "2026-10-28", "--out", str(tmp / "decided.json")]) == 0
+    days = tmp / "days"
+    assert _gold(days, FakeIB(), what="MIDPOINT") == 0
+    assert bb.main(["build", str(days / "XAUUSD"), "--from-days", "--pick", str(tmp / "decided.json"), "--txt", str(txt),
+                    "--out-dir", str(tmp / "out"), "--update-manifest"]) == 0
+    doc = json.loads(m.read_text())
+    e = doc["files"][bb.KEY]
+    assert e["source"]["what_to_show_pick"]["decision"]["ref"] == "docs/DECISIONS.md OD1"
+    seam = e["validation"]["seam"]
+    assert seam["before"]["file"] == bb.TXT_KEY and "crossing the seam" in seam["rule"]
+    assert set(seam["median_rel_close_diff_on_overlap"]) >= {"MIDPOINT", "BID", "ASK"}
+    assert doc["files"][bb.TXT_KEY]["source"]["what_to_show"] is None   # a decision says nothing about the txt

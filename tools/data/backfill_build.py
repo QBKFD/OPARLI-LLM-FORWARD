@@ -200,7 +200,9 @@ def pick(meta: dict, reqs: list[dict], bars: list[dict], ref) -> dict:
                ((m["low"] - m["low_ib"]).abs() <= EPS) & ((m["close"] - m["close_ib"]).abs() <= EPS)
         vol = ohlc & ((m["volume"] - m["volume_ib"]).abs() <= EPS)
         errs = sorted({e["code"] for r in reqs if r["type"] == t for e in r["errors"]})
+        rel = ((m["close"] - m["close_ib"]).abs() / m["close"]).median() if len(m) else None
         table[t] = {"bars": int(len(got)), "ohlc_share": float(ohlc.mean()) if len(m) else 0.0,
+                    "median_rel_close_diff": None if rel is None or rel != rel else float(rel),
                     "ohlc_and_volume_share": float(vol.mean()) if len(m) else 0.0, "ibkr_error_codes": errs}
     best = max(table, key=lambda k: table[k]["ohlc_share"]) if table else None
     chosen = best if best and table[best]["ohlc_share"] >= PICK_MIN_SHARE else None
@@ -288,7 +290,12 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
     seam = None
     if txt_last is not None and len(df):
         # times only: the period is a holdout nobody has read, so no price or return is reported
-        seam = {"txt_last_ts": txt_last, "first_ts": df["timestamp"].iloc[0].isoformat()}
+        seam = {"txt_last_ts": txt_last, "first_ts": df["timestamp"].iloc[0].isoformat(),
+                "before": {"file": TXT_KEY, "source": "IBKR XAUUSD CMDTY, whatToShow unknown (no IBKR type reproduces it)"},
+                "after": {"file": KEY, "source": f"IBKR XAUUSD CMDTY {pk.get('chosen')}, backfill_ibkr.py"},
+                "median_rel_close_diff_on_overlap": {t: r.get("median_rel_close_diff") for t, r in pk.get("table", {}).items()},
+                "rule": ("a study that uses the combined gold series must report how many events have a window "
+                         "crossing the seam, and exclude them or show the result both ways (owner, 2026-10-28)")}
     utc = bool(len(df)) and str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
     checks = {"rows": int(len(df)), "timestamps_tz_aware_utc": utc,
               "first_utc": df["timestamp"].iloc[0].isoformat() if len(df) else None,
@@ -316,8 +323,8 @@ def entry(meta, pk, checks, df, path: Path, passed: bool) -> dict:
             "contract": meta["contract"], "what_to_show": meta["what_to_show"], "bar_size": meta["bar_size"],
             "use_rth": meta["use_rth"], "format_date": meta["format_date"], "duration_per_request": meta["duration"],
             "client_id": meta["client_id"], "n_requests": meta["n_requests"], "downloaded_utc": meta["started_utc"],
-            "what_to_show_pick": {k: pk[k] for k in ("overlap_utc", "reference", "reference_minutes", "rule",
-                                                     "table", "chosen", "volume_reproduced")},
+            "what_to_show_pick": {k: pk.get(k) for k in ("overlap_utc", "reference", "reference_minutes", "rule",
+                                                         "table", "chosen", "volume_reproduced", "decision")},
         },
         "timezone": "UTC (formatDate=2) and checked against the session: see checks.session_utc",
         "validation": {"passed": passed, **checks},
@@ -384,6 +391,12 @@ def main(argv=None) -> int:
     p.add_argument("overlap")
     p.add_argument("--txt", default=str(ROOT / TXT_KEY))
     p.add_argument("--out", required=True)
+    dcd = sub.add_parser("decide", help="record an owner decision that sets the type when no type passes the rule")
+    dcd.add_argument("pick")
+    dcd.add_argument("--type", required=True, choices=("MIDPOINT", "BID", "ASK", "TRADES"))
+    dcd.add_argument("--ref", required=True, help="where the decision is recorded, e.g. docs/DECISIONS.md OD1")
+    dcd.add_argument("--date", required=True)
+    dcd.add_argument("--out", required=True)
     b = sub.add_parser("build")
     b.add_argument("download")
     b.add_argument("--pick", required=True)
@@ -410,9 +423,22 @@ def main(argv=None) -> int:
         print(f"picked {res['chosen']} (volume reproduced: {res['volume_reproduced']}); wrote {a.out}")
         return 0
 
+    if a.cmd == "decide":
+        pk = json.loads(Path(a.pick).read_text(encoding="utf-8"))
+        if pk.get("chosen"):
+            ap.error(f"{a.pick}: the rule already picked {pk['chosen']}; no decision is needed")
+        pk["chosen"] = a.type
+        pk["volume_reproduced"] = False
+        pk["decision"] = {"by": "owner", "date": a.date, "ref": a.ref, "type": a.type,
+                          "replaces": f"the pick rule ({pk['rule']}): no type passed",
+                          "median_rel_close_diff_on_overlap": {t: r.get("median_rel_close_diff") for t, r in pk["table"].items()}}
+        Path(a.out).write_text(json.dumps(pk, indent=1) + "\n", encoding="utf-8")
+        print(f"decided {a.type} ({a.ref}); wrote {a.out}")
+        return 0
+
     pk = json.loads(Path(a.pick).read_text(encoding="utf-8"))
     if not pk.get("chosen"):
-        ap.error(f"{a.pick}: no type was picked; the backfill stops")
+        ap.error(f"{a.pick}: no type was picked; the backfill stops (an owner decision can set one: `decide`)")
     meta, reqs, bars, end = read_days_dir(Path(a.download)) if a.from_days else read_jsonl(a.download)
     ref = load_txt(Path(a.txt), *OVERLAP)
     last = ref["timestamp"].iloc[-1].isoformat() if len(ref) else None
@@ -429,7 +455,7 @@ def main(argv=None) -> int:
         print(json.dumps(e, indent=1, default=_plain))
     if a.update_manifest:
         write_manifest(KEY if not fails else KEY.replace(".parquet", ".rejected.parquet"), e,
-                       pk["chosen"] if not fails else None)
+                       pk["chosen"] if (not fails and not pk.get("decision")) else None)   # a decided type says nothing about XAUUSD.txt
         print(f"manifest updated: {manifest.MANIFEST}", file=sys.stderr)
     if fails:
         print(f"REJECTED, written as {out}: " + "; ".join(fails), file=sys.stderr)

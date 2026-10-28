@@ -1,5 +1,11 @@
 # Proposal: IBKR backfill of XAUUSD 1-min bars, 2026-02-01 .. 2026-09-30
 
+**2026-10-28: the pick rule stopped the backfill** (no type reproduces
+`XAUUSD.txt`). **The owner decided MIDPOINT** (`docs/DECISIONS.md` OD1–OD3:
+the seam is marked, and studies must handle it). The run used the resumable
+`backfill_ibkr.py --instrument XAUUSD --what MIDPOINT` and `backfill_build.py
+build --from-days` (`docs/MULTI_MARKET_DATA.md`).
+
 **Status: approved by the owner 2026-10-22 (go; 99.5 % confirmed); tools
 built and tested on a fake IBKR client; not run.** The owner runs it on the
 EC2 paper gateway (section "Run it"). Claude never touches EC2.
