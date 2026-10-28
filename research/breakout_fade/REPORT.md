@@ -1,6 +1,56 @@
 # breakout_fade: report
 
-## Status: STOPPED at the random-walk check (B15), before any outcome
+## 1. Verdict (B13, H1): **PASS on silver dev.** The gold finding replicates
+
+**This was outcome analysis 1** (`ATTEMPTS.json`), run once on silver dev
+2016–2023. It ran on the pre-registration with Amendment 1: `PREREG.md`
+sha256 `5bf18647…`, committed and pushed at b1d5adb before the run (PR #59),
+with the code from #57 plus Amendment 1.
+
+All OBSERVED: `results/dev.json` and `results/rw.json`.
+
+| | silver | random walk (200 paths, same timestamps) | difference | 95 % CI | p (one-sided) | BH p |
+|---|---:|---:|---:|---|---:|---:|
+| **H1** share of breaks that become B | **28.3 %** (143 of 505) | 34.3 % | **−5.9 pp** | [−9.9, −2.0] | 0.0029 | **0.0058** |
+| **H2** fade trade, stratified (Amendment 1) | — | — | **−3.5 pp** | [−7.1, +0.2] | 0.97 | 0.97 |
+
+**H1 passes:** the difference is below 0, the CI excludes 0 and BH p is
+under 0.05. After a close beyond the last swing high (bear) or low (bull),
+the +1 σ follow-through within 5 candles came less often on silver than on a
+driftless random walk with the same σ. That is the same direction and size
+as gold dev (−5.4 pp, `research/pullback_structure`).
+
+**H2 is not significant, and its point estimate is negative.** Fading the
+break (target the swing low, stop at entry + 1 σ) did *not* reach the target
+more often than the random walk.
+- **By quartile** (silver minus random walk): +3.0, −3.0, −11.5, −2.6 pp; n
+  122 / 107 / 100 / 81 resolved trades.
+- **Unresolved:** 95 of 505 trades, none truncated.
+- **Break-even spread: −0.22 σ.** The fade loses before any spread.
+
+**Counts:** 505 breaks, 0 excluded for short days, 143 B, 362 C.
+
+**Descriptive only** (no test):
+- **By direction:** B share bear 27.0 %, bull 29.7 %. H2 analytic excess bear
+  −6.5 pp, bull −3.2 pp.
+- **W sensitivity, silver against the random walk:** W = 4: 25.0 % vs 29.3 %
+  (−4.3 pp); W = 5: 28.3 % vs 34.3 % (−6.0 pp); W = 6: 33.9 % vs 38.3 %
+  (−4.4 pp).
+- **Mean move after a break, in σ, in the break's direction:** after 5 candles
+  −0.03 (random walk −0.005); after 30 candles −0.15 (random walk −0.01).
+- **H2 unstratified analytic excess:** −4.9 pp. The hit rate was 25.6 %
+  against a mean P of 30.5 %.
+
+INFERRED:
+- **Breaks follow through less than chance**, both at +1 σ in 5 candles (H1)
+  and on average after 30 candles (−0.15 σ).
+- **The reversal is too small to pay as traded in H2.** It doesn't reach the
+  swing low before the 1 σ stop more often than chance. A different exit
+  might, but that would be a new question with its own PREREG.
+- **The replications listed in B20** (gold holdout, silver holdout, EURUSD
+  dev) are the next confirmations, each under its own PREREG.
+
+## 2. The first run: STOPPED at the random-walk check (B15), before any outcome
 
 The pre-registration is `PREREG.md` at 3b2a56c (sha256 `7e86afc4…`), and the
 code is #57 (229fa28). Steps ran in PREREG order. **No silver outcome has been

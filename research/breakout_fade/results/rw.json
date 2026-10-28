@@ -4,8 +4,9 @@
   "manifest_key": "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet",
   "manifest_sha256": "49ceaa3994fb83ba85413769c8fec48bc6051de25adaab794eb734ea62735bfb",
   "rows": 2832852,
-  "prereg_commit": "3b2a56c240a9ccd361f7b4d3d1f212afe690825c",
-  "prereg_sha256": "7e86afc40fa254a5e93530aa9e0bb9b7333b6b7813ad7b9793d172733d1bf4a2"
+  "prereg": "Amendment 1 (PREREG \u00a76), 2026-10-28",
+  "prereg_sha256": "5bf1864730d0e63d8b41f8a0f20c044031ec779d0382cf387188bfa013852ff3",
+  "git_head": "b1d5adb05c43b5fcf94b8aeffd8266353d76c8fb"
  },
  "model": {
   "name": "parquet2021_2023",
@@ -13,10 +14,10 @@
  },
  "gate": {
   "reps": 200,
-  "h2_pooled_excess": -0.01860547144668229,
-  "h2_pooled_n": 128131,
+  "h2_statistic": "A1 \u00a76.1 stratified (silver - random walk), path against the other 199",
+  "h2_mean_path_statistic": -0.0002173930928188093,
   "tolerance": 0.01,
-  "h2_coverage_of_0": 0.815,
+  "h2_coverage_of_0": 0.955,
   "h2_reps_tested": 200,
   "h1_coverage_of_0": 0.965,
   "h1_reps_tested": 200,
@@ -24,10 +25,28 @@
    0.93,
    0.97
   ],
-  "pass": false
+  "h2_unstratified_pooled_excess_descriptive": -0.01860547144668229,
+  "pass": true
  },
  "h1_null_share_B": 0.34266411312834355,
  "h1_pooled_n": 141503,
+ "h2_edges_sigma": [
+  1.8719,
+  2.5957,
+  3.4948
+ ],
+ "h2_rw_quartile_means": [
+  -0.007151499617233587,
+  -0.010059856150639177,
+  -0.01810657511767675,
+  -0.04060763774153801
+ ],
+ "h2_rw_quartile_n": [
+  33445,
+  32235,
+  31799,
+  30652
+ ],
  "descriptive": {
   "share_B_by_W": {
    "4": 0.2927287760683519,
@@ -1039,5 +1058,5 @@
    "h2_resolved": 618
   }
  ],
- "seconds": 66
+ "seconds": 74
 }

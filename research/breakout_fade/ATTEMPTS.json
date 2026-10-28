@@ -2,7 +2,7 @@
  "about": "Attempts of research/breakout_fade. prereg_attempts counts registrations of this question; amendments counts amendments; outcome_analyses counts analyses that read an outcome (incremented before the analysis runs).",
  "prereg_attempts": 1,
  "amendments": 1,
- "outcome_analyses": 0,
+ "outcome_analyses": 1,
  "log": [
   {
    "n": 1,
@@ -17,6 +17,13 @@
    "date": "2026-10-28",
    "what": "Amendment 1 (PREREG \u00a76): H2 = silver minus random-walk mean(hit - P), stratified by target-distance quartiles (edges 1.8719/2.5957/3.4948 sigma from the random walk), equal weights; the random-walk check tests it path against the rest. Reason: the 30-candle horizon biased the analytic baseline (-1.86 pp, coverage 81.5%). No outcome read.",
    "by": "owner, 2026-10-28"
+  },
+  {
+   "n": 3,
+   "kind": "outcome_analysis",
+   "date": "2026-10-28",
+   "what": "silver dev 2016-2023: H1 (B share vs random walk), H2 (Amendment 1: stratified, vs random walk), BH; verdict by B13",
+   "by": "owner, 2026-10-28 (PREREG #54/#55)"
   }
  ]
 }
