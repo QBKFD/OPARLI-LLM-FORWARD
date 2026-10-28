@@ -44,6 +44,49 @@ Each row gives the count, the share and up to 5 example candle indices.
 | 5 | same-candle A: the candle that decides A also closes beyond the pullback high | 8 of 612 A (1.3 %); e.g. 9436, 21061, 29372, 46481, 47806 | 8 of 622 (1.3 %) | definition, not changed (the order inside the candle comes from the 1-min bars, P13) |
 | 6 | the σ behind the depth | σ_240 at the label equal to the **confirmation** candle's close (P9, D10). The gallery's ±1σ band uses the **turn** candle's close (§10). Over Q1 events the two differ by a median of 16 % (90th percentile 47 %). Event near 15381 (bear, swing 15371, conf 15374, turn 15383, A): σ at conf 3.878, σ at turn 5.409 (price units); depth 3.12 σ as used, 2.24 σ with the turn's σ | same | as specified, not a bug; Q1 is pooled, so depth enters only the descriptive terciles |
 
+## 3. The owner's audit, items 7, 10 and 11 (`audit2.py`; dev 2016–2023, after D18–D19; descriptive)
+
+OBSERVED: `results/audit2_dev.json`. Counts, shares and candle indices only.
+No test, so no outcome analysis was counted.
+
+**7. Data gaps inside the W window.** A gap here means two consecutive 1h
+candles in the 5 candles after the break that are more than an hour apart:
+the weekend, a holiday, or a dropped candle.
+- **108 of 668 breaks (16.2 %)** have one. Examples: breaks at 3308, 3399,
+  3630, 3924, 4200.
+- **29 of the 194 B labels** have a gap in their window. 13 of those reached
+  the B target after the gap.
+- **B share:** 26.9 % with a gap, 29.5 % without.
+- The random walk uses the same timestamps, so it has the same gaps. It has
+  no weekend jump in price, though: its paths continue across closures.
+
+**10. What "event end" marks for a C event.** It marks the **Q3 resolution**,
+not the end of W: the first 1-min bar that passes the swing low or H, or the
+close of c_fix + 30 when Q3 is unresolved.
+- **428 of 474 C events** end at their Q3 resolution, or at the horizon.
+- **46 end exactly at the close of W:**
+  - 42 left Q3 with a lower low inside W (`ll_during_w`);
+  - 4 had Q3 decided in the first minute after W.
+
+| near | event | break | C fixed at the close of | event end | Q3 | end marks |
+|---|---|---:|---:|---:|---|---|
+| 4565 | bear, swing 4560 | 4565 | 4570 | 4571 | the high H first | Q3 resolution |
+| 4763 | bear, swing 4753 | 4763 | 4768 | 4769 | the high H first | Q3 resolution |
+| 7620 | bear, swing 7607 | 7620 | 7625 | 7632 | the high H first | Q3 resolution |
+
+**11. W sensitivity of Q2.** Every break is relabelled with W = 4, 5 and 6
+candles and the same +1σ target. The event population is the W = 5 run's.
+
+| W | gold: share B (n 668) | random walk: share B (n ≈ 140,600, 200 paths) | gold − random walk |
+|---|---:|---:|---:|
+| 4 | 24.0 % | 29.5 % | **−5.5 pp** |
+| 5 | 29.0 % | 34.4 % | **−5.4 pp** |
+| 6 | 32.2 % | 38.4 % | **−6.2 pp** |
+
+The gap of about −5 pp holds at every W (INFERRED: it isn't an artefact of
+W = 5). This is descriptive only, with no test at W = 4 or 6. The tested
+Q2 result stays the one in §1.
+
 ## The original step 2: STOPPED (before the amendment)
 
 PREREG §6.2: "If a bucket can't reach P30 on dev, stop and report." Three of
