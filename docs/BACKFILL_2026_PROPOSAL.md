@@ -26,7 +26,7 @@ study uses**:
 | Bar size | `1 min`, `useRTH=False` |
 | Timezone | `formatDate=2` (epoch seconds, UTC), so the TWS login's time zone can't leak in. That is how `XAUUSD_COMPLETE.csv` broke on 2026-02-01: it used `formatDate=1`. Stored as `datetime64[ns, UTC]` |
 | Range | trade days 2026-02-01 .. 2026-09-30. The tool refuses any request or row at or after 2026-10-01 (`SEAL_START`) |
-| Requests | `durationStr="1 D"`, one per calendar day, `endDateTime` = the next day 00:00:00 UTC, walking backwards. About 170 days plus the overlap probes, about 230 requests in all. Paced at 50 per 10 minutes and never the same request twice within 15 s: **about 50 minutes** |
+| Requests | `durationStr="2 D"` (IBKR counts D in trading sessions, so "1 D" ending at 00:00 UTC returns only the evening session; changed 2026-10-28), one per calendar day, `endDateTime` = the next day 00:00:00 UTC, walking backwards. About 170 days plus the overlap probes, about 230 requests in all. Paced at 50 per 10 minutes and never the same request twice within 15 s: **about 50 minutes** |
 | Connection | read-only, client id 63 (61 probe, 62 options snapshot), stops on error 10197 or 162 (no data), never retries in a loop |
 
 ## Steps and validation (all decided before any data is read)

@@ -142,6 +142,7 @@ def test_probe_records_a_refused_type_and_asks_in_utc():
     assert ib.connected == dict(host="127.0.0.1", port=4004, clientId=63, readonly=True)
     assert {c["fmt"] for c in ib.calls} == {2} and {c["rth"] for c in ib.calls} == {False}
     assert {c["bar"] for c in ib.calls} == {"1 min"} and {c["what"] for c in ib.calls} == set(bi.PROBE_TYPES)
+    assert {c["dur"] for c in ib.calls} == {"2 D"}            # IBKR's D is a trading session: "1 D" misses most of the day
     recs = [json.loads(x) for x in text.splitlines()]
     assert recs[0]["kind"] == "meta" and recs[0]["contract"]["con_id"] == 69067924 and recs[-1]["kind"] == "end"
     trades = [r for r in recs if r["kind"] == "request" and r["type"] == "TRADES"]
