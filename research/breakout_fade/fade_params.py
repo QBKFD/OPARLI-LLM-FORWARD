@@ -6,7 +6,7 @@ import pandas as pd
 
 STUDY = "breakout_fade"
 INSTRUMENT = "XAGUSD"                                                  # B1
-DATA_KEY = "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet"   # B1
+# B1's file key lives in fade_data.py, next to its data_guard call (research/test_data_guard.py)
 DEV_START = pd.Timestamp("2016-01-01", tz="UTC")                      # B2
 DEV_END_EXCL = pd.Timestamp("2024-01-01", tz="UTC")                   # B2
 SIGMA_MODEL = "parquet2021_2023"                                       # B4: gold's pinned fit on silver's bars

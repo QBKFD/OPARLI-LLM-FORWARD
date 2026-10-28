@@ -84,7 +84,9 @@ def test_break_even_spread():
 def test_the_data_guard_lets_this_study_read_silver_only():
     sys.path.insert(0, str(HERE.parent))
     import data_guard as dg
-    assert dg.guarded_key(Path(F.DATA_KEY).name) == F.DATA_KEY
-    dg.assert_may_read(F.DATA_KEY, study=F.STUDY)          # the committed PREREG names the key
+    import fade_data
+    key = fade_data.DATA_KEY
+    assert dg.guarded_key(Path(key).name) == key
+    dg.assert_may_read(key, study=F.STUDY)                 # the committed PREREG names the key
     with pytest.raises(dg.DataGuardError):
         dg.assert_may_read("database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet", study=F.STUDY)

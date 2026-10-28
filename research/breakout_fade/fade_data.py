@@ -31,12 +31,14 @@ from backend.datafeed.store import manifest  # noqa: E402
 
 import fade_params as F  # noqa: E402
 
+DATA_KEY = "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet"   # B1
+
 
 def load() -> tuple[pd.DataFrame, dict]:
-    path = ROOT / F.DATA_KEY
+    path = ROOT / DATA_KEY
     data_guard.assert_may_read(path, study=F.STUDY)
     key = manifest.verify(path)
-    if key != F.DATA_KEY:
+    if key != DATA_KEY:
         raise AssertionError(f"{path} matched manifest entry {key!r}")
     df = pd.read_parquet(path)
     idx = pd.DatetimeIndex(df["timestamp"])
