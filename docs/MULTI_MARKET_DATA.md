@@ -1,12 +1,14 @@
 # Multi-market 1-min data, 2016-01-01 .. 2026-09-30
 
 **Status (2026-10-28):**
-- Seals and planned manifest entries were committed first (370a311).
-- The downloader, builder and runner are ready and tested on a fake IBKR
-  client.
-- **Not downloaded yet:** this machine couldn't reach the EC2 host (SSH timed
-  out), and there is no local IB Gateway. The owner starts the run with the
-  commands below.
+- Seals and planned manifest entries were committed first: 370a311, at
+  2026-10-27 23:25:02 UTC, pushed before the first download request at
+  2026-10-28 00:18:25 UTC.
+- **Download running on EC2 since 00:20 UTC** (tmux session `mm`).
+- **Scope (owner, 00:28 UTC):** XAGUSD and EURUSD tonight, then USDJPY if
+  time allows.
+- **Deferred:** GBPUSD, USDCAD, USDSEK, USDCHF and the DXY proxy. Their seals,
+  manifest entries and the tools stay in place for later.
 
 | Instrument | IBKR contract | whatToShow | File |
 |---|---|---|---|
@@ -27,7 +29,7 @@
 Every file is "unused by any study" until a PREREG names it
 (`research/data_guard.py`).
 
-**DXY proxy:** DXY = 50.14348112 × EURUSD^−0.576 × USDJPY^0.136 ×
+**DXY proxy (deferred, kept for later):** DXY = 50.14348112 × EURUSD^−0.576 × USDJPY^0.136 ×
 GBPUSD^−0.119 × USDCAD^0.091 × USDSEK^0.042 × USDCHF^0.036. It is built only
 on the minutes where all six pairs have a bar.
 
