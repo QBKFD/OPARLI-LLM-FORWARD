@@ -53,7 +53,7 @@ FX = ("EURUSD", "USDJPY", "GBPUSD", "USDCAD", "USDSEK", "USDCHF")
 MULTI = ("XAGUSD",) + FX
 DXY_K, DXY_W = 50.14348112, {"EURUSD": -0.576, "USDJPY": 0.136, "GBPUSD": -0.119, "USDCAD": 0.091,
                              "USDSEK": 0.042, "USDCHF": 0.036}
-WEEKEND_MIN_SHARE = 0.90
+WEEKEND_MIN_SHARE = bb.WEEKEND_MIN_SHARE
 
 
 def key(sym: str) -> str:
@@ -82,19 +82,7 @@ def read_days(base: Path) -> tuple[dict, list[dict], list[str]]:
     return meta, bars, fails
 
 
-def weekend_share(ts, shift_h: int = 0) -> dict:
-    """Weekends (gaps > 24 h) whose last bar before falls on Friday 16:00-17:14 New
-    York and whose first bar after falls on Sunday 17:00-18:59 New York."""
-    import numpy as np
-    import pandas as pd
-    t = pd.DatetimeIndex(ts) + pd.Timedelta(hours=shift_h)
-    if len(t) < 2:
-        return {"weekends": 0, "share": None}
-    g = np.flatnonzero(np.diff(t.asi8) > 24 * 3600 * 10**9)
-    a, b = t[g].tz_convert(NY), t[g + 1].tz_convert(NY)
-    ma, mb = a.hour * 60 + a.minute, b.hour * 60 + b.minute
-    ok = (a.weekday == 4) & (ma >= 16 * 60) & (ma < 17 * 60 + 15) & (b.weekday == 6) & (mb >= 17 * 60) & (mb < 19 * 60)
-    return {"weekends": int(len(g)), "share": float(ok.mean()) if len(g) else None}
+weekend_share = bb.weekend_share                     # one implementation, in backfill_build.py
 
 
 def build_instrument(sym: str, base: Path) -> tuple[object, dict, list[str], dict]:

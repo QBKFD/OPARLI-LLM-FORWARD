@@ -354,3 +354,15 @@ def test_a_decided_type_builds_and_leaves_xauusd_txt_alone(env, capsys):  # noqa
     assert seam["before"]["file"] == bb.TXT_KEY and "crossing the seam" in seam["rule"]
     assert set(seam["median_rel_close_diff_on_overlap"]) >= {"MIDPOINT", "BID", "ASK"}
     assert doc["files"][bb.TXT_KEY]["source"]["what_to_show"] is None   # a decision says nothing about the txt
+
+
+def test_best_shift_comes_from_the_weekend_not_the_daily_break(tmp_path):
+    """2026-10-28: on the real gold backfill the daily-break test scored a 6 h shift
+    99.6 % (16:59 and 18:00 New York are then both mid-session). The weekend test
+    can't be fooled that way, so it picks the shift."""
+    assert _gold(tmp_path, FakeIB(), what="MIDPOINT", first=date(2026, 6, 1)) == 0
+    meta, reqs, bars, end = bb.read_days_dir(tmp_path / "XAUUSD")
+    ts = pd.DatetimeIndex(bb.frame(bars)["timestamp"])
+    assert all((r["share"] or 0) > 0.9 for r in bb.session_share(ts, 6).values() if r["days"])   # fooled
+    assert bb.weekend_share(ts, 0)["share"] > 0.9 and (bb.weekend_share(ts, 6)["share"] or 0) < 0.1
+    assert bb.weekend_share(ts, 1)["share"] < 0.1 and bb.weekend_share(ts, -1)["share"] < 0.1

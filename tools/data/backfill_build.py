@@ -234,6 +234,27 @@ def session_share(ts, shift_h: int = 0) -> dict:
     return out
 
 
+def weekend_share(ts, shift_h: int = 0) -> dict:
+    """Weekends (gaps > 24 h) whose last bar before falls on Friday 16:00-17:14 New
+    York and whose first bar after falls on Sunday 17:00-18:59 New York. Unlike the
+    daily-break test, a shift that lands in continuous trading can't pass this, so
+    it decides the best whole-hour shift (2026-10-28: the break test scored a 6 h
+    shift 99.6 %, because 16:59 and 18:00 are then both mid-session)."""
+    import numpy as np
+    import pandas as pd
+    t = pd.DatetimeIndex(ts) + pd.Timedelta(hours=shift_h)
+    if len(t) < 2:
+        return {"weekends": 0, "share": None}
+    g = np.flatnonzero(np.diff(t.asi8) > 24 * 3600 * 10**9)
+    a, b = t[g].tz_convert(NY), t[g + 1].tz_convert(NY)
+    ma, mb = a.hour * 60 + a.minute, b.hour * 60 + b.minute
+    ok = (a.weekday == 4) & (ma >= 16 * 60) & (ma < 17 * 60 + 15) & (b.weekday == 6) & (mb >= 17 * 60) & (mb < 19 * 60)
+    return {"weekends": int(len(g)), "share": float(ok.mean()) if len(g) else None}
+
+
+WEEKEND_MIN_SHARE = 0.90
+
+
 def completeness(ts) -> dict:
     import pandas as pd
     et = pd.DatetimeIndex(ts).tz_convert(NY).tz_localize(None)
@@ -277,11 +298,12 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
     for season, r in sess.items():
         if not r["days"] or r["share"] < SESSION_MIN_SHARE:
             fails.append(f"UTC session check, {season}: {r['share']} of {r['days']} days (need {SESSION_MIN_SHARE})")
-    shifts = {h: session_share(ts, h) for h in range(-6, 7)} if len(df) else {}
-    score = {h: sum((r["share"] or 0) for r in v.values()) for h, v in shifts.items()}
-    best_shift = max(score, key=score.get) if score else None
-    if best_shift not in (None, 0):
-        fails.append(f"timezone: the session fits best shifted by {best_shift} h, not 0 (UTC expected)")
+    wk = {h: weekend_share(ts, h) for h in range(-6, 7)} if len(df) else {}
+    best_shift = max(wk, key=lambda h: wk[h]["share"] or 0) if wk else None
+    if wk and (wk[0]["share"] or 0) < WEEKEND_MIN_SHARE:
+        fails.append(f"UTC weekend check: {wk[0]['share']} of {wk[0]['weekends']} weekends (need {WEEKEND_MIN_SHARE})")
+    if best_shift not in (None, 0) and (wk[best_shift]["share"] or 0) > (wk[0]["share"] or 0):
+        fails.append(f"timezone: the weekend fits best shifted by {best_shift} h, not 0 (UTC expected)")
     comp = completeness(ts) if len(df) else {"share": 0.0}
     if comp["share"] < COMPLETE_MIN_SHARE:
         fails.append(f"completeness {comp['share']:.3f} < {COMPLETE_MIN_SHARE}")
@@ -303,7 +325,7 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
               "exact_duplicates_dropped": exact_dupes, "gaps_in_session": gaps(ts) if len(df) else {},
               "rows_per_trade_date": rows_per_day(ts) if len(df) else {},
               "conflicting_duplicates": conflicts, "off_grid": off_grid, "outside_range_dropped": outside,
-              "sealed": sealed, "session_utc": sess, "best_whole_hour_shift": best_shift,
+              "sealed": sealed, "session_utc": sess, "weekend_utc": wk.get(0), "best_whole_hour_shift": best_shift,
               "completeness": comp, "bad_ohlc_bars_not_fixed": bad,
               "requests_without_bars": [r["day"] for r in reqs if r["bars"] == 0],
               "requests_with_ibkr_errors": {r["day"]: sorted({e["code"] for e in r["errors"]})
@@ -349,7 +371,8 @@ def report(e: dict, name: str) -> str:
         f"timestamps tz-aware UTC: {v.get('timestamps_tz_aware_utc')}   off minute grid: {v.get('off_grid')}   "
         f"at/after {SEAL}: {v.get('sealed')}   outside range dropped: {v.get('outside_range_dropped')}",
         f"duplicates: exact dropped {v.get('exact_duplicates_dropped')}, conflicting {v.get('conflicting_duplicates')}",
-        f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0); session check "
+        f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0, by the weekend); weekend check "
+        f"{(v.get('weekend_utc') or {}).get('share')} of {(v.get('weekend_utc') or {}).get('weekends')} weekends; daily break "
         + ", ".join(f"{k} {r['share']} of {r['days']} days" for k, r in sess.items()),
         f"completeness: {c.get('full')} of {c.get('trade_dates')} trade dates full (share {c.get('share')})",
         f"rows per trade date: min {srt[0] if srt else None}, median {srt[len(srt) // 2] if srt else None}, "
