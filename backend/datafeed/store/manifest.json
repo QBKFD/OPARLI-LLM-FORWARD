@@ -418,7 +418,14 @@
     "close": "float64",
     "volume": "float64"
    },
-   "content_sha256": "62635215e6933ad11e850e563c046bc118d4746417e1e0168492a71f95c1a849"
+   "content_sha256": "62635215e6933ad11e850e563c046bc118d4746417e1e0168492a71f95c1a849",
+   "backup": {
+    "where": "the owner's S3 backup bucket, prefix oparli/gold-backfill/",
+    "uploaded_utc": "2026-10-28T18:27:22Z",
+    "sse": "AES256",
+    "checksum": "SHA256, verified by S3 on upload",
+    "confirmed": "size equal to bytes, by ListObjectsV2; the host role is write-only"
+   }
   },
   "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet": {
    "in_git": false,
