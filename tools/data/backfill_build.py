@@ -234,22 +234,41 @@ def session_share(ts, shift_h: int = 0) -> dict:
     return out
 
 
+def _us_holidays(first, last) -> set:
+    """US federal holidays (observed) and Good Friday, as New York dates."""
+    import pandas as pd
+    from pandas.tseries.holiday import GoodFriday, USFederalHolidayCalendar
+    lo, hi = pd.Timestamp(first.date()) - pd.Timedelta(days=7), pd.Timestamp(last.date()) + pd.Timedelta(days=7)
+    days = set(USFederalHolidayCalendar().holidays(lo, hi).date) | set(GoodFriday.dates(lo, hi).date)
+    return days
+
+
 def weekend_share(ts, shift_h: int = 0) -> dict:
     """Weekends (gaps > 24 h) whose last bar before falls on Friday 16:00-17:14 New
     York and whose first bar after falls on Sunday 17:00-18:59 New York. Unlike the
     daily-break test, a shift that lands in continuous trading can't pass this, so
     it decides the best whole-hour shift (2026-10-28: the break test scored a 6 h
-    shift 99.6 %, because 16:59 and 18:00 are then both mid-session)."""
+    shift 99.6 %, because 16:59 and 18:00 are then both mid-session).
+    Weekends that span a US federal holiday or Good Friday are left out (counted
+    in `holiday_weekends_excluded`): their edges legitimately differ (closed
+    Friday, early close, no Sunday session). On the gold backfill, all 4 failing
+    weekends of 34 were such weekends, and the other 30 matched."""
     import numpy as np
     import pandas as pd
     t = pd.DatetimeIndex(ts) + pd.Timedelta(hours=shift_h)
     if len(t) < 2:
-        return {"weekends": 0, "share": None}
+        return {"weekends": 0, "share": None, "holiday_weekends_excluded": 0}
     g = np.flatnonzero(np.diff(t.asi8) > 24 * 3600 * 10**9)
     a, b = t[g].tz_convert(NY), t[g + 1].tz_convert(NY)
+    hol = _us_holidays(a.min(), b.max()) if len(g) else set()
+    span_hol = np.array([any((x.date() + pd.Timedelta(days=k).to_pytimedelta()) in hol
+                             for k in range((y.date() - x.date()).days + 1)) for x, y in zip(a, b)], bool)
     ma, mb = a.hour * 60 + a.minute, b.hour * 60 + b.minute
     ok = (a.weekday == 4) & (ma >= 16 * 60) & (ma < 17 * 60 + 15) & (b.weekday == 6) & (mb >= 17 * 60) & (mb < 19 * 60)
-    return {"weekends": int(len(g)), "share": float(ok.mean()) if len(g) else None}
+    keep = ~span_hol
+    n = int(keep.sum())
+    return {"weekends": n, "share": float(ok[keep].mean()) if n else None,
+            "holiday_weekends_excluded": int(span_hol.sum())}
 
 
 WEEKEND_MIN_SHARE = 0.90
@@ -372,7 +391,8 @@ def report(e: dict, name: str) -> str:
         f"at/after {SEAL}: {v.get('sealed')}   outside range dropped: {v.get('outside_range_dropped')}",
         f"duplicates: exact dropped {v.get('exact_duplicates_dropped')}, conflicting {v.get('conflicting_duplicates')}",
         f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0, by the weekend); weekend check "
-        f"{(v.get('weekend_utc') or {}).get('share')} of {(v.get('weekend_utc') or {}).get('weekends')} weekends; daily break "
+        f"{(v.get('weekend_utc') or {}).get('share')} of {(v.get('weekend_utc') or {}).get('weekends')} weekends "
+        f"({(v.get('weekend_utc') or {}).get('holiday_weekends_excluded')} holiday weekends left out); daily break "
         + ", ".join(f"{k} {r['share']} of {r['days']} days" for k, r in sess.items()),
         f"completeness: {c.get('full')} of {c.get('trade_dates')} trade dates full (share {c.get('share')})",
         f"rows per trade date: min {srt[0] if srt else None}, median {srt[len(srt) // 2] if srt else None}, "

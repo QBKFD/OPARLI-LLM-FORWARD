@@ -164,7 +164,7 @@ def report(e: dict, name: str) -> str:
              f"at/after {SEAL}: {v.get('sealed')}   outside range dropped: {v.get('outside_range_dropped')}",
              f"duplicates: exact dropped {v.get('exact_duplicates_dropped')}, conflicting {v.get('conflicting_duplicates')}",
              f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0); weekend check "
-             f"{w.get('share')} of {w.get('weekends')} weekends" +
+             f"{w.get('share')} of {w.get('weekends')} weekends ({w.get('holiday_weekends_excluded')} holiday weekends left out)" +
              ("; daily break " + ", ".join(f"{k} {r['share']} of {r['days']}" for k, r in v["session_utc"].items())
               if v.get("session_utc") else ""),
              f"completeness: {c.get('full')} of {c.get('trade_dates')} trade dates full (share {c.get('share')})",

@@ -366,3 +366,14 @@ def test_best_shift_comes_from_the_weekend_not_the_daily_break(tmp_path):
     assert all((r["share"] or 0) > 0.9 for r in bb.session_share(ts, 6).values() if r["days"])   # fooled
     assert bb.weekend_share(ts, 0)["share"] > 0.9 and (bb.weekend_share(ts, 6)["share"] or 0) < 0.1
     assert bb.weekend_share(ts, 1)["share"] < 0.1 and bb.weekend_share(ts, -1)["share"] < 0.1
+
+
+def test_holiday_weekends_are_left_out_of_the_weekend_check():
+    """Good Friday 2026-04-03: closed Friday, so the weekend runs Thursday 16:59 -> Sunday."""
+    idx = pd.date_range("2026-03-26 00:00", "2026-04-13 00:00", freq="1min", tz="UTC")
+    keep = [syn.is_open(t.to_pydatetime()) and not (pd.Timestamp("2026-04-02 21:00", tz="UTC") <= t < pd.Timestamp("2026-04-05 22:00", tz="UTC"))
+            for t in idx]
+    ts = idx[keep]
+    w = bb.weekend_share(ts, 0)
+    assert w["holiday_weekends_excluded"] == 1 and w["weekends"] == 2 and w["share"] == 1.0
+    assert bb.weekend_share(ts, 1)["share"] == 0.0                    # a 1 h shift still fails
