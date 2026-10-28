@@ -1,0 +1,11 @@
+{
+ "about": "Attempts of research/breakout_fade. prereg_attempts counts registrations of this question; amendments counts amendments; outcome_analyses counts analyses that read an outcome (incremented before the analysis runs).",
+ "prereg_attempts": 1,
+ "amendments": 0,
+ "outcome_analyses": 0,
+ "log": [
+  {"n": 1, "kind": "prereg", "date": "2026-10-28",
+   "what": "PREREG draft: breakout fade, replication on silver dev (H1 B share vs random walk; H2 fade trade); every choice PROPOSED or OPEN; no silver data read",
+   "by": "owner brief, 2026-10-28"}
+ ]
+}
