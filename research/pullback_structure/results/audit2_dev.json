@@ -1,0 +1,90 @@
+{
+ "7_window_gaps": {
+  "breaks": 668,
+  "with_a_gap_in_window": 108,
+  "share": 0.16167664670658682,
+  "B_with_a_gap": 29,
+  "B_of_all": 194,
+  "B_reached_after_the_gap": 13,
+  "share_B_with_gap": 0.26851851851851855,
+  "share_B_without_gap": 0.29464285714285715,
+  "examples_break_candle": [
+   3308,
+   3399,
+   3630,
+   3924,
+   4200
+  ]
+ },
+ "10_c_event_end": {
+  "c_events": 474,
+  "end_is_close_of_W": 46,
+  "end_is_Q3_resolution_or_horizon": 428,
+  "rule": "a C event ends at its Q3 resolution (the decisive 1-min bar, or the close of c_fix + 30 when unresolved); only a C that left Q3 (a lower low inside W) ends at the close of W",
+  "events_near": {
+   "4565": {
+    "dir": "bear",
+    "swing": 4560,
+    "break": 4565,
+    "c_fixed_at_close_of": 4570,
+    "event_end_candle": 4571,
+    "q3": "the high H first",
+    "event_end_marks": "Q3 resolution"
+   },
+   "4763": {
+    "dir": "bear",
+    "swing": 4753,
+    "break": 4763,
+    "c_fixed_at_close_of": 4768,
+    "event_end_candle": 4769,
+    "q3": "the high H first",
+    "event_end_marks": "Q3 resolution"
+   },
+   "7620": {
+    "dir": "bear",
+    "swing": 7607,
+    "break": 7620,
+    "c_fixed_at_close_of": 7625,
+    "event_end_candle": 7632,
+    "q3": "the high H first",
+    "event_end_marks": "Q3 resolution"
+   }
+  }
+ },
+ "11_w_sensitivity": {
+  "4": {
+   "gold": {
+    "n": 668,
+    "share_B": 0.23952095808383234
+   },
+   "random_walk": {
+    "n": 140606,
+    "share_B": 0.29461047181485855
+   },
+   "gap_pp": -5.51
+  },
+  "5": {
+   "gold": {
+    "n": 668,
+    "share_B": 0.2904191616766467
+   },
+   "random_walk": {
+    "n": 140606,
+    "share_B": 0.344366527744193
+   },
+   "gap_pp": -5.39
+  },
+  "6": {
+   "gold": {
+    "n": 668,
+    "share_B": 0.3218562874251497
+   },
+   "random_walk": {
+    "n": 140604,
+    "share_B": 0.3838226508491935
+   },
+   "gap_pp": -6.2
+  }
+ },
+ "note": "descriptive; the event population is the W = 5 run's (P18 ends each event by its W = 5 path), and W = 4 / 6 relabel the same breaks with the same target"
+}

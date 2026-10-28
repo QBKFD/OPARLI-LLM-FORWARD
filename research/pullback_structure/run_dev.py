@@ -7,7 +7,10 @@ it increments the counter before any outcome is read. Writes results/dev.json
 
     python research/pullback_structure/run_dev.py [--check]
 
---check runs everything before the attempt and stops."""
+--check runs everything before the attempt and stops.
+--rerun-after-fix D18,D19 reruns dev after logged bug fixes (DECISIONS.md D20):
+it needs outcome_analyses = 1 and every named entry in DECISIONS.md, and counts
+as outcome analysis 2."""
 import json
 import sys
 from datetime import date
@@ -34,7 +37,14 @@ def bump_attempt(what: str, by: str) -> int:
 
 
 def main() -> int:
-    if json.loads(ATTEMPTS.read_text())["outcome_analyses"] != 0:
+    done = json.loads(ATTEMPTS.read_text())["outcome_analyses"]
+    fixes = sys.argv[sys.argv.index("--rerun-after-fix") + 1].split(",") if "--rerun-after-fix" in sys.argv else []
+    if fixes:
+        logged = (HERE / "DECISIONS.md").read_text()
+        missing = [f for f in fixes if f"| {f} | **Bug fix" not in logged]
+        if done != 1 or missing:
+            raise SystemExit(f"rerun refused: outcome_analyses {done} (needs 1); fixes not logged as bug fixes: {missing}")
+    elif done != 0:
         raise SystemExit("ATTEMPTS.json outcome_analyses is not 0: dev has been run; it is not rerun")
     rw = json.loads(RW.read_text())
     if not rw["gate"]["pass"]:
@@ -45,16 +55,21 @@ def main() -> int:
     if "--check" in sys.argv:
         print(f"check ok: {len(d['cd']):,} candles; null share {null_share:.4f}; cuts {cuts}; attempts still 0")
         return 0
-    n = bump_attempt("dev (2016-2023): Q1 pooled, Q2, Q3, BH; verdict by PREREG §11.4",
-                     "owner, 2026-10-27 (Amendment 1; run on dev only)")
-    assert n == 1
+    if fixes:
+        n = bump_attempt(f"dev rerun after bug fixes {', '.join(fixes)} (DECISIONS.md): Q1 pooled, Q2, Q3, BH; verdict by §11.4",
+                         "owner, 2026-10-27 (exhaustive audit of the dev events)")
+        assert n == 2
+    else:
+        n = bump_attempt("dev (2016-2023): Q1 pooled, Q2, Q3, BH; verdict by PREREG §11.4",
+                         "owner, 2026-10-27 (Amendment 1; run on dev only)")
+        assert n == 1
     # ---- from here on, outcomes are read
     rec, _, refused = common.run(d["cd"], d["mt"], d["mh"], d["ml"], d["sig_end"])
     res = common.analyse(rec, null_share, P.BOOT_SEED, cuts)
     fam = common.family(res)
     v = common.verdict(res["q1"], fam["bh"])
     out = {"what": "pullback_structure dev (2016-01-01 .. 2023-12-31), outcome analysis 1; aggregates only",
-           "attempt": n, "checks": d["checks"], "model": d["model"], "refused_starts": refused,
+           "attempt": n, "bug_fixes": fixes, "checks": d["checks"], "model": d["model"], "refused_starts": refused,
            "verdict_q1_dev": v, "holdout_next": v == "PASS",
            "family": fam, **res}
     OUT.write_text(json.dumps(out, indent=1) + "\n")

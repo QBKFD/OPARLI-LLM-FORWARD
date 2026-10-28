@@ -1,0 +1,162 @@
+{
+ "what": "pullback_structure dev (2016-01-01 .. 2023-12-31), outcome analysis 1; aggregates only",
+ "attempt": 1,
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAUUSD.txt",
+  "manifest_sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9",
+  "rows": 3010074
+ },
+ "model": {
+  "name": "parquet2021_2023",
+  "sha256": "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"
+ },
+ "refused_starts": {
+  "bear": {
+   "swing_lows": 4982,
+   "before_events_start": 292,
+   "not_bearish": 3367,
+   "while_live": 143,
+   "no_sigma": 0
+  },
+  "bull": {
+   "swing_lows": 4889,
+   "before_events_start": 299,
+   "not_bearish": 3194,
+   "while_live": 152,
+   "no_sigma": 0
+  }
+ },
+ "verdict_q1_dev": "FAIL",
+ "holdout_next": false,
+ "family": {
+  "p": {
+   "Q1": 0.972002799720028,
+   "Q2": 0.00019998000199980003,
+   "Q3": 0.9989001099890011
+  },
+  "bh": {
+   "Q1": {
+    "p_adj": 0.9989001099890013,
+    "reject": false
+   },
+   "Q2": {
+    "p_adj": 0.0005999400059994001,
+    "reject": true
+   },
+   "Q3": {
+    "p_adj": 0.9989001099890013,
+    "reject": false
+   }
+  }
+ },
+ "q1": {
+  "n": 1256,
+  "months": 96,
+  "excess": -0.02290666764180809,
+  "ci95": [
+   -0.04656442041610833,
+   0.0006642374795172464
+  ],
+  "p_one_sided": 0.972002799720028,
+  "turns": 1277,
+  "resolved": 1256,
+  "unresolved": 21,
+  "rate_A": 0.4872611464968153,
+  "mean_P": 0.5101678141386234
+ },
+ "q2": {
+  "n": 967,
+  "months": 96,
+  "share_B": 0.281282316442606,
+  "null_share_B": 0.34038417343343036,
+  "ci95": [
+   0.2545454545454545,
+   0.30721207223092994
+  ],
+  "p_two_sided": 0.00019998000199980003,
+  "breaks": 967,
+  "B": 272,
+  "C": 695
+ },
+ "q3": {
+  "n": 556,
+  "months": 96,
+  "excess": -0.04907993682326359,
+  "ci95": [
+   -0.08024888946396785,
+   -0.01837573990200089
+  ],
+  "p_one_sided": 0.9989001099890011,
+  "c_events": 623,
+  "resolved": 556,
+  "unresolved": 67,
+  "excluded_ll_during_w": 72,
+  "rate_A": 0.25359712230215825,
+  "mean_P": 0.3026770591254218
+ },
+ "q1_terciles_descriptive": {
+  "cuts_sigma": [
+   1.4829935657383657,
+   2.117368707154584
+  ],
+  "T1 (shallow)": {
+   "n": 426,
+   "excess": -0.01624715768617786
+  },
+  "T2": {
+   "n": 425,
+   "excess": -0.03900329388299606
+  },
+  "T3 (deep)": {
+   "n": 405,
+   "excess": -0.013019964156853988
+  }
+ },
+ "by_direction_descriptive": {
+  "bear": {
+   "q1": {
+    "n": 622,
+    "excess": -0.03657822430362882
+   },
+   "q2": {
+    "n": 494,
+    "share_B": 0.291497975708502
+   },
+   "q3": {
+    "n": 282,
+    "excess": -0.0467889327051895
+   }
+  },
+  "bull": {
+   "q1": {
+    "n": 634,
+    "excess": -0.009493878613965036
+   },
+   "q2": {
+    "n": 473,
+    "share_B": 0.27061310782241016
+   },
+   "q3": {
+    "n": 274,
+    "excess": -0.05143783157252232
+   }
+  }
+ },
+ "counts": {
+  "events_started": 2424,
+  "truncated": 0,
+  "kinds": {
+   "C": 695,
+   "A": 612,
+   "ll_before_turn": 505,
+   "B": 272,
+   "ll_after_q1": 211,
+   "no_break": 108,
+   "unresolved": 21
+  },
+  "q2_from": {
+   "pullback": 642,
+   "after_turn": 325
+  }
+ }
+}
