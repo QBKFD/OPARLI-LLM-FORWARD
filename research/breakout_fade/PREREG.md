@@ -1,5 +1,9 @@
 # breakout_fade: pre-registration
 
+**Amendment 1 (2026-10-28, owner, before any outcome): §6.** It replaces H2's
+statistic (B9) and H2's random-walk check (B15). Rows marked "AMENDED (A1)" are
+read as §6 says.
+
 **Status: every choice (B1–B20) APPROVED by the owner, 2026-10-28**, with
 B10 and B11 changed: there is no spread value and no download, only a break-even
 spread (below). Written before any code for this study, and before any XAGUSD
@@ -24,13 +28,13 @@ brief and which from Claude is in the draft at commit e210b26.
 | B6 | H1 test | one-sided: the difference (silver share − random-walk share) < 0. p = the share of month-block resamples with difference ≥ 0, +1-corrected. The random-walk share is pooled over 200 paths (its sampling error is ignored, as P25) | APPROVED (owner, 2026-10-28) |
 | B7 | H2 trade | after a close beyond LH (bear: above; bull: mirror), **enter against the break at that close**. **Target = the swing low** (bull: the swing high). **Stop = entry + 1.0 σ** (bull: −). σ = σ_240 as of the break candle's close (as P14) | APPROVED (owner, 2026-10-28) |
 | B8 | H2 outcome | first passage on 1-min bars from the minute after the break candle: **hit** = a 1-min low ≤ target before a 1-min high ≥ stop (mirror for bull). A single bar holding both counts as **the stop** (against the hypothesis, as P13). Neither within 30 candles: unresolved, excluded and counted | APPROVED (owner, 2026-10-28) |
-| B9 | H2 statistic | baseline P = stop_dist / (stop_dist + target_dist) per event, the driftless chance of the target first. Statistic: **mean(hit − P)**, one-sided **> 0** (the fade wins more often than the baseline). Month-block bootstrap | APPROVED (owner, 2026-10-28) |
+| B9 | H2 statistic | baseline P = stop_dist / (stop_dist + target_dist) per event, the driftless chance of the target first. Statistic: **mean(hit − P)**, one-sided **> 0** (the fade wins more often than the baseline). Month-block bootstrap | AMENDED (A1, §6) |
 | B10 | H2 break-even spread | a separate, descriptive line: **the break-even spread in σ units**, the spread at which H2's mean payoff is zero. Per event, the gross payoff in σ is hit × target_dist/σ − (1 − hit) × stop_dist/σ (resolved events only), so the break-even is their mean. A value ≤ 0 means no spread makes the fade pay. It is not in the BH family or the verdict | APPROVED (owner, 2026-10-28: replaces the spread-deducted line) |
 | B11 | Spread value | **none:** no spread value and no download (owner, 2026-10-28). B10's break-even spread replaces it | APPROVED (owner, 2026-10-28) |
 | B12 | BH | across H1 and H2, q = 0.05 | APPROVED (owner, 2026-10-28) |
 | B13 | Verdict (H1) | **PASS:** difference < 0, 95 % month-block CI excludes 0, BH p < 0.05. **FAIL:** the CI's lower bound is above −2 pp. **INCONCLUSIVE:** anything else, or < 50 breaks (reported as INCONCLUSIVE, never as a null or a pass). H2 is reported with its BH p and doesn't enter the verdict | APPROVED (owner, 2026-10-28) |
 | B14 | Bootstrap | calendar-month blocks, 10,000 resamples, seed 20261029, 95 % percentile CI | APPROVED (owner, 2026-10-28) |
-| B15 | **Random-walk check first** | the pipeline on 200 random-walk paths on the silver dev timestamps (B5), no real outcome. **Pass:** H2 pooled \|mean(hit − P)\| ≤ 1 pp over all simulated events; its 95 % CI covers 0 in 93–97 % of the 200 paths; and for H1, each path's B share against the pooled share has a CI covering 0 in 93–97 % of paths. A fail stops the study | APPROVED (owner, 2026-10-28) |
+| B15 | **Random-walk check first** | the pipeline on 200 random-walk paths on the silver dev timestamps (B5), no real outcome. **Pass:** H2 pooled \|mean(hit − P)\| ≤ 1 pp over all simulated events; its 95 % CI covers 0 in 93–97 % of the 200 paths; and for H1, each path's B share against the pooled share has a CI covering 0 in 93–97 % of paths. A fail stops the study | AMENDED (A1, §6) |
 | B16 | Short days | trade dates (New York, the session from 18:00) with **< 1,000 one-minute rows** are short. An event is excluded if its break candle, its W window or its H2 horizon touches one; the count is reported | APPROVED (owner, 2026-10-28) |
 | B17 | Seam | **XAGUSD has none**: one source (IBKR MIDPOINT, `docs/MULTI_MARKET_DATA.md`) for 2016–2026. Gold's seam (OD2) applies to the gold replication | APPROVED (owner, 2026-10-28) |
 | B18 | Step 2 (counts) | after the merge and before the random walk: silver break counts on dev (no outcome), which refresh §5's power. Stop if there are < 50 breaks | APPROVED (owner, 2026-10-28) |
@@ -95,3 +99,54 @@ INFERRED:
   size has about 80 % power before the month-block bootstrap widens the CI.
 - A smaller effect would most likely come out INCONCLUSIVE.
 - Silver could also have fewer breaks than gold.
+
+## 6. Amendment 1 (2026-10-28)
+
+**Decided by the owner on 2026-10-28, before any outcome was read**
+(`ATTEMPTS.json`: `outcome_analyses` 0; the dev step never ran).
+
+**Reason: the B15 random-walk check failed on H2** (`results/rw.json`, 200
+paths; `REPORT.md`). H2's pooled mean(hit − P) was **−1.86 pp** (tolerance
+±1 pp), and its CI covered 0 in **81.5 %** of paths (93–97 % needed). H1
+passed (96.5 %).
+- **The cause is the 30-candle horizon.** The analytic baseline P = stop /
+  (stop + target) has no time limit, but H2 counts only trades resolved within
+  30 candles.
+- **The near stop resolves first.** The stop is 1 σ away and the target
+  usually 2–3.5 σ, so the trades left unresolved (9.6 %) are mostly would-be
+  hits.
+- **The bias grows with target distance.** On the random walk, by target
+  distance: −1.3 pp (0.55–1.87 σ), −0.8 pp (1.87–2.60 σ), −1.7 pp
+  (2.60–3.50 σ), −4.5 pp (3.50–10.3 σ).
+- **A residual of about −1 pp** comes from the 1-min steps and the tie rule
+  (B8).
+
+### 6.1 H2 (replaces B9's statistic)
+- **Strata:** H2's trades are split into **four target-distance quartiles**
+  (target_dist / σ at the break). The edges are **1.8719, 2.5957 and 3.4948 σ**,
+  fixed from all 141,503 random-walk breaks of the 200 paths on the silver dev
+  timestamps (`results/rw_target_quartiles.json`; no real outcome).
+- **Statistic:** in each quartile q, d_q = silver's mean(hit − P) minus the
+  random walk's mean(hit − P), each over resolved trades. **H2 = the
+  equal-weight mean of d_1 .. d_4.** The random walk's quartile means come from
+  the 200-path simulation (`results/rw.json`) and are held fixed.
+- **Test:** one-sided, H2 > 0 (the fade beats the random walk). The 95 % CI and
+  p come from the month-block bootstrap on silver (B14). p is the share of
+  resamples with H2 ≤ 0, +1-corrected. A resample with an empty quartile is
+  dropped and counted.
+- **Unchanged:** P, the trade (B7, B8), BH across H1 and H2 (B12), and the
+  break-even spread (B10). H2 still doesn't enter the verdict (B13).
+
+### 6.2 The random-walk check (replaces B15's H2 part)
+- **Path against the rest:** each path r is tested against the other 199. Its
+  stratified statistic is computed against the leave-one-out random-walk
+  quartile means, and its CI comes from the month-block bootstrap on path r.
+- **H2 passes if** the mean of the 200 path statistics is within ±1 pp, and
+  their 95 % CIs cover 0 in 93–97 % of paths.
+- **H1's part is unchanged:** coverage 93–97 %.
+- **A fail stops the study.**
+
+### 6.3 Attempt counter
+`ATTEMPTS.json` records this amendment (`amendments` = 1). `outcome_analyses`
+stays 0.
+

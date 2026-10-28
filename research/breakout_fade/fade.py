@@ -126,6 +126,41 @@ def h2_test(month: np.ndarray, hit: np.ndarray, p: np.ndarray, b: int, seed: int
     return {**r, "hit_rate": float(hit.mean()), "mean_P": float(p.mean())}
 
 
+def quartile(target_sigma: np.ndarray, edges: tuple[float, ...]) -> np.ndarray:
+    """Amendment 1 §6.1: the target-distance quartile 0..3 (edges from the random walk)."""
+    return np.searchsorted(np.asarray(edges), np.asarray(target_sigma, float), side="right")
+
+
+def strata_sums(q: np.ndarray, x: np.ndarray, k: int = 4) -> tuple[np.ndarray, np.ndarray]:
+    """Per-quartile sum of x (hit - P) and count."""
+    return np.bincount(q, weights=x, minlength=k)[:k], np.bincount(q, minlength=k)[:k].astype(float)
+
+
+def h2_stratified(month: np.ndarray, q: np.ndarray, x: np.ndarray, rw_means: np.ndarray, b: int, seed: int) -> dict:
+    """Amendment 1 §6.1: H2 = the equal-weight mean over quartiles of (mean x in the
+    quartile - the random walk's mean x in it), with x = hit - P over resolved trades.
+    CI and one-sided p (H2 > 0) by month-block bootstrap; the random-walk means are
+    held fixed; a resample with an empty quartile is dropped and counted."""
+    rw_means = np.asarray(rw_means, float)
+    k = len(rw_means)
+    s, n = strata_sums(q, x, k)
+    est = float(np.mean(s / n - rw_means)) if (n > 0).all() else float("nan")
+    u, inv = np.unique(month, return_inverse=True)
+    S = np.zeros((len(u), k))
+    N = np.zeros((len(u), k))
+    np.add.at(S, (inv, q), x)
+    np.add.at(N, (inv, q), 1.0)
+    rng = np.random.default_rng(seed)
+    idx = rng.integers(0, len(u), size=(b, len(u)))
+    ss, nn = S[idx].sum(1), N[idx].sum(1)
+    ok = (nn > 0).all(1)
+    stat = np.mean(ss[ok] / nn[ok] - rw_means, axis=1)
+    return {"n": int(len(x)), "n_per_quartile": [int(v) for v in n], "months": int(len(u)),
+            "d_per_quartile": [float(v) for v in (s / np.where(n > 0, n, np.nan) - rw_means)],
+            "h2": est, "ci95": [float(np.quantile(stat, 0.025)), float(np.quantile(stat, 0.975))],
+            "p_one_sided": float(((stat <= 0).sum() + 1) / (ok.sum() + 1)), "resamples_dropped": int((~ok).sum())}
+
+
 def break_even_sigma(hit: np.ndarray, target_sigma: np.ndarray) -> float:
     """B10: the spread, in sigma, at which the mean fade payoff is zero: the mean
     gross payoff hit * target/sigma - (1 - hit) * stop/sigma (stop = STOP_SIGMA)."""

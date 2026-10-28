@@ -94,10 +94,25 @@ def test_the_data_guard_lets_this_study_read_silver_only():
 
 def test_prereg_on_disk_is_the_pinned_pre_registration():
     import hashlib
-    import subprocess
+    text = (HERE / "PREREG.md").read_text()
     assert hashlib.sha256((HERE / "PREREG.md").read_bytes()).hexdigest() == F.PREREG_SHA256
-    pinned = subprocess.run(["git", "show", f"{F.PREREG_COMMIT}:research/breakout_fade/PREREG.md"],
-                            cwd=HERE, capture_output=True, check=False)
-    if pinned.returncode == 0:                                # the commit is present (not a shallow clone)
-        assert hashlib.sha256(pinned.stdout).hexdigest() == F.PREREG_SHA256
-    assert "B1–B20) APPROVED" in (HERE / "PREREG.md").read_text() and "| OPEN |" not in (HERE / "PREREG.md").read_text()
+    assert "## 6. Amendment 1" in text and "1.8719, 2.5957 and 3.4948" in text and "| OPEN |" not in text
+    assert F.H2_EDGES == (1.8719, 2.5957, 3.4948)
+
+
+def test_h2_stratified_is_zero_when_silver_equals_the_random_walk():
+    rng = np.random.default_rng(0)
+    n = 4000
+    month = rng.integers(0, 96, n)
+    ts = rng.uniform(0.5, 6, n)
+    q = fade.quartile(ts, F.H2_EDGES)
+    bias = np.array([-0.013, -0.008, -0.017, -0.045])           # the random walk's per-quartile bias
+    x = rng.normal(0, 0.4, n) + bias[q]
+    r = fade.h2_stratified(month, q, x, bias, 2000, 1)
+    assert abs(r["h2"]) < 0.02 and r["ci95"][0] < 0 < r["ci95"][1] and r["resamples_dropped"] == 0
+    r2 = fade.h2_stratified(month, q, x + 0.08, bias, 2000, 1)  # a real fade edge of 8 pp in every quartile
+    assert r2["h2"] == pytest.approx(r["h2"] + 0.08) and r2["p_one_sided"] < 0.01
+
+
+def test_quartile_edges():
+    assert list(fade.quartile(np.array([1.0, 1.8719, 2.0, 3.0, 9.0]), F.H2_EDGES)) == [0, 1, 1, 2, 3]
