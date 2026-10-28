@@ -190,6 +190,18 @@ def week_chunks(first: date, last: date) -> list[datetime]:
     return ends
 
 
+def chunk_ranges(first: date, last: date) -> list[tuple[datetime, datetime]]:
+    """[start, end) of each chunk, back to back: a chunk starts where the previous
+    one ended, so no day is written by two chunks (the capped last chunk used to
+    start 7 days before its end and overwrite part of the week before)."""
+    ends = week_chunks(first, last)
+    return [(ends[i - 1] if i else ends[0] - timedelta(days=7), e) for i, e in enumerate(ends)]
+
+
+DAY_DURATION = "2 D"   # IBKR counts D in trading sessions, not 24 h: "2 D" ending at the next
+                       # 00:00 UTC covers the whole UTC day; the rows are then cut to that day
+
+
 def ibkr_end(end: datetime) -> str:
     return end.strftime("%Y%m%d-%H:%M:%S")
 
@@ -291,6 +303,37 @@ class Backfill:
                         "c": num(b.close), "v": num(b.volume)})
         return out
 
+    def refetch_days(self, sym: str, out_dir: str, days: list[date]) -> dict:
+        """Ask again for single UTC days, one '1 D' request each, and replace a day's
+        file only if the new answer has more bars (a week answer can come back
+        truncated). Counts only in the log; _refetch.json records old -> new."""
+        import pathlib
+        base = pathlib.Path(out_dir) / sym
+        c = self.contract(sym)
+        out = {}
+        for d in sorted(set(days)):
+            refuse_past_seal(d)
+            f = base / f"{d}.jsonl"
+            old = 0
+            if f.exists():
+                tail = json.loads(f.read_text().splitlines()[-1])
+                old = int(tail.get("bars", 0)) if tail.get("kind") == "day_end" else 0
+            start = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+            rows = [r for r in self.rows(self.fetch(c, start + timedelta(days=1), DAY_DURATION))
+                    if start.timestamp() <= r["t"] < (start + timedelta(days=1)).timestamp()]
+            if len(rows) > old:
+                tmp = f.with_suffix(".tmp")
+                with open(tmp, "w") as fh:
+                    for r in rows:
+                        fh.write(json.dumps(r, separators=(",", ":")) + "\n")
+                    fh.write(json.dumps({"kind": "day_end", "day": str(d), "bars": len(rows), "refetched": True}) + "\n")
+                os.replace(tmp, f)
+            out[str(d)] = {"old": old, "new": len(rows), "replaced": len(rows) > old}
+            log(f"{sym} {d}: {old} -> {len(rows)} bars{' (replaced)' if len(rows) > old else ''}")
+        prev = json.loads((base / "_refetch.json").read_text()) if (base / "_refetch.json").exists() else {}
+        (base / "_refetch.json").write_text(json.dumps({**prev, **out}, indent=1) + "\n")
+        return out
+
     def run_instrument(self, sym: str, out_dir: str, first: date, last: date) -> dict:
         """Week chunks, oldest first, each checkpointed: its bars go to one file per
         UTC day (written whole, then renamed) and a marker in _done/. A rerun skips
@@ -299,7 +342,8 @@ class Backfill:
         base = pathlib.Path(out_dir) / sym
         (base / "_done").mkdir(parents=True, exist_ok=True)
         c = self.contract(sym)
-        ends = week_chunks(first, last)
+        ranges = chunk_ranges(first, last)
+        ends = [e for _, e in ranges]
         meta = {"kind": "meta", "schema": SCHEMA_DAY, "instrument": sym, "what_to_show": MULTI_WHAT,
                 "started_utc": self.now().isoformat(), "client_id": self.conn.get("client_id"),
                 "contract": {"con_id": c.conId, "symbol": c.symbol, "sec_type": c.secType, "exchange": c.exchange,
@@ -307,11 +351,10 @@ class Backfill:
                 "bar_size": BAR_SIZE, "use_rth": False, "format_date": 2, "range": [str(first), str(last)],
                 "n_chunks": len(ends)}
         (base / "_meta.json").write_text(json.dumps(meta) + "\n")
-        todo = [e for e in ends if not (base / "_done" / f"{e:%Y%m%d}.json").exists()]
+        todo = [(st, e) for st, e in ranges if not (base / "_done" / f"{e:%Y%m%d}.json").exists()]
         log(f"{sym}: {len(ends)} week chunks, {len(ends) - len(todo)} already done, contract conId {c.conId}")
         t0, n_bars = time.monotonic(), 0
-        for k, end in enumerate(todo, 1):
-            start = end - timedelta(days=7)
+        for k, (start, end) in enumerate(todo, 1):
             errs: list = []
             bars = self.fetch(c, end, "1 W")
             errs += self.req_errors
@@ -321,7 +364,7 @@ class Backfill:
                 d = (end - timedelta(days=1)).date()
                 while datetime(d.year, d.month, d.day, tzinfo=timezone.utc) >= start:
                     if d.weekday() != 5 and first <= d <= last:
-                        bars += self.fetch(c, datetime(d.year, d.month, d.day, tzinfo=timezone.utc) + timedelta(days=1), "1 D")
+                        bars += self.fetch(c, datetime(d.year, d.month, d.day, tzinfo=timezone.utc) + timedelta(days=1), DAY_DURATION)
                         errs += self.req_errors
                     d -= timedelta(days=1)
             rows = self.rows(bars)
@@ -402,6 +445,7 @@ def main(argv=None, *, ib=None, contract_cls=None, out=None, pacer=None, now=Non
     ap.add_argument("--out-dir", help="--instrument: day files go to OUT_DIR/SYM/")
     ap.add_argument("--first", type=date.fromisoformat, default=MULTI_RANGE[0])
     ap.add_argument("--last", type=date.fromisoformat, default=MULTI_RANGE[1])
+    ap.add_argument("--refetch-days", help="--instrument: comma-separated UTC days to ask for again, one by one")
     ap.add_argument("--host", default=os.environ.get("IB_HOST", "127.0.0.1"))
     ap.add_argument("--port", type=int, default=int(os.environ.get("IB_PORT", "4004")))
     ap.add_argument("--client-id", type=int, default=None)
@@ -446,6 +490,9 @@ def main_instrument(a, *, ib=None, contract_cls=None, pacer=None, now=None, slee
         return 2
     try:
         week_chunks(a.first, a.last)                     # refuses a sealed range before connecting
+        for x in (getattr(a, "refetch_days", None) or "").split(","):
+            if x:
+                refuse_past_seal(date.fromisoformat(x))
     except Stop as e:
         log(str(e))
         return e.status
@@ -463,7 +510,10 @@ def main_instrument(a, *, ib=None, contract_cls=None, pacer=None, now=None, slee
         except Exception as e:  # noqa: BLE001  (the first connect is retried like a reset)
             log(f"connect failed ({type(e).__name__}); retrying")
             job.reconnect()
-        job.run_instrument(a.instrument, a.out_dir, a.first, a.last)
+        if getattr(a, "refetch_days", None):
+            job.refetch_days(a.instrument, a.out_dir, [date.fromisoformat(x) for x in a.refetch_days.split(",") if x])
+        else:
+            job.run_instrument(a.instrument, a.out_dir, a.first, a.last)
     except Stop as e:
         log(str(e))
         return e.status

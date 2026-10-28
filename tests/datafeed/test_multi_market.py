@@ -50,7 +50,7 @@ class FakeIB:
             self.errorEvent.emit(1, code, "pacing violation" if code == 162 else "competing session", contract)
             return []
         end = datetime.strptime(endDateTime, "%Y%m%d-%H:%M:%S").replace(tzinfo=UTC)
-        t = end - timedelta(days=7 if durationStr == "1 W" else 1)
+        t = end - timedelta(days={"1 W": 7, "2 D": 2, "1 D": 1}[durationStr])
         out = []
         while t < end:
             if syn.is_open(t):
@@ -125,8 +125,8 @@ def test_waits_out_10197_and_pacing(tmp_path):
 def test_short_week_falls_back_to_days(tmp_path):
     ib = FakeIB(short_weeks=True)
     assert run(tmp_path, ib, "USDCHF", date(2026, 9, 7), date(2026, 9, 12)) == 0
-    assert any(x["dur"] == "1 D" for x in ib.calls)
-    marker = json.loads(next((tmp_path / "USDCHF" / "_done").glob("*.json")).read_text())
+    assert any(x["dur"] == bi.DAY_DURATION for x in ib.calls)
+    marker = json.loads(sorted((tmp_path / "USDCHF" / "_done").glob("*.json"))[0].read_text())
     assert marker["mode"] == "day" and marker["bars"] > 4000
 
 
@@ -242,3 +242,38 @@ def test_dxy_on_common_minutes_only(tmp_path, tmp_manifest, capsys):
     want = mb.DXY_K * pd.Series({s: pd.read_parquet(tmp_path / "data" / Path(mb.key(s)).name).set_index("timestamp").loc[t, "close"] ** w
                                  for s, w in mb.DXY_W.items()}).prod()
     assert abs(dx["close"].iloc[0] - want) < 1e-9 and t in eur.index
+
+
+def test_refetch_replaces_a_truncated_day_only_when_longer(tmp_path):
+    assert run(tmp_path, FakeIB(), "EURUSD", date(2026, 9, 21), date(2026, 9, 25)) == 0
+    f = tmp_path / "EURUSD" / "2026-09-24.jsonl"
+    lines = f.read_text().splitlines()
+    f.write_text("\n".join(lines[:165]) + "\n" + json.dumps({"kind": "day_end", "day": "2026-09-24", "bars": 165}) + "\n")
+    full = len(lines) - 1
+    a = bi.argparse.Namespace(instrument="EURUSD", out_dir=str(tmp_path), first=date(2026, 9, 21), last=date(2026, 9, 25),
+                              host="h", port=1, client_id=66, refetch_days="2026-09-24,2026-09-23")
+    assert bi.main_instrument(a, ib=FakeIB(), contract_cls=Contract, pacer=NoPacer(), sleep=lambda s: None) == 0
+    rec = json.loads((tmp_path / "EURUSD" / "_refetch.json").read_text())
+    assert rec["2026-09-24"] == {"old": 165, "new": full, "replaced": True}
+    assert rec["2026-09-23"]["replaced"] is False                      # already complete: kept
+    assert json.loads(f.read_text().splitlines()[-1])["bars"] == full
+    a.refetch_days = "2026-10-01"
+    assert bi.main_instrument(a, ib=FakeIB(), contract_cls=Contract, pacer=NoPacer()) == 3   # sealed: refused
+
+
+def test_chunks_are_back_to_back_so_no_day_is_written_twice():
+    r = bi.chunk_ranges(date(2016, 1, 1), date(2026, 9, 30))
+    assert all(r[i][0] == r[i - 1][1] for i in range(1, len(r)))
+    assert r[-1] == (datetime(2026, 9, 26, tzinfo=UTC), datetime(2026, 10, 1, tzinfo=UTC))   # the capped last chunk
+
+
+def test_the_last_chunk_does_not_overwrite_the_week_before(tmp_path):
+    class LastWeekShort(FakeIB):                     # like IBKR: the capped week ends Thursday, so it starts late
+        def reqHistoricalData(self, contract, endDateTime, durationStr, *a, **k):
+            bars = super().reqHistoricalData(contract, endDateTime, durationStr, *a, **k)
+            if endDateTime == "20261001-00:00:00":
+                bars = [b for b in bars if b.date >= datetime(2026, 9, 24, 21, 15, tzinfo=UTC)]
+            return bars
+    assert run(tmp_path, LastWeekShort(), "EURUSD", date(2026, 9, 14), date(2026, 9, 30)) == 0
+    tail = json.loads((tmp_path / "EURUSD" / "2026-09-24.jsonl").read_text().splitlines()[-1])
+    assert tail["bars"] > 1000 and tail["chunk_end"].startswith("2026-09-26")
