@@ -49,7 +49,13 @@ def listed(tmp_path, monkeypatch):
 
 def test_the_shipped_manifest_lists_the_files_with_hashes():
     doc = manifest.load()
-    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC, BACKFILL}
+    multi = {f"database/ohlcv_data/{s}_ibkr_1min_20160101_20260930.parquet"
+             for s in ("XAGUSD", "EURUSD", "USDJPY", "GBPUSD", "USDCAD", "USDSEK", "USDCHF")} | \
+        {"database/ohlcv_data/DXY_PROXY_1min_20160101_20260930.parquet"}             # planned, docs/MULTI_MARKET_DATA.md
+    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC, BACKFILL} | multi
+    for k in multi:                                                                # planned, or built with its hashes
+        e = doc["files"][k]
+        assert e["status"] == "unused by any study" and (e.get("planned") or (len(e["sha256"]) == 64 and e["validation"]["passed"]))
     for e in (e for e in doc["files"].values() if not e.get("planned")):
         assert len(e.get("sha256") or e["content_sha256"]) == 64 and e["rows"] > 0 and e["first_ts"] < e["last_ts"]
         assert "source" in e and isinstance(e["in_git"], bool)

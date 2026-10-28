@@ -142,6 +142,7 @@ def test_probe_records_a_refused_type_and_asks_in_utc():
     assert ib.connected == dict(host="127.0.0.1", port=4004, clientId=63, readonly=True)
     assert {c["fmt"] for c in ib.calls} == {2} and {c["rth"] for c in ib.calls} == {False}
     assert {c["bar"] for c in ib.calls} == {"1 min"} and {c["what"] for c in ib.calls} == set(bi.PROBE_TYPES)
+    assert {c["dur"] for c in ib.calls} == {"2 D"}            # IBKR's D is a trading session: "1 D" misses most of the day
     recs = [json.loads(x) for x in text.splitlines()]
     assert recs[0]["kind"] == "meta" and recs[0]["contract"]["con_id"] == 69067924 and recs[-1]["kind"] == "end"
     trades = [r for r in recs if r["kind"] == "request" and r["type"] == "TRADES"]
@@ -299,3 +300,41 @@ def test_conflicting_duplicates_are_rejected():
             {"kind": "bar", "type": "MIDPOINT", "t": 1772404800, "o": 1, "h": 2, "l": 0.5, "c": 1.6, "v": -1}]
     _, checks, fails = bb.build(meta, [], bars, {"kind": "end"}, {"chosen": "MIDPOINT", "contract": {"con_id": 1}})
     assert checks["conflicting_duplicates"] == 1 and any("conflicting" in f for f in fails)
+
+
+# --- the hard end date and the integrity report (feat/backfill-integrity) --------
+
+def test_a_request_past_the_seal_is_refused_before_ibkr(monkeypatch):
+    from datetime import date
+    bi.refuse_past_seal(date(2026, 9, 30))                         # the last allowed day
+    for d in (date(2026, 10, 1), date(2027, 1, 1)):
+        with pytest.raises(bi.Stop) as e:
+            bi.refuse_past_seal(d)
+        assert e.value.status == 3
+    monkeypatch.setattr(bi, "RANGE", (date(2026, 9, 29), date(2026, 10, 1)))
+    ib = FakeIB()
+    rc, text = download(ib, "--download", "MIDPOINT")
+    assert rc == 3 and ib.calls == [] and ib.connected is None and text == ""   # IBKR is never asked
+    assert download(FakeIB(), "--plan")[0] == 3
+
+
+def test_build_report_counts_gaps_and_shows_no_price(env, capsys):
+    tmp, txt, m = env
+    assert _pick_and_download(tmp, txt, FakeIB()) == 0
+    lines = (tmp / "dl.jsonl").read_text().splitlines()
+    gap_t = int(datetime(2026, 3, 4, 14, 0, tzinfo=UTC).timestamp())
+    drop = {gap_t + 60 * i for i in range(5)}                        # 5 minutes missing mid-session
+    kept = [x for x in lines if not (x.startswith('{"kind":"bar"') and json.loads(x)["t"] in drop)]
+    (tmp / "dl.jsonl").write_text("\n".join(kept) + "\n")
+    capsys.readouterr()
+    rc = bb.main(["build", str(tmp / "dl.jsonl"), "--pick", str(tmp / "pick.json"), "--txt", str(txt),
+                  "--out-dir", str(tmp / "out")])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert out.startswith("BACKFILL INTEGRITY REPORT (no prices)") and "passed: yes" in out
+    assert "gaps inside sessions: 1 gaps, 5 missing minutes" in out
+    assert "best whole-hour shift 0 h" in out and "timestamps tz-aware UTC: True" in out
+    df = pd.read_parquet(tmp / "out" / Path(bb.KEY).name)
+    for p in set(df[["open", "high", "low", "close"]].to_numpy().ravel().round(3).tolist()):
+        assert f"{p}" not in out.replace("2026-", "")                  # no price anywhere in the report
+    assert "pct" not in out and "%" not in out.split("short days")[0]

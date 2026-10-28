@@ -34,7 +34,7 @@ proposal before any data was read.
           - completeness: >= 90 % of trade dates have >= 90 % of 1380 minutes.
         Recorded, not checks: bad OHLC bars (counted, never fixed), requests
         with no bars or with IBKR errors, the best whole-hour shift of the
-        session test, and the seam to XAUUSD.txt's last bar (as a % gap).
+        session test, gaps and duplicates, and the seam to XAUUSD.txt (times only).
         The entry holds counts, shares, times and hashes, never a price: it
         is committed to the public repo.
 
@@ -116,6 +116,40 @@ def dedupe(df) -> tuple[object, int]:
     return df.reset_index(drop=True), conflicts
 
 
+def trade_dates(ts):
+    """The New York trade date of each bar (a session opens 18:00 NY for the next date)."""
+    import pandas as pd
+    et = pd.DatetimeIndex(ts).tz_convert(NY).tz_localize(None)
+    return (et + pd.Timedelta(hours=6)).normalize()
+
+
+def gaps(ts, top: int = 10) -> dict:
+    """Missing minutes inside a trade date's session: consecutive bars of the same
+    trade date more than 1 minute apart. The daily break and the weekend fall
+    between trade dates, so they are not gaps. Times and counts only."""
+    import numpy as np
+    import pandas as pd
+    ts = pd.DatetimeIndex(ts)
+    if len(ts) < 2:
+        return {"count": 0, "missing_minutes": 0, "longest": []}
+    td = trade_dates(ts)
+    step = np.diff(ts.asi8) // 60_000_000_000
+    same = td[1:] == td[:-1]
+    g = np.flatnonzero(same & (step > 1))
+    miss = step[g] - 1
+    order = g[np.argsort(-miss, kind="stable")][:top]
+    return {"count": int(len(g)), "missing_minutes": int(miss.sum()),
+            "longest": [{"after_utc": ts[i].isoformat(), "missing_minutes": int(step[i] - 1)} for i in order]}
+
+
+def rows_per_day(ts) -> dict:
+    """Rows per New York trade date (Mon-Fri), counts only."""
+    import pandas as pd
+    s = pd.Series(1, index=trade_dates(ts)).groupby(level=0).sum()
+    s = s[s.index.weekday <= 4]
+    return {str(d.date()): int(n) for d, n in s.items()}
+
+
 def load_txt(txt: Path, start: str, end: str):
     import pandas as pd
     manifest.verify(txt)
@@ -195,7 +229,9 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
         fails.append(f"download is {meta.get('mode')} {meta.get('what_to_show')}, the pick is {pk.get('chosen')}")
     if meta["contract"]["con_id"] != pk["contract"]["con_id"]:
         fails.append(f"contract conId {meta['contract']['con_id']} != the probe's {pk['contract']['con_id']}")
-    df, conflicts = dedupe(frame(bars))
+    raw = frame(bars)
+    df, conflicts = dedupe(raw)
+    exact_dupes = int(len(raw) - len(df))
     if conflicts:
         fails.append(f"{conflicts} conflicting duplicate bars")
     df = df.drop_duplicates("t").drop(columns=["type"])
@@ -218,6 +254,8 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
     shifts = {h: session_share(ts, h) for h in range(-6, 7)} if len(df) else {}
     score = {h: sum((r["share"] or 0) for r in v.values()) for h, v in shifts.items()}
     best_shift = max(score, key=score.get) if score else None
+    if best_shift not in (None, 0):
+        fails.append(f"timezone: the session fits best shifted by {best_shift} h, not 0 (UTC expected)")
     comp = completeness(ts) if len(df) else {"share": 0.0}
     if comp["share"] < COMPLETE_MIN_SHARE:
         fails.append(f"completeness {comp['share']:.3f} < {COMPLETE_MIN_SHARE}")
@@ -225,10 +263,15 @@ def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict,
                  (df["low"] <= df[["open", "close"]].min(axis=1)))).sum()) if len(df) else 0
     seam = None
     if txt_last is not None and len(df):
-        # times and the relative gap only: the entry goes into the public repo, prices must not
-        seam = {"txt_last_ts": txt_last[0], "first_ts": df["timestamp"].iloc[0].isoformat(),
-                "first_open_vs_txt_last_close_pct": round((float(df["open"].iloc[0]) / txt_last[1] - 1) * 100, 3)}
-    checks = {"conflicting_duplicates": conflicts, "off_grid": off_grid, "outside_range_dropped": outside,
+        # times only: the period is a holdout nobody has read, so no price or return is reported
+        seam = {"txt_last_ts": txt_last, "first_ts": df["timestamp"].iloc[0].isoformat()}
+    utc = bool(len(df)) and str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+    checks = {"rows": int(len(df)), "timestamps_tz_aware_utc": utc,
+              "first_utc": df["timestamp"].iloc[0].isoformat() if len(df) else None,
+              "last_utc": df["timestamp"].iloc[-1].isoformat() if len(df) else None,
+              "exact_duplicates_dropped": exact_dupes, "gaps_in_session": gaps(ts) if len(df) else {},
+              "rows_per_trade_date": rows_per_day(ts) if len(df) else {},
+              "conflicting_duplicates": conflicts, "off_grid": off_grid, "outside_range_dropped": outside,
               "sealed": sealed, "session_utc": sess, "best_whole_hour_shift": best_shift,
               "completeness": comp, "bad_ohlc_bars_not_fixed": bad,
               "requests_without_bars": [r["day"] for r in reqs if r["bars"] == 0],
@@ -257,6 +300,39 @@ def entry(meta, pk, checks, df, path: Path, passed: bool) -> dict:
         "doc": "docs/BACKFILL_2026_PROPOSAL.md",
         **d,
     }
+
+
+def report(e: dict, name: str) -> str:
+    """The integrity report the owner pastes back: counts, times, shares and the
+    hash only. No price, return or volume."""
+    v = e["validation"]
+    g, c, sess = v.get("gaps_in_session") or {}, v.get("completeness") or {}, v.get("session_utc") or {}
+    per = list((v.get("rows_per_trade_date") or {}).values())
+    srt = sorted(per)
+    lines = [
+        "BACKFILL INTEGRITY REPORT (no prices)",
+        f"file: {name}",
+        f"sha256: {e.get('sha256')}",
+        f"passed: {'yes' if v['passed'] else 'NO'}",
+        f"rows: {v.get('rows')}   first UTC: {v.get('first_utc')}   last UTC: {v.get('last_utc')}",
+        f"timestamps tz-aware UTC: {v.get('timestamps_tz_aware_utc')}   off minute grid: {v.get('off_grid')}   "
+        f"at/after {SEAL}: {v.get('sealed')}   outside range dropped: {v.get('outside_range_dropped')}",
+        f"duplicates: exact dropped {v.get('exact_duplicates_dropped')}, conflicting {v.get('conflicting_duplicates')}",
+        f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0); session check "
+        + ", ".join(f"{k} {r['share']} of {r['days']} days" for k, r in sess.items()),
+        f"completeness: {c.get('full')} of {c.get('trade_dates')} trade dates full (share {c.get('share')})",
+        f"rows per trade date: min {srt[0] if srt else None}, median {srt[len(srt) // 2] if srt else None}, "
+        f"max {srt[-1] if srt else None}",
+        f"short days (< 90 % of {FULL_DAY_MINUTES}): {c.get('short_days')}",
+        f"gaps inside sessions: {g.get('count')} gaps, {g.get('missing_minutes')} missing minutes",
+        "longest gaps: " + "; ".join(f"{x['after_utc']} +{x['missing_minutes']} min" for x in g.get("longest", [])),
+        f"bad OHLC bars (counted, not fixed): {v.get('bad_ohlc_bars_not_fixed')}",
+        f"requests without bars: {v.get('requests_without_bars')}",
+        f"requests with IBKR errors: {v.get('requests_with_ibkr_errors')}",
+        f"seam: XAUUSD.txt last {(v.get('seam') or {}).get('txt_last_ts')}, backfill first {(v.get('seam') or {}).get('first_ts')}",
+        f"failures: {v.get('failures') or 'none'}",
+    ]
+    return "\n".join(lines)
 
 
 def _plain(o):
@@ -290,6 +366,7 @@ def main(argv=None) -> int:
     b.add_argument("--txt", default=str(ROOT / TXT_KEY))
     b.add_argument("--out-dir", default=str(ROOT / "database" / "ohlcv_data"))
     b.add_argument("--update-manifest", action="store_true")
+    b.add_argument("--json", action="store_true", help="also print the full manifest entry")
     a = ap.parse_args(argv)
 
     if a.cmd == "pick":
@@ -312,7 +389,7 @@ def main(argv=None) -> int:
         ap.error(f"{a.pick}: no type was picked; the backfill stops")
     meta, reqs, bars, end = read_jsonl(a.download)
     ref = load_txt(Path(a.txt), *OVERLAP)
-    last = (ref["timestamp"].iloc[-1].isoformat(), float(ref["close"].iloc[-1])) if len(ref) else None
+    last = ref["timestamp"].iloc[-1].isoformat() if len(ref) else None
     df, checks, fails = build(meta, reqs, bars, end, pk, last)
     name = Path(KEY).name if not fails else Path(KEY).name.replace(".parquet", ".rejected.parquet")
     out = Path(a.out_dir) / name
@@ -321,7 +398,9 @@ def main(argv=None) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
     e = entry(meta, pk, checks, df, out, not fails)
-    print(json.dumps(e, indent=1, default=_plain))
+    print(report(e, Path(out).name))
+    if a.json:
+        print(json.dumps(e, indent=1, default=_plain))
     if a.update_manifest:
         write_manifest(KEY if not fails else KEY.replace(".parquet", ".rejected.parquet"), e,
                        pk["chosen"] if not fails else None)

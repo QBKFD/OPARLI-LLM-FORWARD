@@ -26,7 +26,7 @@ study uses**:
 | Bar size | `1 min`, `useRTH=False` |
 | Timezone | `formatDate=2` (epoch seconds, UTC), so the TWS login's time zone can't leak in. That is how `XAUUSD_COMPLETE.csv` broke on 2026-02-01: it used `formatDate=1`. Stored as `datetime64[ns, UTC]` |
 | Range | trade days 2026-02-01 .. 2026-09-30. The tool refuses any request or row at or after 2026-10-01 (`SEAL_START`) |
-| Requests | `durationStr="1 D"`, one per calendar day, `endDateTime` = the next day 00:00:00 UTC, walking backwards. About 170 days plus the overlap probes, about 230 requests in all. Paced at 50 per 10 minutes and never the same request twice within 15 s: **about 50 minutes** |
+| Requests | `durationStr="2 D"` (IBKR counts D in trading sessions, so "1 D" ending at 00:00 UTC returns only the evening session; changed 2026-10-28), one per calendar day, `endDateTime` = the next day 00:00:00 UTC, walking backwards. About 170 days plus the overlap probes, about 230 requests in all. Paced at 50 per 10 minutes and never the same request twice within 15 s: **about 50 minutes** |
 | Connection | read-only, client id 63 (61 probe, 62 options snapshot), stops on error 10197 or 162 (no data), never retries in a loop |
 
 ## Steps and validation (all decided before any data is read)
@@ -58,8 +58,12 @@ study uses**:
        that catches a 2026-02-01-style shift;
    - per-day completeness: the share of days with ≥ 90 % of the expected
      minutes (the audit's U2), and the holiday and short days listed;
-   - the seam: the first backfilled day against `XAUUSD.txt`'s last day
-     (price level, informational only).
+   - the seam: the first backfilled bar's time against `XAUUSD.txt`'s last
+     bar (times only; the price-level gap was dropped on 2026-10-27, because
+     the period is a holdout nobody has read);
+   - gaps inside sessions, exact and conflicting duplicates, rows per trade
+     date, and timestamps tz-aware UTC. A best whole-hour shift other than 0
+     is a failure.
 4. **Manifest entry:** bytes, sha256, content_sha256, rows and range. Also the
    source (provider, contract and conId, whatToShow and the overlap table, bar
    size, `formatDate=2`, request times, client id, number of requests), every
@@ -100,6 +104,11 @@ study uses**:
   it exists, see that module).
 
 ## Run it (the owner)
+
+**The current step-by-step is `docs/BACKFILL_2026_RUNBOOK.md`** (2026-10-27).
+It adds the gateway check, a hard refusal past 2026-09-30, no-price checks of
+the JSONL, the integrity report and the S3 copy. The steps below are the
+original plan.
 
 **When:** a weekday, 07:00–20:00 UTC. That is after the 05:00 options
 snapshot, away from the gateway's 17:15 New York restart, and not on Sunday

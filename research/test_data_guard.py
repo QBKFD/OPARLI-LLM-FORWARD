@@ -99,3 +99,20 @@ def test_no_research_code_names_a_guarded_file_without_the_guard():
                  and pat.search(t := p.read_text(encoding="utf-8", errors="replace"))
                  and "assert_may_read" not in t]
     assert offenders == []
+
+
+# --------------------------------------------------------------------------- the multi-market files (2026-10-28)
+
+NEW = [f"database/ohlcv_data/{s}_ibkr_1min_20160101_20260930.parquet"
+       for s in ("XAGUSD", "EURUSD", "USDJPY", "GBPUSD", "USDCAD", "USDSEK", "USDCHF")] + \
+      ["database/ohlcv_data/DXY_PROXY_1min_20160101_20260930.parquet"]
+
+
+@pytest.mark.parametrize("key", NEW)
+def test_each_new_instrument_file_is_guarded(key):
+    assert dg.guarded_key(Path(key).name) == key
+    assert dg.guarded_key(Path(key).name.replace(".parquet", ".rejected.parquet")) == key
+    with pytest.raises(dg.DataGuardError, match="unused by any study"):
+        dg.assert_may_read(key, study="no_such_study")
+    with pytest.raises(dg.DataGuardError):
+        dg.assert_may_read(key, study="pullback_structure")          # a PREREG that doesn't name it
