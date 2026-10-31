@@ -1,6 +1,6 @@
 {
  "schema": "data_manifest/1",
- "about": "The price files code reads, by path from the repo root. Checked by backend/datafeed/store/manifest.py. The real files are IBKR data, licensed for the owner's own use only: untracked, never committed (public repo). Only the synthetic fixture is in git.",
+ "about": "The data files code reads, by path from the repo root. Checked by backend/datafeed/store/manifest.py. The real price files are IBKR data, licensed for the owner's own use only; the macro calendar files are scraped (licence unclear). All are untracked and never committed (public repo). Only the synthetic fixture is in git.",
  "files": {
   "database/ohlcv_data/XAUUSD.txt": {
    "in_git": false,
@@ -9313,6 +9313,266 @@
    "periods": "research/SEALING.md, Instrument periods",
    "note": "Not built yet. Guarded like the six inputs.",
    "doc": "docs/MULTI_MARKET_DATA.md"
+  },
+  "database/historical_news/forex_factory_calendar_2015.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 393794,
+   "sha256": "b3177bd103e35dc8c4615689b8a70ef092822a2f0b454da3213642afb7b5b557",
+   "rows": 4592,
+   "first_ts": "2014-12-31T17:00:00+00:00",
+   "last_ts": "2015-12-31T15:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2016.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 396759,
+   "sha256": "39acd00a7d4cc75756bd6ceebf08394d6e3a52c3e38445d7e81c4cc29cee2373",
+   "rows": 4594,
+   "first_ts": "2016-01-01T01:00:00+00:00",
+   "last_ts": "2016-12-30T14:45:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2017.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 405056,
+   "sha256": "982251ef37e694f9bcd08cc393a83ca5be3cf601fafde706b8594b5d5d3f8c99",
+   "rows": 4695,
+   "first_ts": "2017-01-01T01:00:00+00:00",
+   "last_ts": "2017-12-31T00:42:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2018.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 404607,
+   "sha256": "4e0313d5459c3716be11451ebe7cf98fa16b7b6f644813e5f6fda5aa2734a7da",
+   "rows": 4669,
+   "first_ts": "2018-01-01T22:30:00+00:00",
+   "last_ts": "2018-12-31T09:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2019.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 409441,
+   "sha256": "fd7301945e8a33d21837c115eec50b470bcf5272bfdaa56990a8e0fefcb4a301",
+   "rows": 4697,
+   "first_ts": "2019-01-02T01:45:00+00:00",
+   "last_ts": "2019-12-31T15:00:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2020.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 420484,
+   "sha256": "539ac44688dbbc9e55c97dc3ecd0a23651e9f487fbde701d1b80d931eb290dc2",
+   "rows": 4793,
+   "first_ts": "2020-01-02T01:45:00+00:00",
+   "last_ts": "2020-12-31T15:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2021.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 422065,
+   "sha256": "d26dc6e0bfe2e7bc12443f16d39a8cfa43b5cbda414327aa4b12b6d6aea0af54",
+   "rows": 4809,
+   "first_ts": "2021-01-04T00:30:00+00:00",
+   "last_ts": "2021-12-31T01:00:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2022.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 418834,
+   "sha256": "a539ffcf77355d2090935b351b2f5cea0d2401bc84d509e00137b033c9689492",
+   "rows": 4783,
+   "first_ts": "2022-01-03T08:15:00+00:00",
+   "last_ts": "2022-12-31T01:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2023.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Etc/GMT-8 (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 419244,
+   "sha256": "c1dcb8d0b8d70b37bd68109f276c29439a1e37b1620daeb674eb6216baf54372",
+   "rows": 4803,
+   "first_ts": "2023-01-02T08:15:00+00:00",
+   "last_ts": "2023-12-31T01:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2024.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Europe/Warsaw (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 430873,
+   "sha256": "e8a5e1d14d98eb7524496aed3de00d5eb394f9a71fdd481503b2bedae0536795",
+   "rows": 4947,
+   "first_ts": "2024-01-02T00:01:00+00:00",
+   "last_ts": "2024-12-31T21:30:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2025.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Europe/Warsaw (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 444031,
+   "sha256": "e987d54b2e4970b0fda1ffb9590ff3a5ea860b4e8acd02883a0fb2c7ecd3e73c",
+   "rows": 5098,
+   "first_ts": "2025-01-01T08:00:00+00:00",
+   "last_ts": "2025-12-31T17:00:00+00:00",
+   "sealed_rows": 0
+  },
+  "database/historical_news/forex_factory_calendar_2026.csv": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "provider": "Forex Factory economic calendar, scraped (tools/scraper_fxfac)",
+    "licence": "unclear (scraped): local only, never in the repo"
+   },
+   "timezone": "Date and Time are local to the scrape's browser: Europe/Warsaw (docs/MACRO_CALENDAR.md MC1, proven by the anchor check). Combined DateTime is local too and is never read.",
+   "periods": "research/SEALING.md: rows from 2026-10-01 on are sealed and dropped by the builder",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 391853,
+   "sha256": "7f1ee7c491d1be21b6893d90a7c323c50fb0fd264bdf25399c20e77b505704df",
+   "rows": 4726,
+   "first_ts": "2026-01-02T07:00:00+00:00",
+   "last_ts": "2026-09-30T23:50:00+00:00",
+   "sealed_rows": 1087
+  },
+  "database/historical_news/macro_calendar_utc.parquet": {
+   "in_git": false,
+   "status": "unused by any study",
+   "source": {
+    "built_by": "tools/data/macro_calendar.py build",
+    "from": [
+     "database/historical_news/forex_factory_calendar_2015.csv",
+     "database/historical_news/forex_factory_calendar_2016.csv",
+     "database/historical_news/forex_factory_calendar_2017.csv",
+     "database/historical_news/forex_factory_calendar_2018.csv",
+     "database/historical_news/forex_factory_calendar_2019.csv",
+     "database/historical_news/forex_factory_calendar_2020.csv",
+     "database/historical_news/forex_factory_calendar_2021.csv",
+     "database/historical_news/forex_factory_calendar_2022.csv",
+     "database/historical_news/forex_factory_calendar_2023.csv",
+     "database/historical_news/forex_factory_calendar_2024.csv",
+     "database/historical_news/forex_factory_calendar_2025.csv",
+     "database/historical_news/forex_factory_calendar_2026.csv"
+    ],
+    "licence": "derived from scraped data: local only, never in the repo"
+   },
+   "timezone": "ts_utc is UTC; null where the source gives no clock time (time_flag says why)",
+   "periods": "research/SEALING.md: nothing at or after 2026-10-01",
+   "doc": "docs/MACRO_CALENDAR.md",
+   "bytes": 1354701,
+   "sha256": "dfde970cdcd56b5782e9bc2c4f4cf2c9f6b49e9f05ee380d5b89ef8b0bdad82d",
+   "rows": 55389,
+   "first_ts": "2014-12-31T17:00:00+00:00",
+   "last_ts": "2026-09-30T23:50:00+00:00",
+   "columns": {
+    "ts_utc": "datetime64[ns, UTC]",
+    "date_local": "object",
+    "time_raw": "object",
+    "time_flag": "object",
+    "date_rebuilt": "bool",
+    "source_year": "int64",
+    "source_tz": "object",
+    "currency": "object",
+    "event": "object",
+    "impact": "object",
+    "actual": "object",
+    "forecast": "object",
+    "previous": "object",
+    "actual_num": "float64",
+    "actual_unit": "object",
+    "actual_nonnumeric": "bool",
+    "forecast_num": "float64",
+    "forecast_unit": "object",
+    "forecast_nonnumeric": "bool",
+    "previous_num": "float64",
+    "previous_unit": "object",
+    "previous_nonnumeric": "bool",
+    "surprise": "float64",
+    "n_prior": "Int64"
+   }
   }
  }
 }

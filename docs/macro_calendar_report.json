@@ -1,0 +1,1517 @@
+{
+ "years_missing": [],
+ "years_read": [
+  2015,
+  2016,
+  2017,
+  2018,
+  2019,
+  2020,
+  2021,
+  2022,
+  2023,
+  2024,
+  2025,
+  2026
+ ],
+ "files": {
+  "2015": {
+   "rows_in": 4592,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 68,
+    "next_file": true,
+    "matched_in_next_file": 68,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 186,
+    "day_n": 38,
+    "period_data": 2
+   }
+  },
+  "2016": {
+   "rows_in": 4594,
+   "date_rebuilt": 22,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 69,
+    "next_file": true,
+    "matched_in_next_file": 69,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 189,
+    "day_n": 26,
+    "period_data": 4
+   }
+  },
+  "2017": {
+   "rows_in": 4695,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 83,
+    "next_file": true,
+    "matched_in_next_file": 83,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 192,
+    "day_n": 28,
+    "period_data": 1
+   }
+  },
+  "2018": {
+   "rows_in": 4669,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 69,
+    "next_file": true,
+    "matched_in_next_file": 69,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 196,
+    "day_n": 33
+   }
+  },
+  "2019": {
+   "rows_in": 4697,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 68,
+    "next_file": true,
+    "matched_in_next_file": 68,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 182,
+    "day_n": 30,
+    "period_data": 4,
+    "tentative": 1
+   }
+  },
+  "2020": {
+   "rows_in": 4793,
+   "date_rebuilt": 4,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 46,
+    "next_file": true,
+    "matched_in_next_file": 46,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 198,
+    "day_n": 26,
+    "period_data": 3
+   }
+  },
+  "2021": {
+   "rows_in": 4809,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "source_time_conflict": 1,
+   "year_wrap_cut": {
+    "rows": 70,
+    "next_file": true,
+    "matched_in_next_file": 70,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 184,
+    "day_n": 28,
+    "period_data": 2,
+    "source_time_conflict": 1
+   }
+  },
+  "2022": {
+   "rows_in": 4783,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "source_time_conflict": 1,
+   "year_wrap_cut": {
+    "rows": 80,
+    "next_file": true,
+    "matched_in_next_file": 80,
+    "unmatched": []
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 190,
+    "day_n": 39,
+    "other_nontime": 2,
+    "tentative": 1,
+    "source_time_conflict": 1
+   }
+  },
+  "2023": {
+   "rows_in": 4803,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 77,
+    "next_file": true,
+    "matched_in_next_file": 69,
+    "unmatched": [
+     "2023-01-01 All Day AUD Bank Holiday",
+     "2023-01-02 All Day NZD Bank Holiday",
+     "2023-01-02 9:45am CNY Caixin Manufacturing PMI",
+     "2023-01-03 All Day USD Wards Total Vehicle Sales",
+     "2023-01-04 3:00am USD FOMC Meeting Minutes",
+     "2023-01-04 9:45am CNY Caixin Services PMI",
+     "2023-01-05 12:00am USD Crude Oil Inventories",
+     "2023-01-06 2:30am USD FOMC Member Barkin Speaks"
+    ]
+   },
+   "source_tz": "Etc/GMT-8",
+   "time_flags": {
+    "all_day": 179,
+    "day_n": 47,
+    "period_data": 2,
+    "other_nontime": 2,
+    "tentative": 1
+   }
+  },
+  "2024": {
+   "rows_in": 4947,
+   "date_rebuilt": 33,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 43,
+    "next_file": true,
+    "matched_in_next_file": 43,
+    "unmatched": []
+   },
+   "source_tz": "Europe/Warsaw",
+   "time_flags": {
+    "all_day": 188,
+    "day_n": 44,
+    "period_data": 3
+   }
+  },
+  "2025": {
+   "rows_in": 5098,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 0,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 55,
+    "next_file": true,
+    "matched_in_next_file": 55,
+    "unmatched": []
+   },
+   "source_tz": "Europe/Warsaw",
+   "time_flags": {
+    "all_day": 192,
+    "day_n": 37,
+    "period_data": 20,
+    "other_nontime": 6,
+    "tentative": 2
+   }
+  },
+  "2026": {
+   "rows_in": 4726,
+   "date_rebuilt": 0,
+   "date_unparsed": 0,
+   "sealed_dropped": 1087,
+   "wrong_year": 0,
+   "year_wrap_cut": {
+    "rows": 0,
+    "next_file": false,
+    "matched_in_next_file": 0
+   },
+   "source_tz": "Europe/Warsaw",
+   "time_flags": {
+    "all_day": 133,
+    "tentative": 69,
+    "period_data": 19,
+    "day_n": 16,
+    "other_nontime": 8
+   }
+  }
+ },
+ "file_boundaries": [
+  {
+   "files": "2023|2024",
+   "from_utc": "2023-12-31T16:00:00+00:00",
+   "to_utc": "2023-12-31T23:00:00+00:00",
+   "kind": "gap"
+  }
+ ],
+ "rows_out": 55389,
+ "exact_duplicates_dropped": 2,
+ "timed": 52635,
+ "untimed": 2754,
+ "nonnumeric_values_all_events": {
+  "actual": 1681,
+  "forecast": 214,
+  "previous": 1666
+ },
+ "anchor_check": {
+  "checked": 778,
+  "by_event": {
+   "CPI m/m": 139,
+   "CPI y/y": 138,
+   "Core CPI m/m": 139,
+   "Core CPI y/y": 32,
+   "Non-Farm Employment Change": 140,
+   "FOMC Statement": 95,
+   "Federal Funds Rate": 95
+  },
+  "allowlisted": [
+   "2020-03-03 10:00 NY",
+   "2020-03-15 17:00 NY"
+  ],
+  "allowlist_missing": [],
+  "mismatches": [],
+  "untimed_anchor_rows": [
+   {
+    "event": "CPI y/y",
+    "date_local": "2021-03-10",
+    "time_raw": "8:30pm"
+   },
+   {
+    "event": "CPI y/y",
+    "date_local": "2022-03-10",
+    "time_raw": "8:30pm"
+   },
+   {
+    "event": "Non-Farm Employment Change",
+    "date_local": "2025-12-16",
+    "time_raw": "Oct Data"
+   }
+  ],
+  "passed": true
+ },
+ "anchor_mismatches_if_all_files_were_europe_warsaw": {
+  "2015": 64,
+  "2016": 64,
+  "2017": 64,
+  "2018": 64,
+  "2019": 64,
+  "2020": 66,
+  "2021": 64,
+  "2022": 64,
+  "2023": 64,
+  "2024": 0,
+  "2025": 0,
+  "2026": 0
+ },
+ "coverage": {
+  "through_utc": "2026-09-30T23:50:00+00:00",
+  "scrape_cutoff_utc": {
+   "2015": "2015-12-31T15:30:00+00:00",
+   "2016": "2016-12-30T14:45:00+00:00",
+   "2017": "2017-12-31T00:42:00+00:00",
+   "2018": "2018-12-31T09:30:00+00:00",
+   "2019": "2019-12-31T15:00:00+00:00",
+   "2020": "2020-12-31T15:30:00+00:00",
+   "2021": "2021-12-31T01:00:00+00:00",
+   "2022": "2022-12-31T01:30:00+00:00",
+   "2023": "2023-12-31T01:30:00+00:00",
+   "2024": "2024-12-31T14:00:00+00:00",
+   "2025": "2025-12-31T17:00:00+00:00",
+   "2026": "2026-06-12T14:00:00+00:00"
+  },
+  "families": {
+   "CPI": {
+    "events": [
+     "CPI m/m",
+     "CPI y/y",
+     "Core CPI m/m",
+     "Core CPI y/y"
+    ],
+    "per_year": {
+     "2015": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 1
+     },
+     "2016": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2017": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2018": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2019": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2020": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2021": {
+      "rows": 35,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 11,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 1,
+      "duplicates": 0,
+      "revised_previous": 1
+     },
+     "2022": {
+      "rows": 35,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 11,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 1,
+      "duplicates": 0,
+      "revised_previous": 1
+     },
+     "2023": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 0
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2024": {
+      "rows": 48,
+      "by_event": {
+       "CPI m/m": 12,
+       "CPI y/y": 12,
+       "Core CPI m/m": 12,
+       "Core CPI y/y": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2025": {
+      "rows": 42,
+      "by_event": {
+       "CPI m/m": 10,
+       "CPI y/y": 11,
+       "Core CPI m/m": 10,
+       "Core CPI y/y": 11
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2026": {
+      "rows": 36,
+      "by_event": {
+       "CPI m/m": 9,
+       "CPI y/y": 9,
+       "Core CPI m/m": 9,
+       "Core CPI y/y": 9
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 12,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     }
+    },
+    "missing_at_source": [
+     {
+      "event": "CPI m/m",
+      "after_utc": "2025-10-24T12:30:00+00:00",
+      "before_utc": "2026-01-13T13:30:00+00:00",
+      "gap_days": 81.0,
+      "missing_releases": 2,
+      "untimed_rows_in_gap": []
+     },
+     {
+      "event": "CPI y/y",
+      "after_utc": "2025-10-24T12:30:00+00:00",
+      "before_utc": "2025-12-18T13:30:00+00:00",
+      "gap_days": 55.0,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     },
+     {
+      "event": "Core CPI m/m",
+      "after_utc": "2025-10-24T12:30:00+00:00",
+      "before_utc": "2026-01-13T13:30:00+00:00",
+      "gap_days": 81.0,
+      "missing_releases": 2,
+      "untimed_rows_in_gap": []
+     },
+     {
+      "event": "Core CPI y/y",
+      "after_utc": "2025-10-24T12:30:00+00:00",
+      "before_utc": "2025-12-18T13:30:00+00:00",
+      "gap_days": 55.0,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     }
+    ],
+    "untimed_at_source": [
+     {
+      "event": "CPI y/y",
+      "date_local": "2021-03-10",
+      "time_raw": "8:30pm",
+      "flag": "source_time_conflict"
+     },
+     {
+      "event": "CPI y/y",
+      "date_local": "2022-03-10",
+      "time_raw": "8:30pm",
+      "flag": "source_time_conflict"
+     }
+    ],
+    "parse_failures": [],
+    "first_release_utc": {
+     "CPI m/m": "2015-01-16T13:30:00+00:00",
+     "CPI y/y": "2015-01-16T13:30:00+00:00",
+     "Core CPI m/m": "2015-01-16T13:30:00+00:00",
+     "Core CPI y/y": "2024-01-11T13:30:00+00:00"
+    }
+   },
+   "NFP": {
+    "events": [
+     "Non-Farm Employment Change"
+    ],
+    "per_year": {
+     "2015": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 11
+     },
+     "2016": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2017": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2018": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2019": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2020": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2021": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2022": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 11
+     },
+     "2023": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 11
+     },
+     "2024": {
+      "rows": 12,
+      "by_event": {
+       "Non-Farm Employment Change": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 12
+     },
+     "2025": {
+      "rows": 11,
+      "by_event": {
+       "Non-Farm Employment Change": 11
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 1,
+      "duplicates": 0,
+      "revised_previous": 11
+     },
+     "2026": {
+      "rows": 9,
+      "by_event": {
+       "Non-Farm Employment Change": 9
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 3,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 6
+     }
+    },
+    "missing_at_source": [
+     {
+      "event": "Non-Farm Employment Change",
+      "after_utc": "2025-09-05T12:30:00+00:00",
+      "before_utc": "2025-11-20T13:30:00+00:00",
+      "gap_days": 76.0,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     }
+    ],
+    "untimed_at_source": [
+     {
+      "event": "Non-Farm Employment Change",
+      "date_local": "2025-12-16",
+      "time_raw": "Oct Data",
+      "flag": "period_data"
+     }
+    ],
+    "parse_failures": [],
+    "first_release_utc": {
+     "Non-Farm Employment Change": "2015-01-09T13:30:00+00:00"
+    }
+   },
+   "FOMC": {
+    "events": [
+     "FOMC Statement",
+     "Federal Funds Rate"
+    ],
+    "per_year": {
+     "2015": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2016": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2017": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2018": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2019": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2020": {
+      "rows": 18,
+      "by_event": {
+       "FOMC Statement": 9,
+       "Federal Funds Rate": 9
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.3889,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2021": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2022": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2023": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2024": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2025": {
+      "rows": 16,
+      "by_event": {
+       "FOMC Statement": 8,
+       "Federal Funds Rate": 8
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0
+     },
+     "2026": {
+      "rows": 12,
+      "by_event": {
+       "FOMC Statement": 6,
+       "Federal Funds Rate": 6
+      },
+      "actual_filled": 0.5,
+      "forecast_filled": 0.5,
+      "after_scrape": 6,
+      "untimed": 0,
+      "duplicates": 0
+     }
+    },
+    "missing_at_source": [],
+    "untimed_at_source": [],
+    "parse_failures": []
+   },
+   "PCE": {
+    "events": [
+     "Core PCE Price Index m/m"
+    ],
+    "per_year": {
+     "2015": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 1
+     },
+     "2016": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 3
+     },
+     "2017": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 2
+     },
+     "2018": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 0
+     },
+     "2019": {
+      "rows": 11,
+      "by_event": {
+       "Core PCE Price Index m/m": 11
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 1,
+      "duplicates": 0,
+      "revised_previous": 2
+     },
+     "2020": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 4
+     },
+     "2021": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 3
+     },
+     "2022": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 4
+     },
+     "2023": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 3
+     },
+     "2024": {
+      "rows": 12,
+      "by_event": {
+       "Core PCE Price Index m/m": 12
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 4
+     },
+     "2025": {
+      "rows": 10,
+      "by_event": {
+       "Core PCE Price Index m/m": 10
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 3
+     },
+     "2026": {
+      "rows": 10,
+      "by_event": {
+       "Core PCE Price Index m/m": 10
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 4,
+      "untimed": 1,
+      "duplicates": 0,
+      "revised_previous": 0
+     }
+    },
+    "missing_at_source": [
+     {
+      "event": "Core PCE Price Index m/m",
+      "after_utc": "2018-12-21T15:00:00+00:00",
+      "before_utc": "2019-03-01T13:30:00+00:00",
+      "gap_days": 69.9,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     },
+     {
+      "event": "Core PCE Price Index m/m",
+      "after_utc": "2025-09-26T12:30:00+00:00",
+      "before_utc": "2025-12-05T15:00:00+00:00",
+      "gap_days": 70.1,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     },
+     {
+      "event": "Core PCE Price Index m/m",
+      "after_utc": "2025-12-05T15:00:00+00:00",
+      "before_utc": "2026-01-22T15:00:00+00:00",
+      "gap_days": 48.0,
+      "missing_releases": 1,
+      "untimed_rows_in_gap": []
+     }
+    ],
+    "untimed_at_source": [
+     {
+      "event": "Core PCE Price Index m/m",
+      "date_local": "2019-04-29",
+      "time_raw": "Feb Data",
+      "flag": "period_data"
+     },
+     {
+      "event": "Core PCE Price Index m/m",
+      "date_local": "2026-01-22",
+      "time_raw": "Oct Data",
+      "flag": "period_data"
+     }
+    ],
+    "parse_failures": [],
+    "first_release_utc": {
+     "Core PCE Price Index m/m": "2015-02-02T13:30:00+00:00"
+    }
+   },
+   "claims": {
+    "events": [
+     "Unemployment Claims"
+    ],
+    "per_year": {
+     "2015": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 27
+     },
+     "2016": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 18
+     },
+     "2017": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 30
+     },
+     "2018": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 28
+     },
+     "2019": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 37
+     },
+     "2020": {
+      "rows": 53,
+      "by_event": {
+       "Unemployment Claims": 53
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 50
+     },
+     "2021": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 49
+     },
+     "2022": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 44
+     },
+     "2023": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 38
+     },
+     "2024": {
+      "rows": 52,
+      "by_event": {
+       "Unemployment Claims": 52
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 0,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 45
+     },
+     "2025": {
+      "rows": 47,
+      "by_event": {
+       "Unemployment Claims": 47
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 0.9787,
+      "after_scrape": 0,
+      "untimed": 6,
+      "duplicates": 0,
+      "revised_previous": 35
+     },
+     "2026": {
+      "rows": 38,
+      "by_event": {
+       "Unemployment Claims": 38
+      },
+      "actual_filled": 1.0,
+      "forecast_filled": 1.0,
+      "after_scrape": 15,
+      "untimed": 0,
+      "duplicates": 0,
+      "revised_previous": 19
+     }
+    },
+    "missing_at_source": [
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-09-28..2025-10-04"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-10-05..2025-10-11"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-10-12..2025-10-18"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-10-19..2025-10-25"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-10-26..2025-11-01"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-11-02..2025-11-08"
+     },
+     {
+      "event": "Unemployment Claims",
+      "release_week_ny": "2025-11-09..2025-11-15"
+     }
+    ],
+    "untimed_at_source": [
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-18",
+      "time_raw": "Sep 27th",
+      "flag": "other_nontime"
+     },
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-18",
+      "time_raw": "Oct 4th",
+      "flag": "other_nontime"
+     },
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-18",
+      "time_raw": "Oct 11th",
+      "flag": "other_nontime"
+     },
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-20",
+      "time_raw": "Oct 25th",
+      "flag": "other_nontime"
+     },
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-20",
+      "time_raw": "Nov 1st",
+      "flag": "other_nontime"
+     },
+     {
+      "event": "Unemployment Claims",
+      "date_local": "2025-11-20",
+      "time_raw": "Nov 8th",
+      "flag": "other_nontime"
+     }
+    ],
+    "parse_failures": []
+   }
+  }
+ },
+ "full_coverage": {
+  "CPI": {
+   "CPI m/m": {
+    "first_release_utc": "2015-01-16T13:30:00+00:00",
+    "missing_at_source": 2,
+    "untimed_at_source": 0
+   },
+   "CPI y/y": {
+    "first_release_utc": "2015-01-16T13:30:00+00:00",
+    "missing_at_source": 1,
+    "untimed_at_source": 2
+   },
+   "Core CPI m/m": {
+    "first_release_utc": "2015-01-16T13:30:00+00:00",
+    "missing_at_source": 2,
+    "untimed_at_source": 0
+   },
+   "Core CPI y/y": {
+    "first_release_utc": "2024-01-11T13:30:00+00:00",
+    "missing_at_source": 1,
+    "untimed_at_source": 0
+   }
+  },
+  "NFP": {
+   "Non-Farm Employment Change": {
+    "first_release_utc": "2015-01-09T13:30:00+00:00",
+    "missing_at_source": 1,
+    "untimed_at_source": 1
+   }
+  },
+  "FOMC": {
+   "2015": 8,
+   "2016": 8,
+   "2017": 8,
+   "2018": 8,
+   "2019": 8,
+   "2020": 9,
+   "2021": 8,
+   "2022": 8,
+   "2023": 8,
+   "2024": 8,
+   "2025": 8,
+   "2026": 6
+  }
+ },
+ "surprises": {
+  "CPI m/m": {
+   "rows": 139,
+   "with_surprise": 136,
+   "no_actual": 3,
+   "no_forecast": 3,
+   "z_eligible_if_N": {
+    "12": 124,
+    "24": 112,
+    "36": 100,
+    "60": 76
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2016-01-20T13:30:00+00:00",
+    "24": "2017-01-18T13:30:00+00:00",
+    "36": "2018-01-12T13:30:00+00:00",
+    "60": "2020-01-14T13:30:00+00:00"
+   }
+  },
+  "CPI y/y": {
+   "rows": 138,
+   "with_surprise": 135,
+   "no_actual": 3,
+   "no_forecast": 3,
+   "z_eligible_if_N": {
+    "12": 123,
+    "24": 111,
+    "36": 99,
+    "60": 75
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2016-01-20T13:30:00+00:00",
+    "24": "2017-01-18T13:30:00+00:00",
+    "36": "2018-01-12T13:30:00+00:00",
+    "60": "2020-01-14T13:30:00+00:00"
+   }
+  },
+  "Core CPI m/m": {
+   "rows": 139,
+   "with_surprise": 136,
+   "no_actual": 3,
+   "no_forecast": 3,
+   "z_eligible_if_N": {
+    "12": 124,
+    "24": 112,
+    "36": 100,
+    "60": 76
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2016-01-20T13:30:00+00:00",
+    "24": "2017-01-18T13:30:00+00:00",
+    "36": "2018-01-12T13:30:00+00:00",
+    "60": "2020-01-14T13:30:00+00:00"
+   }
+  },
+  "Core CPI y/y": {
+   "rows": 32,
+   "with_surprise": 29,
+   "no_actual": 3,
+   "no_forecast": 3,
+   "z_eligible_if_N": {
+    "12": 17,
+    "24": 5,
+    "36": 0,
+    "60": 0
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2025-01-15T13:30:00+00:00",
+    "24": "2026-02-13T13:30:00+00:00",
+    "36": null,
+    "60": null
+   }
+  },
+  "Non-Farm Employment Change": {
+   "rows": 140,
+   "with_surprise": 137,
+   "no_actual": 3,
+   "no_forecast": 3,
+   "z_eligible_if_N": {
+    "12": 125,
+    "24": 113,
+    "36": 101,
+    "60": 77
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2016-01-08T13:30:00+00:00",
+    "24": "2017-01-06T13:30:00+00:00",
+    "36": "2018-01-05T13:30:00+00:00",
+    "60": "2020-01-10T13:30:00+00:00"
+   }
+  },
+  "Core PCE Price Index m/m": {
+   "rows": 139,
+   "with_surprise": 135,
+   "no_actual": 4,
+   "no_forecast": 4,
+   "z_eligible_if_N": {
+    "12": 123,
+    "24": 111,
+    "36": 99,
+    "60": 75
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2016-02-01T13:30:00+00:00",
+    "24": "2017-01-30T13:30:00+00:00",
+    "36": "2018-01-29T13:30:00+00:00",
+    "60": "2020-02-28T13:30:00+00:00"
+   }
+  },
+  "Unemployment Claims": {
+   "rows": 606,
+   "with_surprise": 590,
+   "no_actual": 15,
+   "no_forecast": 15,
+   "z_eligible_if_N": {
+    "12": 578,
+    "24": 566,
+    "36": 554,
+    "60": 530
+   },
+   "first_eligible_utc_if_N": {
+    "12": "2015-04-02T12:30:00+00:00",
+    "24": "2015-06-25T12:30:00+00:00",
+    "36": "2015-09-17T12:30:00+00:00",
+    "60": "2016-03-03T13:30:00+00:00"
+   }
+  },
+  "FOMC (no surprise, by rule)": {
+   "rows": 190,
+   "with_surprise": 0
+  }
+ }
+}

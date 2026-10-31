@@ -1,8 +1,9 @@
-"""The data manifest: what the untracked price files are, and their hashes.
+"""The data manifest: what the untracked data files are, and their hashes.
 
 `manifest.json` (next to this file, shipped as package data so it is there in
-every image) lists the price files code reads, by repo-relative path: the
-untracked real files under database/ and the fixtures. For each one: where it
+every image) lists the data files code reads, by repo-relative path: the
+untracked real price files under database/, the fixtures and the macro
+calendar (tools/data/macro_calendar.py, docs/MACRO_CALENDAR.md). For each one: where it
 came from, how it was built, its date range and row count, and hashes:
 
 - `sha256`: of the file's bytes. verify() checks it, so a loader stops
@@ -149,13 +150,13 @@ def describe(path) -> dict:
 def check(data_dir=None, content: bool = False, out=None) -> int:
     out = out or sys.stdout
     bad = 0
-    for key in load()["files"]:
+    for key, entry in load()["files"].items():
         p = Path(data_dir) / Path(key).name if data_dir else ROOT / key
         if not p.exists():
             print(f"missing   {key} (not at {p})", file=out)
             continue
-        try:
-            verify(p, content=content and key.endswith(".parquet"))
+        try:                                # a parquet that isn't bars (the macro calendar) has no content hash
+            verify(p, content=content and "content_sha256" in entry)
             print(f"ok        {key}", file=out)
         except ManifestError as e:
             bad += 1
