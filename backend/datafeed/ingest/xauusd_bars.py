@@ -386,8 +386,12 @@ class ReplaySource:
                    bars_per_s=float(env.get("DATAFEED_REPLAY_BARS_PER_S") or 0))
 
     def rows(self):
-        """(bar_ts, o, h, l, c) in timestamp order, inside [start, end)."""
+        """(bar_ts, o, h, l, c) in timestamp order, inside [start, end). A file
+        named like one in the data manifest must match it (ManifestError)."""
         import pandas as pd
+
+        from backend.datafeed.store import manifest
+        manifest.verify(self.path)
         filters = []
         if self.start is not None:
             filters.append(("timestamp", ">=", pd.Timestamp(self.start)))

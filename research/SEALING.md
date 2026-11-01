@@ -15,3 +15,38 @@ strategy test. Nothing may read it until then.**
 
 Enforced by `research/sealing.py` (`assert_before_global_seal`), which every
 loader calls from now on, and tested in `research/test_sealing.py`.
+
+## Instrument periods (owner, 2026-10-28)
+
+Every instrument below has the same periods, enforced by
+`sealing.assert_period(symbol, ts, period)` (tested in `test_sealing.py`):
+
+| Period | Range (UTC) | Use |
+|---|---|---|
+| dev | 2016-01-01 .. 2023-12-31 | development |
+| holdout | 2024-01-01 .. 2026-09-30 | read once, by a study whose committed PREREG names the file |
+| sealed | from 2026-10-01 | the final strategy test; nothing may read it (`assert_before_global_seal`) |
+
+Instruments: XAUUSD (gold, as its studies already use these periods), XAGUSD,
+EURUSD, USDJPY, GBPUSD, USDCAD, USDSEK, USDCHF, and DXY_PROXY (built from the
+six FX pairs).
+
+- **The new instruments' 1-min files** (`database/ohlcv_data/<SYMBOL>_ibkr_1min_20160101_20260930.parquet`)
+  are listed in the data manifest with `"status": "unused by any study"`.
+  `research/data_guard.py` refuses each of them to any study whose committed
+  PREREG doesn't name it.
+- **Gold's own history still holds:** 2024-01-01 .. 2026-01-30 was spent once
+  by `levels_confirm` (above).
+
+## The gold seam 2026-01-30 | 2026-02-01 (owner, 2026-10-28)
+
+Gold from 2026-02-01 comes from the IBKR MIDPOINT backfill
+(`XAUUSD_ibkr_1min_20260201_20260930.parquet`). Before that it comes from
+`XAUUSD.txt`, whose IBKR type no IBKR type reproduces (median relative close
+difference on the overlap: MIDPOINT 6.8e-5; `docs/DECISIONS.md` OD1).
+
+- **The rule:** a study that uses the combined series must report how many
+  events have a window crossing the seam, and exclude them or show the result
+  both ways.
+- **The record:** the seam is in the backfill's manifest entry
+  (`validation.seam`).

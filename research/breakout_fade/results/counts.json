@@ -1,0 +1,53 @@
+{
+ "what": "breakout_fade B18: Q2 breaks on silver dev 2016-2023; counts only, no outcome",
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet",
+  "manifest_sha256": "49ceaa3994fb83ba85413769c8fec48bc6051de25adaab794eb734ea62735bfb",
+  "rows": 2832852,
+  "prereg_commit": "3b2a56c240a9ccd361f7b4d3d1f212afe690825c",
+  "prereg_sha256": "7e86afc40fa254a5e93530aa9e0bb9b7333b6b7813ad7b9793d172733d1bf4a2"
+ },
+ "model": {
+  "name": "parquet2021_2023",
+  "sha256": "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"
+ },
+ "candles": {
+  "candles_kept": 47219,
+  "candles_dropped_incomplete": 14
+ },
+ "short_trade_dates": 0,
+ "breaks": {
+  "bear": 256,
+  "bull": 249,
+  "all": 505
+ },
+ "excluded_short_day": 0,
+ "breaks_used": 505,
+ "refused_starts": {
+  "bear": {
+   "swing_lows": 3700,
+   "before_events_start": 0,
+   "not_bearish": 2650,
+   "lh_broken_before_start": 113,
+   "while_live": 74,
+   "no_sigma": 3
+  },
+  "bull": {
+   "swing_lows": 3566,
+   "before_events_start": 0,
+   "not_bearish": 2567,
+   "lh_broken_before_start": 98,
+   "while_live": 79,
+   "no_sigma": 3
+  }
+ },
+ "gate": {
+  "min_events": 50,
+  "pass": true
+ },
+ "power": {
+  "n": 505,
+  "h1_mde_at_0.344": 0.0592,
+  "h2_mde_bound": 0.0623
+ }
+}
