@@ -76,6 +76,11 @@ Each cell is VR / z / n (windows). `*` marks a BH-adjusted p below 0.05, over al
 - **Every cell:** `results/tables.md` has one table per market, with VR / z / n for every
   base, split, cell and k. `results/vr_cells.csv` has the same, with p and BH p.
 - **Heatmaps** of hour × k, VR on the 1-hour base, are in `results/heatmap_<market>.png`.
+  - One diverging scale serves all four markets: blue < 1 < red, gray at 1.
+  - Only BH-marked cells carry a number.
+  - Hatched cells have no windows.
+  - They were re-rendered from `vr_cells.csv` (`vr_run.py --render-only`). That reads no data
+    and isn't a new attempt.
 
 What stands out (none of it BH-significant except the 20:00 UTC cells):
 - **Hour:** in the metals, windows that end at the daily break lean below 1:

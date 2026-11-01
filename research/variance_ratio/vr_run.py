@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """research/variance_ratio: run the descriptive analysis once (EXPLORATORY).
 
-    python research/variance_ratio/vr_run.py [--markets XAUUSD,...] [--no-bump]
+    python research/variance_ratio/vr_run.py [--markets XAUUSD,...]
+    python research/variance_ratio/vr_run.py --render-only     # redraw the heatmaps from the CSV
 
 Bumps ATTEMPTS.json first (kind descriptive_analysis), then per market: dev
 1-min bars -> base returns with exclusions -> VR(k) per cell -> BH across every
@@ -90,41 +91,56 @@ def run_market(market: str, news: set | None) -> tuple[list[dict], dict]:
     return rows, info
 
 
-def heatmap(df: pd.DataFrame, market: str, path: Path) -> None:
+def heat_limit(df: pd.DataFrame) -> float:
+    """One colour scale for every market: the largest |log2 VR| of any 1h hour cell."""
+    h = df[(df["base"] == "1h") & (df["split"] == "hour_utc")]["vr"].to_numpy(float)
+    return float(np.nanmax(np.abs(np.log2(h)))) if np.isfinite(h).any() else 0.1
+
+
+def heatmap(df: pd.DataFrame, market: str, path: Path, lim: float) -> None:
+    """Hour x k, VR on a diverging scale shared by all markets (blue < 1 < red, gray at 1).
+    Only the BH-marked cells carry a number (every value is in tables.md); a cell
+    without windows is hatched, so it can't read as VR = 1."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+    from matplotlib.patches import Rectangle
 
+    surface, ink, ink2, muted = "#fcfcfb", "#0b0b0b", "#52514e", "#c3c2b7"
     h = df[(df["market"] == market) & (df["base"] == "1h") & (df["split"] == "hour_utc")]
     vrs = h.pivot(index="cell", columns="k_hours", values="vr").reindex(columns=list(V.KS_HOURS))
-    sig = h.pivot(index="cell", columns="k_hours", values="p_bh").reindex(columns=list(V.KS_HOURS))
-    val = np.log2(vrs.to_numpy(float))
-    lim = max(np.nanmax(np.abs(val)) if np.isfinite(val).any() else 0.1, 0.05)
+    pbh = h.pivot(index="cell", columns="k_hours", values="p_bh").reindex(columns=list(V.KS_HOURS))
+    v = vrs.to_numpy(float)
     cmap = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])
-    cmap.set_bad("#fcfcfb")
-    fig, ax = plt.subplots(figsize=(4.6, 8.2), facecolor="#fcfcfb")
-    ax.set_facecolor("#fcfcfb")
-    im = ax.imshow(np.ma.masked_invalid(val), cmap=cmap, norm=TwoSlopeNorm(0, -lim, lim), aspect="auto")
-    for (i, j), v in np.ndenumerate(vrs.to_numpy(float)):
-        star = "*" if np.isfinite(sig.iat[i, j]) and sig.iat[i, j] < V.BH_Q else ""
-        ax.text(j, i, f"{v:.2f}{star}" if np.isfinite(v) else "n/a", ha="center", va="center",
-                fontsize=7, color="#0b0b0b" if np.isfinite(v) else "#52514e")
-    ax.set_xticks(range(len(V.KS_HOURS)), [f"k={k}h" for k in V.KS_HOURS], fontsize=8, color="#52514e")
-    ax.set_yticks(range(len(vrs)), [f"{c}:00" for c in vrs.index], fontsize=7, color="#52514e")
-    ax.set_ylabel("window start, UTC hour", fontsize=8, color="#52514e")
-    ax.set_title(f"{market}: VR(k), 1h base, dev 2016-2023\nEXPLORATORY · * BH-adjusted p < {V.BH_Q}",
-                 fontsize=9, color="#0b0b0b")
-    for s in ax.spines.values():
-        s.set_visible(False)
-    cb = fig.colorbar(im, ax=ax, fraction=0.05, pad=0.03)
-    ticks = [-lim, 0, lim]
+    fig, ax = plt.subplots(figsize=(4.4, 7.8), facecolor=surface)
+    ax.set_facecolor(surface)
+    mesh = ax.pcolormesh(np.ma.masked_invalid(np.log2(v)), cmap=cmap, norm=TwoSlopeNorm(0, -lim, lim),
+                         edgecolors=surface, linewidth=1.0)
+    for (i, j), x in np.ndenumerate(v):
+        if not np.isfinite(x):
+            ax.add_patch(Rectangle((j, i), 1, 1, facecolor=surface, edgecolor=muted, hatch="////", linewidth=0))
+        elif np.isfinite(pbh.iat[i, j]) and pbh.iat[i, j] < V.BH_Q:
+            ax.text(j + 0.5, i + 0.5, f"{x:.2f}*", ha="center", va="center", fontsize=8, color=ink, weight="bold")
+    ax.invert_yaxis()
+    ax.set_xticks(np.arange(len(V.KS_HOURS)) + 0.5, [f"{k} h" for k in V.KS_HOURS], fontsize=8, color=ink2)
+    ax.set_yticks(np.arange(len(vrs)) + 0.5, [f"{c}:00" for c in vrs.index], fontsize=7, color=ink2)
+    ax.tick_params(length=0)
+    ax.set_xlabel("k (window length)", fontsize=8, color=ink2)
+    ax.set_ylabel("window start, UTC hour", fontsize=8, color=ink2)
+    ax.set_title(f"{market}: variance ratio, 1h base, dev 2016–2023\nEXPLORATORY · labelled: BH p < {V.BH_Q} · "
+                 "hatched: no windows", fontsize=8.5, color=ink, loc="left")
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    cb = fig.colorbar(mesh, ax=ax, fraction=0.05, pad=0.03)
+    ticks = [-lim, -lim / 2, 0, lim / 2, lim]
     cb.set_ticks(ticks, labels=[f"{2 ** t:.2f}" for t in ticks])
-    cb.ax.tick_params(labelsize=7, colors="#52514e")
+    cb.ax.tick_params(labelsize=7, colors=ink2, length=0)
     cb.outline.set_visible(False)
-    cb.set_label("VR (log scale; 1 = random walk)", fontsize=7, color="#52514e")
-    fig.tight_layout()
-    fig.savefig(path, dpi=150, facecolor="#fcfcfb")
+    cb.set_label("VR (1 = random walk; same scale for all markets)", fontsize=7, color=ink2)
+    fig.text(0.02, 0.005, "Every value: results/tables.md", fontsize=6.5, color=ink2)
+    fig.tight_layout(rect=(0, 0.015, 1, 1))
+    fig.savefig(path, dpi=150, facecolor=surface)
     plt.close(fig)
 
 
@@ -147,12 +163,23 @@ def table_md(df: pd.DataFrame, market: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render(df: pd.DataFrame, markets) -> None:
+    lim = heat_limit(df)
+    for mk in markets:
+        heatmap(df, mk, RESULTS / f"heatmap_{mk}.png", lim)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--markets", default=",".join(V.MARKETS))
     ap.add_argument("--calendar", type=Path, default=ROOT / D.CALENDAR_KEY)
+    ap.add_argument("--render-only", action="store_true",
+                    help="redraw the heatmaps from results/vr_cells.csv; reads no data, bumps nothing")
     a = ap.parse_args(argv)
     markets = a.markets.split(",")
+    if a.render_only:
+        render(pd.read_csv(RESULTS / "vr_cells.csv", dtype={"cell": str}), markets)
+        return 0
     prereg = HERE / "PREREG.md"
     status = subprocess.run(["git", "status", "--porcelain", "--", str(prereg)], cwd=ROOT, capture_output=True,
                             text=True, check=True).stdout
@@ -180,8 +207,7 @@ def main(argv=None) -> int:
     (RESULTS / "summary.json").write_text(json.dumps(summary, indent=1, default=str) + "\n")
     md = "".join(table_md(df, mk) + "\n" for mk in markets)
     (RESULTS / "tables.md").write_text(md)
-    for mk in markets:
-        heatmap(df, mk, RESULTS / f"heatmap_{mk}.png")
+    render(df, markets)
     print(f"done: {len(df)} cells, {summary['bh_q_lt_005']} with BH p < {V.BH_Q}")
     return 0
 
