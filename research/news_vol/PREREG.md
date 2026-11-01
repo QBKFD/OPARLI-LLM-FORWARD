@@ -176,7 +176,43 @@ market-open minutes of 2015-12-25 .. 2024-01-01, with the same folds.
 `results/counts.md` and `results/counts.json` (`nv_counts.py`) hold the counts:
 bar times and calendar timestamps only, no price column. The summary is below.
 
-COUNTS_SUMMARY
+- **Events in dev:**
+  - 539 timed usd_tier1 rows give **310 release minutes**: 192 data and 118 FOMC.
+  - No minute mixes the two types.
+  - Each year has 24 data minutes and 12–18 FOMC minutes.
+  - **2 rows are untimed** and excluded: the two CPI y/y rows with a source time
+    conflict (#60 MC3). Their CPI m/m siblings keep each release in the set.
+- **Test folds 2018–2023, by timestamps (the run may drop a few more rows):**
+
+  | H | rows a year | release rows | data | FOMC | both | literal (t, t+H] reading, any |
+  |---|---|---|---|---|---|---|
+  | 240 | 4,850–4,886 | **703** | 560 | 143 | 0 | 749 |
+  | 60 | 5,615–5,662 | **188** | 140 | 48 | 0 | 230 |
+
+  - **FOMC at H = 240 gets only 3 windows per meeting** (t = 11:00, 12:00 and
+    13:00 New York): the 14:00 window crosses the daily break, which D4
+    excludes.
+  - **At H = 60 FOMC has one window**, 14:00, holding both the statement and
+    the press conference.
+- **Power (rough, analytic, `results/counts.md`):**
+  - **Release dates are the cluster:** 185 in the test folds.
+  - The residual sd of log(RV/h) is taken as 0.55, sigma_compare's HAR
+    log-MSE (seen data).
+  - **Q1's minimum detectable difference** at 80 % power and α = 0.0125
+    (BH's strictest rank of 4) is **0.126 log points, about +13 % variance**.
+  - **Q2 power** with an oracle augmented arm is 0.97 at a log bias of 0.1 in
+    release windows, and ≈ 1 from 0.2. This is optimistic: lognormal
+    residuals, no estimation noise.
+  - **What that means:** a release effect of the size Stage 3 of the calendar
+    notes shows (minute-0 ranges 4–10×) should be detectable. A FAIL would
+    mean HAR's L, S_hd and T already carry it, or that it is too small to
+    matter at 60–240 minutes.
+- **Machinery, in development:**
+  - The section 7 check ran once on the full synthetic period while the code
+    was written (N10), and passed.
+  - Q1 came out at 0.88× the generator's true difference. The effect was found
+    at both H; the null showed no gain (DM p 0.79 at H = 240, 0.23 at H = 60).
+  - The formal check runs from the merged commit.
 
 ## 9. The run
 

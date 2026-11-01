@@ -59,7 +59,7 @@ def window_table(idx: pd.DatetimeIndex, end: pd.Timestamp, H: int) -> pd.DataFra
 
 
 def power(n_events: int, n_other_eff: float, delta: float, s: float, alpha_one: float) -> dict:
-    """Rough, analytic: one row per event (the overlapping windows of one event count once).
+    """Rough, analytic: one row per release date (its overlapping windows count once).
     Q1: difference in mean log(RV/h) of delta, one-sided. Q2: the augmented arm removes a
     log bias delta on release rows exactly (an oracle); y ~ N(delta, s^2) there;
     d = q(y - delta) - q(y) with q(y) = e^y - y - 1; two-sided at 2 alpha_one."""
@@ -113,11 +113,11 @@ def main() -> int:
         hit = set()
         for tt in rel_lab.asi8:
             a, b = np.searchsorted(ev_ns, tt, "left"), np.searchsorted(ev_ns, tt + H * nv.MIN_NS, "left")
-            hit.update(ev_ns[a:b].tolist())
+            hit.update(pd.DatetimeIndex(ev_ns[a:b], tz="UTC").date.tolist())    # one cluster per release date
         n_ev, n_other = len(hit), int((~test["any"]).sum())
         n_other_eff = n_other / (H / 60)
         out["power"][str(H)] = {
-            "test_rows": int(len(test)), "release_rows": int(test["any"].sum()), "events_in_release_rows": n_ev,
+            "test_rows": int(len(test)), "release_rows": int(test["any"].sum()), "release_dates_in_release_rows": n_ev,
             "other_rows": n_other, "other_rows_effective": n_other_eff, "resid_sd_assumed": RESID_SD,
             "alpha_one_sided_bh_rank1_of_4": 0.05 / 4,
             "at_alpha_0.0125": [power(n_ev, n_other_eff, d, RESID_SD, 0.05 / 4) for d in DELTAS],
@@ -154,13 +154,16 @@ def counts_md(o: dict) -> str:
             L.append(f"| {y} | {c['origins']} | {c['crossing']} | {c['rows']} | {c['data']} | {c['fomc']} | "
                      f"{c['any']} | {c['both']} | {c['none']} | {c['literal_any']} |")
     L += ["", "## Power (rough, analytic; test folds 2018–2023)", "",
-          "One row per event (an event's overlapping windows count once); residual sd of log(RV/h) "
-          f"{RESID_SD} (sigma_compare's HAR log-MSE, seen data); Q2 assumes an oracle augmented arm.", "",
-          "| H | release rows | events | other rows (eff.) | Q1 MDE, 80 %, α 0.0125 | δ | Q1 power | Q2 power (oracle) |",
+          "One cluster per release date (its overlapping windows, and an FOMC statement with its press conference, "
+          "count once); residual sd of log(RV/h) "
+          f"{RESID_SD} (sigma_compare's HAR log-MSE, seen data). Q2 assumes an oracle augmented arm and lognormal "
+          "residuals, so it is optimistic: fatter tails and the estimation noise of two extra coefficients "
+          "lower it.", "",
+          "| H | release rows | release dates | other rows (eff.) | Q1 MDE, 80 %, α 0.0125 | δ | Q1 power | Q2 power (oracle) |",
           "|---|---|---|---|---|---|---|---|"]
     for H, p in o["power"].items():
         for i, r in enumerate(p["at_alpha_0.0125"]):
-            lead = (f"| {H} | {p['release_rows']} | {p['events_in_release_rows']} | {p['other_rows_effective']:.0f} | "
+            lead = (f"| {H} | {p['release_rows']} | {p['release_dates_in_release_rows']} | {p['other_rows_effective']:.0f} | "
                     f"{p['Q1_mde_80pct_alpha_0.0125']:.3f} |") if i == 0 else "| | | | | |"
             L.append(f"{lead} {r['delta']} | {r['Q1_power']} | {r['Q2_power_oracle']} |")
     return "\n".join(L) + "\n"
