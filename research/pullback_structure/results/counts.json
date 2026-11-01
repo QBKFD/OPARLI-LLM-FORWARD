@@ -1,0 +1,80 @@
+{
+ "what": "pullback_structure step 2: event counts on dev (2016-01-01 .. 2023-12-31); counts only, no outcome",
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAUUSD.txt",
+  "manifest_sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9",
+  "cache_equals_fresh_parse": true,
+  "rows": 3010074
+ },
+ "model": {
+  "name": "parquet2021_2023",
+  "sha256": "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"
+ },
+ "candles": {
+  "candles_any": 13108,
+  "candles_kept": 13093,
+  "candles_dropped_incomplete": 15,
+  "bars_in_break_hour": 52
+ },
+ "candles_without_sigma": 74,
+ "refused_starts": {
+  "bear": {
+   "swing_lows": 1382,
+   "before_events_start": 90,
+   "not_bearish": 1155,
+   "while_live": 0,
+   "no_sigma": 0
+  },
+  "bull": {
+   "swing_lows": 1356,
+   "before_events_start": 85,
+   "not_bearish": 1130,
+   "while_live": 0,
+   "no_sigma": 1
+  }
+ },
+ "counts": {
+  "bear": {
+   "events_started": 137,
+   "truncated": 0,
+   "q1_turns_per_bucket": {
+    "[0.0, 0.5)": 0,
+    "[0.5, 1.0)": 0,
+    "[1.0, 1.5)": 0,
+    ">= 1.5": 76
+   },
+   "q2_breaks": 47
+  },
+  "bull": {
+   "events_started": 140,
+   "truncated": 1,
+   "q1_turns_per_bucket": {
+    "[0.0, 0.5)": 0,
+    "[0.5, 1.0)": 0,
+    "[1.0, 1.5)": 1,
+    ">= 1.5": 78
+   },
+   "q2_breaks": 56
+  },
+  "pooled": {
+   "events_started": 277,
+   "truncated": 1,
+   "q1_turns_per_bucket": {
+    "[0.0, 0.5)": 0,
+    "[0.5, 1.0)": 0,
+    "[1.0, 1.5)": 1,
+    ">= 1.5": 154
+   },
+   "q2_breaks": 103
+  }
+ },
+ "gate_p30": {
+  "min_events": 50,
+  "buckets_below": [
+   "[0.0, 0.5)",
+   "[0.5, 1.0)",
+   "[1.0, 1.5)"
+  ],
+  "pass": false
+ }
+}

@@ -1,0 +1,60 @@
+{
+ "what": "turns on dev 2016-01-01 .. 2023-12-31, pooled bull + bear; counts only (no outcome, baseline or label)",
+ "dev_years": 8.0,
+ "holdout_years": 2.749,
+ "note": "W, X, the horizon and P18 apply in candles of each variant's timeframe; sigma is the pinned 240-min HAR at the candle's close",
+ "candles_1h": {
+  "candles_kept": 50196,
+  "candles_dropped_incomplete": 85
+ },
+ "variants": {
+  "a": {
+   "timeframe": "4h",
+   "k": 3,
+   "swings": 3,
+   "turns": 155,
+   "median_pullback_candles": 6.0,
+   "holdout_turns_estimate": 53.3
+  },
+  "b": {
+   "timeframe": "4h",
+   "k": 3,
+   "swings": 2,
+   "turns": 401,
+   "median_pullback_candles": 6.0,
+   "holdout_turns_estimate": 137.8
+  },
+  "c": {
+   "timeframe": "4h",
+   "k": 2,
+   "swings": 3,
+   "turns": 184,
+   "median_pullback_candles": 5.0,
+   "holdout_turns_estimate": 63.2
+  },
+  "d": {
+   "timeframe": "4h",
+   "k": 2,
+   "swings": 2,
+   "turns": 482,
+   "median_pullback_candles": 5.0,
+   "holdout_turns_estimate": 165.6
+  },
+  "e": {
+   "timeframe": "1h",
+   "k": 3,
+   "swings": 3,
+   "turns": 453,
+   "median_pullback_candles": 6.0,
+   "holdout_turns_estimate": 155.7
+  },
+  "f": {
+   "timeframe": "1h",
+   "k": 3,
+   "swings": 2,
+   "turns": 1277,
+   "median_pullback_candles": 6.0,
+   "holdout_turns_estimate": 438.8
+  }
+ }
+}

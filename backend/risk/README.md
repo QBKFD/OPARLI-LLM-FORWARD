@@ -2,9 +2,10 @@
 
 Stop/target bracket and position sizing for XAUUSD.
 
-**Status: built, not used yet.** Nothing imports it. The agents' risk node is
-still a pass-through (`agents/nodes/risk.py`), and the scanner doesn't use it
-either.
+**Status: `bracket` is used, `sizing` is not.** `backend/scoring/outcome.py`
+imports `bracket` (for `score_neutral`, which itself has no caller yet), so it
+ships with the scanner's TAKE scoring. Nothing calls `position_size`. The
+agents' risk node is still a pass-through (`backend/agents/nodes/risk.py`).
 
 | Module | API |
 |---|---|
