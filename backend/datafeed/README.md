@@ -196,6 +196,27 @@ Also available:
 Later tables follow the same append-only, `ingest_ts`-versioned pattern
 (documented in `datafeed/store/query.py`).
 
+**The macro calendar** (`calendar_source.py`) follows the event-time half of
+that rule. The source is the clean table of `tools/data/macro_calendar.py`.
+- **The schedule is public:** at any t, every timed event is listed, with its
+  time, name, impact, forecast and previous.
+- **The release isn't:** its `actual`, `actual_num` and `surprise` are visible
+  only when `ts_utc < t`.
+  - At `t == ts_utc` they are still hidden (`released=False`).
+  - A view taken earlier never reveals them later.
+- **Untimed rows** ("All Day", "Tentative", period data, the source-time
+  conflicts) are excluded, and counted per `time_flag` in `Calendar.untimed`.
+- **Not point in time:** forecast and previous are the scraped values. A
+  forecast's drift before the release, or a revision of "previous", isn't
+  modelled.
+
+The functions:
+- `load_calendar(path, expected_sha256=None)` (needs pandas) or
+  `from_rows(rows)`;
+- `events_as_of(t, calendar, start=None, end=None, where=None)`;
+- `news_window(t, before, after, events, where=None)`: events with
+  `t - before <= ts_utc <= t + after`, both ends included, as known at t.
+
 ## Modules
 
 | Module | Status |
@@ -208,7 +229,7 @@ Later tables follow the same append-only, `ingest_ts`-versioned pattern
 | `recorder/` | v1: `python -m backend.datafeed.recorder` |
 | `store/schema.py`, `store/query.py` | v1 |
 | `ingest/gold_options.py` | planned, later PR |
-| `ingest/calendar.py` | planned, later PR |
+| `calendar_source.py` | v1: the macro calendar as of t (`events_as_of`, `news_window`); actuals hidden until after release, untimed rows counted. Not wired into ingest or the store |
 | `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store. `sigma_over` = HAR sigma over the next H market-open minutes (H = 60, 240) from a shipped model in `features/models/`, SHA-256 pinned (research/sigma_compare); the former plug-in is `sigma_plugin`. Needs numpy and pandas |
 | `features/exposures.py` | planned, later PR |
 | `store/sealed.py` | planned, later PR |
