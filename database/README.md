@@ -11,7 +11,9 @@ instead (`/data`, `/datafeed`, see `deploy/scanner/docker-compose.yml`).
 | `ohlcv_data/XAUUSD.txt` | 1-min bars from 2007 | a one-off download | research (`sigma_compare`, `vol_features`) |
 | `scanner_decisions.sqlite` | the scanner's decision journal, when run locally | the scanner (default of `$SCANNER_DB`) | the journal summary (`python -m backend.scanner.journal.summary`) |
 | `datafeed.sqlite` | a local datafeed store | the recorder (`$DATAFEED_DB` in `deploy/.env.example`) | the stream scanner, agents |
-| `historical_news/` | economic event calendars (`events_utc.parquet`, from the Forex Factory CSVs that `tools/scraper_fxfac` scrapes); `DATA_NOTES_events.md` describes them | by hand | nothing in the current code |
+| `historical_news/forex_factory_calendar_<year>.csv` | the scraped Forex Factory calendars, 2015–2026, in the manifest as "unused by any study" (licence unclear: never committed) | `tools/scraper_fxfac` (by hand) | `tools/data/macro_calendar.py` |
+| `historical_news/macro_calendar_utc.parquet` | the clean macro calendar: UTC times, parsed values, surprises ([docs/MACRO_CALENDAR.md](../docs/MACRO_CALENDAR.md)); "unused by any study" | `tools/data/macro_calendar.py build` | no study yet (`research/data_guard.py`) |
+| `historical_news/events_utc.parquet` | an earlier calendar build, described by `DATA_NOTES_events.md` | by hand | nothing in the current code |
 
 **Manifest:** `backend/datafeed/store/manifest.json` records every price file
 code reads: the source, the cleaning steps, the date range, the rows and the
@@ -36,7 +38,8 @@ that doesn't match.
 
 **Git:** the data files are ignored by `.gitignore`:
 - `ohlcv_data/*.parquet`, `*.csv`, `*.txt` and `*.zip`;
-- `historical_news/*.csv`, `*.parquet` and `*.txt`;
+- `historical_news/*.csv`, `*.parquet` and `*.txt`, and the CSVs and
+  parquets of any `historical_news*/` sibling (e.g. a `historical_news_1/` copy);
 - every `*.sqlite` and `*.parquet` directly in `database/`;
 - all of `snapshots/` (written by `tools/data/fetch_data_xauusd.py`).
 

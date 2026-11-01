@@ -36,6 +36,9 @@ database/historical_news/*.parquet
 database/ohlcv_data/*.txt
 database/ohlcv_data/*.zip
 database/historical_news/*.txt
+# scraped calendar copies in any sibling folder (e.g. historical_news_1/): local only (docs/MACRO_CALENDAR.md)
+database/historical_news*/*.csv
+database/historical_news*/*.parquet
 database/snapshots/
 database/*.parquet
 
