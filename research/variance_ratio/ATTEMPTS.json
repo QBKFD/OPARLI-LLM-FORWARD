@@ -1,0 +1,7 @@
+{
+ "about": "Attempts of research/variance_ratio (EXPLORATORY, descriptive). prereg_attempts counts registrations of a hypothesis (none: PREREG.md is a descriptive analysis plan); amendments counts changes to the plan; outcome_analyses counts runs that read returns, each logged with its kind (incremented before the run).",
+ "prereg_attempts": 0,
+ "amendments": 0,
+ "outcome_analyses": 0,
+ "log": []
+}
