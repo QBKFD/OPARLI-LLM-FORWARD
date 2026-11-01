@@ -2,8 +2,8 @@
  "about": "Attempts of research/news_vol (Study A). prereg_attempts counts registrations of this question; amendments counts amendments; machinery_checks counts synthetic-data checks (no outcome); outcome_analyses counts analyses that read an outcome (incremented before the analysis runs).",
  "prereg_attempts": 1,
  "amendments": 0,
- "machinery_checks": 0,
- "outcome_analyses": 0,
+ "machinery_checks": 1,
+ "outcome_analyses": 1,
  "log": [
   {
    "n": 1,
@@ -11,6 +11,20 @@
    "date": "2026-11-01",
    "what": "PREREG: XAUUSD dev 2016-2023, HAR vs HAR + I(data) + I(FOMC), walk-forward yearly folds 2018-2023; Q1 bias, Q2 QLIKE DM (verdict), Q3 Spearman; counts only, no outcome",
    "by": "owner brief, 2026-11-01 (D1-D9 approved)"
+  },
+  {
+   "n": 2,
+   "kind": "machinery_check",
+   "date": "2026-11-01",
+   "what": "synthetic bars on the open-minute calendar 2015-12-25..2024-01-01, real event times; effect x4 for 30 min vs null (PREREG section 7)",
+   "by": "owner brief, 2026-11-01 (unattended)"
+  },
+  {
+   "n": 3,
+   "kind": "outcome_analysis",
+   "date": "2026-11-01",
+   "what": "XAUUSD dev 2016-2023: Q1, Q2 (H 240, 60), Q3, BH; verdict by D7 (single run)",
+   "by": "owner brief, 2026-11-01 (unattended)"
   }
  ]
 }
