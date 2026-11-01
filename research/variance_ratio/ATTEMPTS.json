@@ -1,0 +1,15 @@
+{
+ "about": "Attempts of research/variance_ratio (EXPLORATORY, descriptive). prereg_attempts counts registrations of a hypothesis (none: PREREG.md is a descriptive analysis plan); amendments counts changes to the plan; outcome_analyses counts runs that read returns, each logged with its kind (incremented before the run).",
+ "prereg_attempts": 0,
+ "amendments": 0,
+ "outcome_analyses": 1,
+ "log": [
+  {
+   "n": 1,
+   "kind": "descriptive_analysis",
+   "date": "2026-11-01",
+   "what": "variance ratios, dev 2016-2023, markets XAUUSD,XAGUSD,EURUSD,USDJPY: all cells, BH across all (EXPLORATORY)",
+   "by": "owner brief, 2026-10-31 (unattended run)"
+  }
+ ]
+}

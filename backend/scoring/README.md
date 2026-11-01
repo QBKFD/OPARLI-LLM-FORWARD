@@ -2,8 +2,12 @@
 
 Outcome of a bracketed XAUUSD trade, walked forward on 1-min bars.
 
-**Status: built, not used yet.** The agents' risk node is still a pass-through,
-and nothing calls `score` in production.
+**Status: `score` is used by the scanner's journal on `main`.**
+`backend/scanner/journal/outcomes.py` scores each first-decision TAKE with it
+(imported lazily; see [backend/README.md](../README.md#outcomes-of-takes)).
+The host runs an older commit without it until the cut-over in
+`docs/DEPLOY_RUNBOOK.md` §11. `score_neutral` has no caller yet: the agents'
+risk node is still a pass-through.
 
 ```python
 from backend.datafeed.features import vol_block as vb
