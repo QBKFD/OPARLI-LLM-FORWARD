@@ -1,0 +1,194 @@
+{
+ "label": "EXPLORATORY, descriptive: no hypothesis, no pass/fail",
+ "attempt": 1,
+ "git_head": "b2f4d7f45629bec4069e2c3d056062534e11da89",
+ "plan_sha256": "a7af06730a394a3b01bbbe6594db9bf8f705882a9524a59870a47ade0c74fbb7",
+ "news": {
+  "calendar_key": "database/historical_news/macro_calendar_utc.parquet",
+  "calendar_sha256": "dfde970cdcd56b5782e9bc2c4f4cf2c9f6b49e9f05ee380d5b89ef8b0bdad82d",
+  "calendar_commit": "12f65c6",
+  "news_rows": 539,
+  "news_days": 251
+ },
+ "cells": 672,
+ "cells_with_p": 438,
+ "bh_q_lt_005": 5,
+ "markets": {
+  "XAUUSD": {
+   "checks": {
+    "manifest_key": "database/ohlcv_data/XAUUSD.txt",
+    "manifest_sha256": "dc2d30cdee567d5043cd302ef9c4b87022d4145534fe0375dc116ae5c8dabfb9",
+    "rows": 2830597
+   },
+   "exclusions_1h": {
+    "valid": 45119,
+    "weekend": 20482,
+    "daily_break": 3754,
+    "holiday": 505,
+    "gap": 261,
+    "short_day": 6,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "sigma240_tercile_edges": [
+    0.0026522276971482706,
+    0.003752982203291882
+   ],
+   "slots_without_sigma": 115,
+   "windows_1h": {
+    "2": 43054,
+    "4": 38926,
+    "8": 30674,
+    "24": 0
+   },
+   "exclusions_5min": {
+    "valid": 564355,
+    "weekend": 241186,
+    "daily_break": 26658,
+    "holiday": 6324,
+    "gap": 2929,
+    "short_day": 83,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "windows_5min": {
+    "2": 516708,
+    "4": 467064,
+    "8": 367910,
+    "24": 0
+   }
+  },
+  "XAGUSD": {
+   "checks": {
+    "manifest_key": "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet",
+    "manifest_sha256": "49ceaa3994fb83ba85413769c8fec48bc6051de25adaab794eb734ea62735bfb",
+    "rows": 2832852
+   },
+   "exclusions_1h": {
+    "valid": 45131,
+    "weekend": 20482,
+    "daily_break": 3754,
+    "holiday": 549,
+    "gap": 211,
+    "first_slot": 1,
+    "seam": 0,
+    "short_day": 0
+   },
+   "sigma240_tercile_edges": [
+    0.00537031157666146,
+    0.007396482723566544
+   ],
+   "slots_without_sigma": 186,
+   "windows_1h": {
+    "2": 43070,
+    "4": 38948,
+    "8": 30704,
+    "24": 0
+   },
+   "exclusions_5min": {
+    "valid": 564510,
+    "weekend": 241186,
+    "daily_break": 26700,
+    "holiday": 6874,
+    "gap": 2265,
+    "first_slot": 1,
+    "seam": 0,
+    "short_day": 0
+   },
+   "windows_5min": {
+    "2": 517107,
+    "4": 467643,
+    "8": 368715,
+    "24": 0
+   }
+  },
+  "EURUSD": {
+   "checks": {
+    "manifest_key": "database/ohlcv_data/EURUSD_ibkr_1min_20160101_20260930.parquet",
+    "manifest_sha256": "6402e702a71b4919df084430c382704f0542571977a2c2e57f9d137687cf4af6",
+    "rows": 2951562
+   },
+   "exclusions_1h": {
+    "valid": 47626,
+    "weekend": 20482,
+    "daily_break": 1703,
+    "holiday": 263,
+    "gap": 45,
+    "short_day": 8,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "sigma240_tercile_edges": [
+    0.0016258132079021317,
+    0.002295501664598637
+   ],
+   "slots_without_sigma": 122,
+   "windows_1h": {
+    "2": 45553,
+    "4": 41407,
+    "8": 33115,
+    "24": 0
+   },
+   "exclusions_5min": {
+    "valid": 588135,
+    "weekend": 241186,
+    "daily_break": 8257,
+    "holiday": 3299,
+    "gap": 551,
+    "short_day": 107,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "windows_5min": {
+    "2": 540456,
+    "4": 490704,
+    "8": 391200,
+    "24": 0
+   }
+  },
+  "USDJPY": {
+   "checks": {
+    "manifest_key": "database/ohlcv_data/USDJPY_ibkr_1min_20160101_20260930.parquet",
+    "manifest_sha256": "297862d9c0f55a4f6ad793eebcea143db96c97268460a068440d19aa64413487",
+    "rows": 2951735
+   },
+   "exclusions_1h": {
+    "valid": 47629,
+    "weekend": 20482,
+    "daily_break": 1701,
+    "holiday": 263,
+    "gap": 44,
+    "short_day": 8,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "sigma240_tercile_edges": [
+    0.0017103594917572181,
+    0.0025162063160704745
+   ],
+   "slots_without_sigma": 122,
+   "windows_1h": {
+    "2": 45556,
+    "4": 41410,
+    "8": 33118,
+    "24": 0
+   },
+   "exclusions_5min": {
+    "valid": 588169,
+    "weekend": 241186,
+    "daily_break": 8239,
+    "holiday": 3299,
+    "gap": 535,
+    "short_day": 107,
+    "first_slot": 1,
+    "seam": 0
+   },
+   "windows_5min": {
+    "2": 540490,
+    "4": 490738,
+    "8": 391234,
+    "24": 0
+   }
+  }
+ }
+}
