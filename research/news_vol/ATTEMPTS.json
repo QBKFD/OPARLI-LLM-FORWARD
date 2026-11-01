@@ -3,7 +3,7 @@
  "prereg_attempts": 1,
  "amendments": 0,
  "machinery_checks": 1,
- "outcome_analyses": 0,
+ "outcome_analyses": 1,
  "log": [
   {
    "n": 1,
@@ -17,6 +17,13 @@
    "kind": "machinery_check",
    "date": "2026-11-01",
    "what": "synthetic bars on the open-minute calendar 2015-12-25..2024-01-01, real event times; effect x4 for 30 min vs null (PREREG section 7)",
+   "by": "owner brief, 2026-11-01 (unattended)"
+  },
+  {
+   "n": 3,
+   "kind": "outcome_analysis",
+   "date": "2026-11-01",
+   "what": "XAUUSD dev 2016-2023: Q1, Q2 (H 240, 60), Q3, BH; verdict by D7 (single run)",
    "by": "owner brief, 2026-11-01 (unattended)"
   }
  ]
