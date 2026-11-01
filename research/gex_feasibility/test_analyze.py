@@ -205,9 +205,15 @@ def test_report_and_main(base, tmp_path, capsys):
     rep = tmp_path / "REPORT.md"
     attempts = tmp_path / "ATTEMPTS.md"
     attempts.write_text("# Probe attempts\n\n- Attempt 1: 2026-10-22 10:43 UTC, exit 1, not used.\n")
+    owner = tmp_path / "OWNER_DECISION.md"
+    owner.write_text("## Owner decision (post hoc), 2026-10-22\n\nProceed.\n")
     assert analyze.main([str(p), "--report", str(rep), "--attempts-file", str(attempts),
+                         "--owner-decision-file", str(owner),
                          "--attempt", "2026-10-21T05:00Z: exit 4, error 10197"]) == 0
     text = rep.read_text()
+    # the owner's post-hoc decision sits after the verdict, which it doesn't change
+    assert text.index("## Verdict") < text.index("## Owner decision (post hoc)") < text.index("## Snapshot")
+    assert "**GEX DROPPED" in text.splitlines()[4]
     assert "- Attempt 1: 2026-10-22 10:43 UTC, exit 1, not used." in text
     assert "Expiries: 3 used, 3 targeted." in text
     assert "20261027 GCZ6 / GCZ6; 20261124 GCZ6 / GCZ6; 20261228 GCG7 / GCG7" in text
@@ -229,6 +235,11 @@ def test_the_fallback_is_in_the_report(tmp_path):
     assert a["n_expiries_used"] == 2 and a["sensitivities"]["R, next 2 expiries only"] == pytest.approx(a["r"])
     text = analyze.report(a, source="x.json", sha256="0" * 64, attempts=[])
     assert "Expiries: 2 used, 3 targeted; **fallback**: only 2 OG expiries" in text
+
+
+def test_no_owner_decision_file_no_section(base):
+    text = analyze.report(analyze.analyze(base), source="x.json", sha256="0" * 64, attempts=[])
+    assert "Owner decision" not in text
 
 
 def test_committed_attempts_file_lists_attempt_1():

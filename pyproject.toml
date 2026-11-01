@@ -47,8 +47,9 @@ include = ["backend*"]
 
 [tool.setuptools.package-data]
 "backend.agents" = ["prompts/*.md", "config.example.toml", "agents.example.toml", "experiments/README.md", "experiments/*/PREREG.md"]
-# HAR sigma model files (vol_block.SIGMA_MODELS), SHA-256 checked on load.
-"backend.datafeed" = ["features/models/*.json"]
+# HAR sigma model files (vol_block.SIGMA_MODELS), SHA-256 checked on load, and the
+# data manifest (store/manifest.py).
+"backend.datafeed" = ["features/models/*.json", "store/manifest.json"]
 
 [tool.pytest.ini_options]
 # A bare `pytest` at the root collects research/, tests/datafeed, tests/agents,

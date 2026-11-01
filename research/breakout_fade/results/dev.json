@@ -1,0 +1,139 @@
+{
+ "what": "breakout_fade dev (silver 2016-2023), outcome analysis 1; aggregates only",
+ "attempt": 1,
+ "checks": {
+  "manifest_key": "database/ohlcv_data/XAGUSD_ibkr_1min_20160101_20260930.parquet",
+  "manifest_sha256": "49ceaa3994fb83ba85413769c8fec48bc6051de25adaab794eb734ea62735bfb",
+  "rows": 2832852,
+  "prereg": "Amendment 1 (PREREG \u00a76), 2026-10-28",
+  "prereg_sha256": "5bf1864730d0e63d8b41f8a0f20c044031ec779d0382cf387188bfa013852ff3",
+  "git_head": "b1d5adb05c43b5fcf94b8aeffd8266353d76c8fb"
+ },
+ "model": {
+  "name": "parquet2021_2023",
+  "sha256": "dc0eb3c5fd31f1ee8f6e7a534b16930fbec453833aec9872b606afe963910dde"
+ },
+ "verdict_h1": "PASS",
+ "h1": {
+  "n": 505,
+  "B": 143,
+  "share_B": 0.28316831683168314,
+  "random_walk_share_B": 0.34266411312834355,
+  "difference": -0.05949579629666041,
+  "ci95": [
+   -0.09866532280576291,
+   -0.019555044400264635
+  ],
+  "p_one_sided": 0.0028997100289971
+ },
+ "h2": {
+  "n": 410,
+  "n_per_quartile": [
+   122,
+   107,
+   100,
+   81
+  ],
+  "months": 93,
+  "d_per_quartile": [
+   0.030150335380470183,
+   -0.029792547269417022,
+   -0.11495668006345278,
+   -0.026115509875554853
+  ],
+  "h2": -0.03517860045698862,
+  "ci95": [
+   -0.07140576633998175,
+   0.0020083273147110214
+  ],
+  "p_one_sided": 0.9695030496950305,
+  "resamples_dropped": 0
+ },
+ "bh": {
+  "H1": {
+   "p_adj": 0.0057994200579942,
+   "reject": true
+  },
+  "H2": {
+   "p_adj": 0.9695030496950305,
+   "reject": false
+  }
+ },
+ "break_even_spread_sigma": -0.22053147833394574,
+ "counts": {
+  "breaks": 505,
+  "excluded_short_day": 0,
+  "used": 505,
+  "B": 143,
+  "C": 362,
+  "h2_resolved": 410,
+  "h2_unresolved": 95,
+  "h2_truncated": 0
+ },
+ "descriptive": {
+  "by_direction": {
+   "bear": {
+    "n": 256,
+    "share_B": 0.26953125,
+    "h2_excess": -0.06450736271420715
+   },
+   "bull": {
+    "n": 249,
+    "share_B": 0.2971887550200803,
+    "h2_excess": -0.031805440657455504
+   }
+  },
+  "share_B_by_W": {
+   "4": {
+    "silver": 0.2495049504950495,
+    "random_walk": 0.2927287760683519
+   },
+   "5": {
+    "silver": 0.28316831683168314,
+    "random_walk": 0.34266411312834355
+   },
+   "6": {
+    "silver": 0.33861386138613864,
+    "random_walk": 0.3829812795488435
+   }
+  },
+  "move5_sigma_mean": {
+   "silver": -0.02629669661358902,
+   "random_walk": -0.00473976013323351
+  },
+  "move30_sigma_mean": {
+   "silver": -0.15132351259326338,
+   "random_walk": -0.010621055306322374
+  },
+  "h2_unstratified_analytic_excess": {
+   "n": 410,
+   "months": 93,
+   "excess": -0.049193291897386866,
+   "ci95": [
+    -0.08861447326977878,
+    -0.009274474075550064
+   ],
+   "p_one_sided": 0.9924007599240076,
+   "hit_rate": 0.25609756097560976,
+   "mean_P": 0.3052908528729966
+  }
+ },
+ "refused_starts": {
+  "bear": {
+   "swing_lows": 3700,
+   "before_events_start": 0,
+   "not_bearish": 2650,
+   "lh_broken_before_start": 113,
+   "while_live": 74,
+   "no_sigma": 3
+  },
+  "bull": {
+   "swing_lows": 3566,
+   "before_events_start": 0,
+   "not_bearish": 2567,
+   "lh_broken_before_start": 98,
+   "while_live": 79,
+   "no_sigma": 3
+  }
+ }
+}

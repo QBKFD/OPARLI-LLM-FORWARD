@@ -1,0 +1,511 @@
+#!/usr/bin/env python3
+"""The XAUUSD backfill, second half: pick whatToShow, validate, write.
+
+docs/BACKFILL_2026_PROPOSAL.md has the plan; tools/data/backfill_ibkr.py
+downloads on the EC2 paper gateway. This runs where XAUUSD.txt is (the Mac),
+on the JSON-lines files that tool wrote. Every rule below was fixed in the
+proposal before any data was read.
+
+    python tools/data/backfill_build.py pick OVERLAP.jsonl --out PICK.json
+        For each type in the overlap probe, the share of XAUUSD.txt's minutes
+        in 2026-01-19 .. 2026-01-30 that the type reproduces exactly (open,
+        high, low and close equal to 1e-6; a minute missing from the type
+        counts as a miss). The type with the highest share is picked if that
+        share is >= 99.5 %; else no type is picked and the backfill stops
+        (exit 1). Also reported: the share whose volume matches too.
+
+    python tools/data/backfill_build.py build DOWNLOAD.jsonl --pick PICK.json [--update-manifest]
+        Checks the download, then writes
+        database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet, or
+        <name>.rejected.parquet if a check fails (exit 1), and prints the
+        manifest entry. --update-manifest also writes the entry into
+        backend/datafeed/store/manifest.json and, on a pass, fills
+        XAUUSD.txt's what_to_show from the pick. Checks (any failure rejects):
+          - the file is complete ("end" line), from --download of the picked
+            type, on the same contract conId as the probe;
+          - every bar on the minute grid, inside 2026-02-01 .. 2026-09-30,
+            nothing at or after 2026-10-01;
+          - no conflicting duplicates (requests overlap, so equal duplicates
+            are expected and dropped);
+          - UTC by the session: on >= 90 % of days in each season, the last
+            bar before the daily 17:00 New York break is at 16:59 New York and
+            the first bar after it at 18:00 New York (21:59 / 23:00 UTC in
+            winter, 20:59 / 22:00 UTC from 2026-03-08);
+          - completeness: >= 90 % of trade dates have >= 90 % of 1380 minutes.
+        Recorded, not checks: bad OHLC bars (counted, never fixed), requests
+        with no bars or with IBKR errors, the best whole-hour shift of the
+        session test, gaps and duplicates, and the seam to XAUUSD.txt (times only).
+        The entry holds counts, shares, times and hashes, never a price: it
+        is committed to the public repo.
+
+Volume: IBKR's -1 ("none") is stored as NaN.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from backend.datafeed.store import manifest  # noqa: E402
+
+NY = ZoneInfo("America/New_York")
+TXT_KEY = "database/ohlcv_data/XAUUSD.txt"
+KEY = "database/ohlcv_data/XAUUSD_ibkr_1min_20260201_20260930.parquet"
+OVERLAP = ("2026-01-19", "2026-01-31")            # [start, end) UTC
+RANGE = ("2026-02-01", "2026-10-01")              # [start, end) UTC
+SEAL = "2026-10-01"
+PICK_MIN_SHARE = 0.995
+SESSION_MIN_SHARE = 0.90
+COMPLETE_MIN_SHARE, FULL_DAY_MINUTES = 0.90, 1380
+EPS = 1e-6
+
+
+class Rejected(Exception):
+    pass
+
+
+def read_days_dir(base: Path) -> tuple[dict, list[dict], list[dict], dict | None]:
+    """The resumable download (backfill_ibkr.py --instrument XAUUSD --what TYPE,
+    2026-10-28) in read_jsonl's shape: its meta as a download, one request entry
+    per week chunk, the day files' bars, and an end only if the run completed and
+    every day file is whole. A broken day file leaves the end out, so build()
+    rejects the download as incomplete."""
+    meta = json.loads((base / "_meta.json").read_text()) if (base / "_meta.json").exists() else {}
+    meta = {**meta, "mode": "download", "duration": "1 W (2 D per day refetched)",
+            "n_requests": len(list((base / "_done").glob("*.json")))}
+    reqs = [{"day": m["chunk_end"][:10], "bars": m["bars"], "errors": [{"code": c} for c in m["errors"]]}
+            for m in (json.loads(p.read_text()) for p in sorted((base / "_done").glob("*.json")))]
+    bars, whole = [], True
+    for f in sorted(base.glob("????-??-??.jsonl")):
+        lines = f.read_text().splitlines()
+        tail = json.loads(lines[-1]) if lines else {}
+        rows = [json.loads(x) for x in lines[:-1]]
+        if tail.get("kind") != "day_end" or tail.get("bars") != len(rows):
+            whole = False
+            continue
+        bars += [{**r, "type": meta.get("what_to_show")} for r in rows]
+    end = {"kind": "end"} if whole and (base / "_complete.json").exists() else None
+    return meta, reqs, bars, end
+
+
+def read_jsonl(path) -> tuple[dict, list[dict], list[dict], dict | None]:
+    meta, reqs, bars, end = None, [], [], None
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            k = r.get("kind")
+            if k == "meta":
+                meta = r
+            elif k == "request":
+                reqs.append(r)
+            elif k == "bar":
+                bars.append(r)
+            elif k == "end":
+                end = r
+    if meta is None or meta.get("schema") != "backfill_ibkr/1":
+        raise SystemExit(f"{path}: not a backfill_ibkr/1 file")
+    return meta, reqs, bars, end
+
+
+def frame(bars: list[dict]):
+    import numpy as np
+    import pandas as pd
+    df = pd.DataFrame(bars)
+    if df.empty:
+        return pd.DataFrame(columns=["type", "timestamp", "open", "high", "low", "close", "volume"])
+    vol = df["v"].astype("float64")
+    df = pd.DataFrame({"type": df["type"], "t": df["t"].astype("int64"),
+                       "timestamp": pd.to_datetime(df["t"], unit="s", utc=True).astype("datetime64[ns, UTC]"),
+                       "open": df["o"].astype("float64"), "high": df["h"].astype("float64"),
+                       "low": df["l"].astype("float64"), "close": df["c"].astype("float64"),
+                       "volume": vol.where(vol >= 0, np.nan)})
+    return df
+
+
+def dedupe(df) -> tuple[object, int]:
+    """Drop equal duplicates (overlapping requests); count conflicting ones."""
+    cols = ["type", "t", "open", "high", "low", "close", "volume"]
+    df = df.drop_duplicates(subset=cols).sort_values(["type", "t"], kind="stable")
+    conflicts = int(df.duplicated(subset=["type", "t"]).sum())
+    return df.reset_index(drop=True), conflicts
+
+
+def trade_dates(ts):
+    """The New York trade date of each bar (a session opens 18:00 NY for the next date)."""
+    import pandas as pd
+    et = pd.DatetimeIndex(ts).tz_convert(NY).tz_localize(None)
+    return (et + pd.Timedelta(hours=6)).normalize()
+
+
+def gaps(ts, top: int = 10) -> dict:
+    """Missing minutes inside a trade date's session: consecutive bars of the same
+    trade date more than 1 minute apart. The daily break and the weekend fall
+    between trade dates, so they are not gaps. Times and counts only."""
+    import numpy as np
+    import pandas as pd
+    ts = pd.DatetimeIndex(ts)
+    if len(ts) < 2:
+        return {"count": 0, "missing_minutes": 0, "longest": []}
+    td = trade_dates(ts)
+    step = np.diff(ts.asi8) // 60_000_000_000
+    same = td[1:] == td[:-1]
+    g = np.flatnonzero(same & (step > 1))
+    miss = step[g] - 1
+    order = g[np.argsort(-miss, kind="stable")][:top]
+    return {"count": int(len(g)), "missing_minutes": int(miss.sum()),
+            "longest": [{"after_utc": ts[i].isoformat(), "missing_minutes": int(step[i] - 1)} for i in order]}
+
+
+def rows_per_day(ts) -> dict:
+    """Rows per New York trade date (Mon-Fri), counts only."""
+    import pandas as pd
+    s = pd.Series(1, index=trade_dates(ts)).groupby(level=0).sum()
+    s = s[s.index.weekday <= 4]
+    return {str(d.date()): int(n) for d, n in s.items()}
+
+
+def load_txt(txt: Path, start: str, end: str):
+    import pandas as pd
+    manifest.verify(txt)
+    t = pd.read_csv(txt, skiprows=1, header=None, names=["tk", "d", "t", "open", "high", "low", "close", "vol"],
+                    dtype={"d": str, "t": str})
+    t = t[t["d"] >= start.replace("-", "")[:8]]
+    ts = pd.to_datetime(t["d"] + t["t"].str.zfill(6), format="%Y%m%d%H%M%S", utc=True)
+    out = pd.DataFrame({"timestamp": ts, "open": t["open"].astype("float64"), "high": t["high"].astype("float64"),
+                        "low": t["low"].astype("float64"), "close": t["close"].astype("float64"),
+                        "volume": t["vol"].astype("float64")})
+    s, e = pd.Timestamp(start, tz="UTC"), pd.Timestamp(end, tz="UTC")
+    return out[(out["timestamp"] >= s) & (out["timestamp"] < e)].drop_duplicates("timestamp").reset_index(drop=True)
+
+
+# --- pick -------------------------------------------------------------------------
+
+def pick(meta: dict, reqs: list[dict], bars: list[dict], ref) -> dict:
+    df, _ = dedupe(frame(bars))
+    table = {}
+    for t in sorted({r["type"] for r in reqs}):
+        got = df[df["type"] == t].set_index("timestamp")
+        m = ref.join(got[["open", "high", "low", "close", "volume"]], on="timestamp", rsuffix="_ib")
+        ohlc = ((m["open"] - m["open_ib"]).abs() <= EPS) & ((m["high"] - m["high_ib"]).abs() <= EPS) & \
+               ((m["low"] - m["low_ib"]).abs() <= EPS) & ((m["close"] - m["close_ib"]).abs() <= EPS)
+        vol = ohlc & ((m["volume"] - m["volume_ib"]).abs() <= EPS)
+        errs = sorted({e["code"] for r in reqs if r["type"] == t for e in r["errors"]})
+        rel = ((m["close"] - m["close_ib"]).abs() / m["close"]).median() if len(m) else None
+        table[t] = {"bars": int(len(got)), "ohlc_share": float(ohlc.mean()) if len(m) else 0.0,
+                    "median_rel_close_diff": None if rel is None or rel != rel else float(rel),
+                    "ohlc_and_volume_share": float(vol.mean()) if len(m) else 0.0, "ibkr_error_codes": errs}
+    best = max(table, key=lambda k: table[k]["ohlc_share"]) if table else None
+    chosen = best if best and table[best]["ohlc_share"] >= PICK_MIN_SHARE else None
+    return {"schema": "backfill_pick/1", "overlap_utc": list(OVERLAP), "reference": TXT_KEY,
+            "reference_minutes": int(len(ref)), "rule": f"highest ohlc_share, and >= {PICK_MIN_SHARE}",
+            "table": table, "chosen": chosen, "contract": meta["contract"],
+            "volume_reproduced": bool(chosen and table[chosen]["ohlc_and_volume_share"] >= PICK_MIN_SHARE)}
+
+
+# --- build checks -------------------------------------------------------------------
+
+def session_share(ts, shift_h: int = 0) -> dict:
+    """Per season (US DST or not), the share of days whose daily break edges sit
+    at 16:59 and 18:00 New York: the last bar before 17:00 (Mon-Fri) and the
+    first bar from 18:00 (Sun-Thu). ts: UTC DatetimeIndex."""
+    import pandas as pd
+    et = (pd.DatetimeIndex(ts) + pd.Timedelta(hours=shift_h)).tz_convert(NY)
+    f = pd.DataFrame({"day": et.tz_localize(None).normalize(), "mod": et.hour * 60 + et.minute})
+    wd = f["day"].dt.weekday
+    last = f[(f["mod"] < 17 * 60) & (wd <= 4)].groupby("day")["mod"].max() == 16 * 60 + 59
+    first = f[(f["mod"] >= 18 * 60) & wd.isin([6, 0, 1, 2, 3])].groupby("day")["mod"].min() == 18 * 60
+    out = {}
+    for season in ("dst", "std"):
+        def keep(r):
+            dst = [bool(datetime(d.year, d.month, d.day, 12, tzinfo=NY).dst()) for d in r.index]
+            return r[[x == (season == "dst") for x in dst]]
+        both = pd.concat([keep(last), keep(first)])
+        out[season] = {"days": int(len(both)), "share": float(both.mean()) if len(both) else None}
+    return out
+
+
+def _us_holidays(first, last) -> set:
+    """US federal holidays (observed) and Good Friday, as New York dates."""
+    import pandas as pd
+    from pandas.tseries.holiday import GoodFriday, USFederalHolidayCalendar
+    lo, hi = pd.Timestamp(first.date()) - pd.Timedelta(days=7), pd.Timestamp(last.date()) + pd.Timedelta(days=7)
+    days = set(USFederalHolidayCalendar().holidays(lo, hi).date) | set(GoodFriday.dates(lo, hi).date)
+    return days
+
+
+def weekend_share(ts, shift_h: int = 0) -> dict:
+    """Weekends (gaps > 24 h) whose last bar before falls on Friday 16:00-17:14 New
+    York and whose first bar after falls on Sunday 17:00-18:59 New York. Unlike the
+    daily-break test, a shift that lands in continuous trading can't pass this, so
+    it decides the best whole-hour shift (2026-10-28: the break test scored a 6 h
+    shift 99.6 %, because 16:59 and 18:00 are then both mid-session).
+    Weekends that span a US federal holiday or Good Friday are left out (counted
+    in `holiday_weekends_excluded`): their edges legitimately differ (closed
+    Friday, early close, no Sunday session). On the gold backfill, all 4 failing
+    weekends of 34 were such weekends, and the other 30 matched."""
+    import numpy as np
+    import pandas as pd
+    t = pd.DatetimeIndex(ts) + pd.Timedelta(hours=shift_h)
+    if len(t) < 2:
+        return {"weekends": 0, "share": None, "holiday_weekends_excluded": 0}
+    g = np.flatnonzero(np.diff(t.asi8) > 24 * 3600 * 10**9)
+    a, b = t[g].tz_convert(NY), t[g + 1].tz_convert(NY)
+    hol = _us_holidays(a.min(), b.max()) if len(g) else set()
+    span_hol = np.array([any((x.date() + pd.Timedelta(days=k).to_pytimedelta()) in hol
+                             for k in range((y.date() - x.date()).days + 1)) for x, y in zip(a, b)], bool)
+    ma, mb = a.hour * 60 + a.minute, b.hour * 60 + b.minute
+    ok = (a.weekday == 4) & (ma >= 16 * 60) & (ma < 17 * 60 + 15) & (b.weekday == 6) & (mb >= 17 * 60) & (mb < 19 * 60)
+    keep = ~span_hol
+    n = int(keep.sum())
+    return {"weekends": n, "share": float(ok[keep].mean()) if n else None,
+            "holiday_weekends_excluded": int(span_hol.sum())}
+
+
+WEEKEND_MIN_SHARE = 0.90
+
+
+def completeness(ts) -> dict:
+    import pandas as pd
+    et = pd.DatetimeIndex(ts).tz_convert(NY).tz_localize(None)
+    trade_date = (et + pd.Timedelta(hours=6)).normalize()           # a session opens 18:00 NY for the next date
+    counts = pd.Series(1, index=trade_date).groupby(level=0).sum()
+    counts = counts[counts.index.weekday <= 4]
+    full = int((counts >= 0.9 * FULL_DAY_MINUTES).sum())
+    short = {str(d.date()): int(n) for d, n in counts[counts < 0.9 * FULL_DAY_MINUTES].items()}
+    return {"trade_dates": int(len(counts)), "full": full, "share": full / len(counts) if len(counts) else 0.0,
+            "short_days": short}
+
+
+def build(meta, reqs, bars, end, pk: dict, txt_last=None) -> tuple[object, dict, list[str]]:
+    import pandas as pd
+    fails = []
+    if end is None:
+        fails.append("incomplete download: no 'end' line")
+    if meta.get("mode") != "download" or meta.get("what_to_show") != pk.get("chosen"):
+        fails.append(f"download is {meta.get('mode')} {meta.get('what_to_show')}, the pick is {pk.get('chosen')}")
+    if meta["contract"]["con_id"] != pk["contract"]["con_id"]:
+        fails.append(f"contract conId {meta['contract']['con_id']} != the probe's {pk['contract']['con_id']}")
+    raw = frame(bars)
+    df, conflicts = dedupe(raw)
+    exact_dupes = int(len(raw) - len(df))
+    if conflicts:
+        fails.append(f"{conflicts} conflicting duplicate bars")
+    df = df.drop_duplicates("t").drop(columns=["type"])
+    off_grid = int((df["t"] % 60 != 0).sum())
+    if off_grid:
+        fails.append(f"{off_grid} bars off the minute grid")
+    lo, hi = pd.Timestamp(RANGE[0], tz="UTC"), pd.Timestamp(RANGE[1], tz="UTC")
+    outside = int(((df["timestamp"] < lo) | (df["timestamp"] >= hi)).sum())
+    sealed = int((df["timestamp"] >= pd.Timestamp(SEAL, tz="UTC")).sum())
+    if sealed:
+        fails.append(f"{sealed} bars at or after {SEAL} (sealed)")
+    df = df[(df["timestamp"] >= lo) & (df["timestamp"] < hi)].drop(columns=["t"]).reset_index(drop=True)
+    if df.empty:
+        fails.append("no bars")
+    ts = pd.DatetimeIndex(df["timestamp"])
+    sess = session_share(ts) if len(df) else {}
+    for season, r in sess.items():
+        if not r["days"] or r["share"] < SESSION_MIN_SHARE:
+            fails.append(f"UTC session check, {season}: {r['share']} of {r['days']} days (need {SESSION_MIN_SHARE})")
+    wk = {h: weekend_share(ts, h) for h in range(-6, 7)} if len(df) else {}
+    best_shift = max(wk, key=lambda h: wk[h]["share"] or 0) if wk else None
+    if wk and (wk[0]["share"] or 0) < WEEKEND_MIN_SHARE:
+        fails.append(f"UTC weekend check: {wk[0]['share']} of {wk[0]['weekends']} weekends (need {WEEKEND_MIN_SHARE})")
+    if best_shift not in (None, 0) and (wk[best_shift]["share"] or 0) > (wk[0]["share"] or 0):
+        fails.append(f"timezone: the weekend fits best shifted by {best_shift} h, not 0 (UTC expected)")
+    comp = completeness(ts) if len(df) else {"share": 0.0}
+    if comp["share"] < COMPLETE_MIN_SHARE:
+        fails.append(f"completeness {comp['share']:.3f} < {COMPLETE_MIN_SHARE}")
+    bad = int((~((df["high"] >= df[["open", "close"]].max(axis=1)) &
+                 (df["low"] <= df[["open", "close"]].min(axis=1)))).sum()) if len(df) else 0
+    seam = None
+    if txt_last is not None and len(df):
+        # times only: the period is a holdout nobody has read, so no price or return is reported
+        seam = {"txt_last_ts": txt_last, "first_ts": df["timestamp"].iloc[0].isoformat(),
+                "before": {"file": TXT_KEY, "source": "IBKR XAUUSD CMDTY, whatToShow unknown (no IBKR type reproduces it)"},
+                "after": {"file": KEY, "source": f"IBKR XAUUSD CMDTY {pk.get('chosen')}, backfill_ibkr.py"},
+                "median_rel_close_diff_on_overlap": {t: r.get("median_rel_close_diff") for t, r in pk.get("table", {}).items()},
+                "rule": ("a study that uses the combined gold series must report how many events have a window "
+                         "crossing the seam, and exclude them or show the result both ways (owner, 2026-10-28)")}
+    utc = bool(len(df)) and str(df["timestamp"].dtype) == "datetime64[ns, UTC]"
+    checks = {"rows": int(len(df)), "timestamps_tz_aware_utc": utc,
+              "first_utc": df["timestamp"].iloc[0].isoformat() if len(df) else None,
+              "last_utc": df["timestamp"].iloc[-1].isoformat() if len(df) else None,
+              "exact_duplicates_dropped": exact_dupes, "gaps_in_session": gaps(ts) if len(df) else {},
+              "rows_per_trade_date": rows_per_day(ts) if len(df) else {},
+              "conflicting_duplicates": conflicts, "off_grid": off_grid, "outside_range_dropped": outside,
+              "sealed": sealed, "session_utc": sess, "weekend_utc": wk.get(0), "best_whole_hour_shift": best_shift,
+              "completeness": comp, "bad_ohlc_bars_not_fixed": bad,
+              "requests_without_bars": [r["day"] for r in reqs if r["bars"] == 0],
+              "requests_with_ibkr_errors": {r["day"]: sorted({e["code"] for e in r["errors"]})
+                                            for r in reqs if r["errors"]},
+              "seam": seam, "failures": fails}
+    return df, checks, fails
+
+
+def entry(meta, pk, checks, df, path: Path, passed: bool) -> dict:
+    d = manifest.describe(path)
+    return {
+        "in_git": False,
+        "status": "unused by any study",
+        "source": {
+            "provider": "IBKR historical data (tools/data/backfill_ibkr.py on the EC2 paper gateway)",
+            "licence": "IBKR market data, the owner's own use only: no redistribution, never in the public repo",
+            "contract": meta["contract"], "what_to_show": meta["what_to_show"], "bar_size": meta["bar_size"],
+            "use_rth": meta["use_rth"], "format_date": meta["format_date"], "duration_per_request": meta["duration"],
+            "client_id": meta["client_id"], "n_requests": meta["n_requests"], "downloaded_utc": meta["started_utc"],
+            "what_to_show_pick": {k: pk.get(k) for k in ("overlap_utc", "reference", "reference_minutes", "rule",
+                                                         "table", "chosen", "volume_reproduced", "decision")},
+        },
+        "timezone": "UTC (formatDate=2) and checked against the session: see checks.session_utc",
+        "validation": {"passed": passed, **checks},
+        "doc": "docs/BACKFILL_2026_PROPOSAL.md",
+        **d,
+    }
+
+
+def report(e: dict, name: str) -> str:
+    """The integrity report the owner pastes back: counts, times, shares and the
+    hash only. No price, return or volume."""
+    v = e["validation"]
+    g, c, sess = v.get("gaps_in_session") or {}, v.get("completeness") or {}, v.get("session_utc") or {}
+    per = list((v.get("rows_per_trade_date") or {}).values())
+    srt = sorted(per)
+    lines = [
+        "BACKFILL INTEGRITY REPORT (no prices)",
+        f"file: {name}",
+        f"sha256: {e.get('sha256')}",
+        f"passed: {'yes' if v['passed'] else 'NO'}",
+        f"rows: {v.get('rows')}   first UTC: {v.get('first_utc')}   last UTC: {v.get('last_utc')}",
+        f"timestamps tz-aware UTC: {v.get('timestamps_tz_aware_utc')}   off minute grid: {v.get('off_grid')}   "
+        f"at/after {SEAL}: {v.get('sealed')}   outside range dropped: {v.get('outside_range_dropped')}",
+        f"duplicates: exact dropped {v.get('exact_duplicates_dropped')}, conflicting {v.get('conflicting_duplicates')}",
+        f"timezone: best whole-hour shift {v.get('best_whole_hour_shift')} h (must be 0, by the weekend); weekend check "
+        f"{(v.get('weekend_utc') or {}).get('share')} of {(v.get('weekend_utc') or {}).get('weekends')} weekends "
+        f"({(v.get('weekend_utc') or {}).get('holiday_weekends_excluded')} holiday weekends left out); daily break "
+        + ", ".join(f"{k} {r['share']} of {r['days']} days" for k, r in sess.items()),
+        f"completeness: {c.get('full')} of {c.get('trade_dates')} trade dates full (share {c.get('share')})",
+        f"rows per trade date: min {srt[0] if srt else None}, median {srt[len(srt) // 2] if srt else None}, "
+        f"max {srt[-1] if srt else None}",
+        f"short days (< 90 % of {FULL_DAY_MINUTES}): {c.get('short_days')}",
+        f"gaps inside sessions: {g.get('count')} gaps, {g.get('missing_minutes')} missing minutes",
+        "longest gaps: " + "; ".join(f"{x['after_utc']} +{x['missing_minutes']} min" for x in g.get("longest", [])),
+        f"bad OHLC bars (counted, not fixed): {v.get('bad_ohlc_bars_not_fixed')}",
+        f"requests without bars: {v.get('requests_without_bars')}",
+        f"requests with IBKR errors: {v.get('requests_with_ibkr_errors')}",
+        f"seam: XAUUSD.txt last {(v.get('seam') or {}).get('txt_last_ts')}, backfill first {(v.get('seam') or {}).get('first_ts')}",
+        f"failures: {v.get('failures') or 'none'}",
+    ]
+    return "\n".join(lines)
+
+
+def _plain(o):
+    """numpy scalars and timestamps -> JSON."""
+    return o.item() if hasattr(o, "item") else str(o)
+
+
+def write_manifest(key: str, new: dict, txt_what: str | None, path: Path = None) -> None:
+    path = Path(path or manifest.MANIFEST)
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["files"][key] = new
+    if txt_what:
+        src = doc["files"][TXT_KEY]["source"]
+        src["what_to_show"] = txt_what
+        src["what_to_show_note"] = (f"{txt_what}: picked on the 2026-01-19 .. 2026-01-30 overlap by "
+                                    f"tools/data/backfill_build.py (see {key}, source.what_to_show_pick)")
+    path.write_text(json.dumps(doc, indent=1, ensure_ascii=False, default=_plain) + "\n", encoding="utf-8")
+    manifest._load.cache_clear()
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="backfill_build.py", description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("pick")
+    p.add_argument("overlap")
+    p.add_argument("--txt", default=str(ROOT / TXT_KEY))
+    p.add_argument("--out", required=True)
+    dcd = sub.add_parser("decide", help="record an owner decision that sets the type when no type passes the rule")
+    dcd.add_argument("pick")
+    dcd.add_argument("--type", required=True, choices=("MIDPOINT", "BID", "ASK", "TRADES"))
+    dcd.add_argument("--ref", required=True, help="where the decision is recorded, e.g. docs/DECISIONS.md OD1")
+    dcd.add_argument("--date", required=True)
+    dcd.add_argument("--out", required=True)
+    b = sub.add_parser("build")
+    b.add_argument("download")
+    b.add_argument("--pick", required=True)
+    b.add_argument("--txt", default=str(ROOT / TXT_KEY))
+    b.add_argument("--out-dir", default=str(ROOT / "database" / "ohlcv_data"))
+    b.add_argument("--update-manifest", action="store_true")
+    b.add_argument("--json", action="store_true", help="also print the full manifest entry")
+    b.add_argument("--from-days", action="store_true",
+                   help="DOWNLOAD is a directory of day files from backfill_ibkr.py --instrument XAUUSD --what TYPE")
+    a = ap.parse_args(argv)
+
+    if a.cmd == "pick":
+        meta, reqs, bars, end = read_jsonl(a.overlap)
+        if meta.get("mode") != "probe" or end is None:
+            ap.error(f"{a.overlap}: not a complete --probe-overlap file")
+        res = pick(meta, reqs, bars, load_txt(Path(a.txt), *OVERLAP))
+        Path(a.out).write_text(json.dumps(res, indent=1) + "\n", encoding="utf-8")
+        for t, r in res["table"].items():
+            print(f"{t:9s} bars {r['bars']:6d}  OHLC exact {r['ohlc_share']:.4%}  "
+                  f"+volume {r['ohlc_and_volume_share']:.4%}  errors {r['ibkr_error_codes']}")
+        if res["chosen"] is None:
+            print(f"no type reaches {PICK_MIN_SHARE:.1%}: STOP, no backfill (docs/BACKFILL_2026_PROPOSAL.md)")
+            return 1
+        print(f"picked {res['chosen']} (volume reproduced: {res['volume_reproduced']}); wrote {a.out}")
+        return 0
+
+    if a.cmd == "decide":
+        pk = json.loads(Path(a.pick).read_text(encoding="utf-8"))
+        if pk.get("chosen"):
+            ap.error(f"{a.pick}: the rule already picked {pk['chosen']}; no decision is needed")
+        pk["chosen"] = a.type
+        pk["volume_reproduced"] = False
+        pk["decision"] = {"by": "owner", "date": a.date, "ref": a.ref, "type": a.type,
+                          "replaces": f"the pick rule ({pk['rule']}): no type passed",
+                          "median_rel_close_diff_on_overlap": {t: r.get("median_rel_close_diff") for t, r in pk["table"].items()}}
+        Path(a.out).write_text(json.dumps(pk, indent=1) + "\n", encoding="utf-8")
+        print(f"decided {a.type} ({a.ref}); wrote {a.out}")
+        return 0
+
+    pk = json.loads(Path(a.pick).read_text(encoding="utf-8"))
+    if not pk.get("chosen"):
+        ap.error(f"{a.pick}: no type was picked; the backfill stops (an owner decision can set one: `decide`)")
+    meta, reqs, bars, end = read_days_dir(Path(a.download)) if a.from_days else read_jsonl(a.download)
+    ref = load_txt(Path(a.txt), *OVERLAP)
+    last = ref["timestamp"].iloc[-1].isoformat() if len(ref) else None
+    df, checks, fails = build(meta, reqs, bars, end, pk, last)
+    name = Path(KEY).name if not fails else Path(KEY).name.replace(".parquet", ".rejected.parquet")
+    out = Path(a.out_dir) / name
+    if out.exists():
+        ap.error(f"{out} exists; refusing to overwrite")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out, index=False)
+    e = entry(meta, pk, checks, df, out, not fails)
+    print(report(e, Path(out).name))
+    if a.json:
+        print(json.dumps(e, indent=1, default=_plain))
+    if a.update_manifest:
+        write_manifest(KEY if not fails else KEY.replace(".parquet", ".rejected.parquet"), e,
+                       pk["chosen"] if (not fails and not pk.get("decision")) else None)   # a decided type says nothing about XAUUSD.txt
+        print(f"manifest updated: {manifest.MANIFEST}", file=sys.stderr)
+    if fails:
+        print(f"REJECTED, written as {out}: " + "; ".join(fails), file=sys.stderr)
+        return 1
+    print(f"passed: {out}, {len(df)} bars", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

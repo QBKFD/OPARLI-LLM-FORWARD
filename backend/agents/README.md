@@ -10,8 +10,9 @@ Nothing trades, and nothing is deployed.**
   sentiment are LLM agents driven by the owner's prompts and `agents.toml`.
 - **After round 1**, a discussion runs between the LLM agents.
 
-The skeleton's design and report (`agents/DESIGN.md`, `agents/REPORT.md`) are
-history: they describe the bull/bear debate that the discussion replaced.
+The skeleton's design and report (`DESIGN.md`, `REPORT.md`) are history: they
+describe the bull/bear debate that the discussion replaced. The
+`feat/agents-skeleton` branch they name was merged into `main` in PR #4.
 
 ```
 trigger → snapshot ─(stale)──────────────────────────────► store
@@ -43,12 +44,12 @@ python3.13 -m venv .venv
 .venv/bin/pip install --require-hashes -r requirements/requirements.lock
 .venv/bin/pip install --no-deps --no-build-isolation -e .
 .venv/bin/pytest tests/agents tests/datafeed
-.venv/bin/pytest                     # everything: research + datafeed + agents
+.venv/bin/pytest                     # everything in `testpaths` (pyproject.toml)
 ```
 
-A bare `pytest` also runs the research suites (80 tests). They need the
+A bare `pytest` also runs the research suites. Their data tests need the
 untracked data from the main checkout, symlinked file by file into ignored
-directories:
+directories, and skip without it:
 - `database/ohlcv_data/*`;
 - `research/vol_features_r2/cache/xauusd_txt_pre2024_filetime.parquet`.
 
