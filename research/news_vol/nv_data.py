@@ -28,14 +28,18 @@ import sealing  # noqa: E402
 
 from backend.datafeed.store import manifest  # noqa: E402
 
+# Manifest keys, next to the data_guard calls (research/test_data_guard.py checks this statically)
+DATA_KEY = "database/ohlcv_data/XAUUSD.txt"
+CALENDAR_KEY = "database/historical_news/macro_calendar_utc.parquet"
+
 
 def _check_bars_file() -> dict:
-    path = ROOT / V.DATA_KEY
+    path = ROOT / DATA_KEY
     data_guard.assert_may_read(path, study=V.STUDY)
     got = manifest.verify(path)
-    if got != V.DATA_KEY:
+    if got != DATA_KEY:
         raise AssertionError(f"{path} matched manifest entry {got!r}")
-    return {"manifest_key": V.DATA_KEY, "manifest_sha256": manifest.load()["files"][V.DATA_KEY]["sha256"]}
+    return {"manifest_key": DATA_KEY, "manifest_sha256": manifest.load()["files"][DATA_KEY]["sha256"]}
 
 
 def _dev_index(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -73,7 +77,7 @@ def bars() -> tuple[pd.DataFrame, dict]:
 
 def events() -> tuple[pd.DataFrame, dict]:
     """[D2] usd_tier1 rows with a timestamp in dev, grouped by release minute."""
-    path = ROOT / V.CALENDAR_KEY
+    path = ROOT / CALENDAR_KEY
     data_guard.assert_may_read(path, study=V.STUDY)
     h = hashlib.sha256(path.read_bytes()).hexdigest()
     if h != V.CALENDAR_SHA256:
@@ -86,7 +90,7 @@ def events() -> tuple[pd.DataFrame, dict]:
     timed = t1[t1["ts_utc"].notna()]
     sealing.assert_period(V.MARKET, pd.DatetimeIndex(timed["ts_utc"]), "dev", "calendar rows")
     ev = nv.group_events(timed, V.DATA_EVENTS, V.FOMC_EVENTS)
-    info = {"calendar_key": V.CALENDAR_KEY, "calendar_sha256": h, "calendar_commit": V.CALENDAR_COMMIT,
+    info = {"calendar_key": CALENDAR_KEY, "calendar_sha256": h, "calendar_commit": V.CALENDAR_COMMIT,
             "tier1_rows_timed": int(len(timed)),
             "tier1_rows_untimed_dev": int(len(untimed)),
             "untimed_flags": {str(k): int(v) for k, v in untimed["time_flag"].value_counts().items()},
