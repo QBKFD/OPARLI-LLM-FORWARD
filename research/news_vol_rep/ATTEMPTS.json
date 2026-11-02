@@ -2,7 +2,7 @@
  "about": "Attempts of research/news_vol_rep (Study A replication on XAGUSD and EURUSD). prereg_attempts counts registrations of this question; amendments counts amendments; machinery_checks counts synthetic-data checks (no outcome); outcome_analyses counts analyses that read an outcome (incremented before the analysis runs).",
  "prereg_attempts": 1,
  "amendments": 0,
- "machinery_checks": 0,
+ "machinery_checks": 1,
  "outcome_analyses": 0,
  "log": [
   {
@@ -10,6 +10,13 @@
    "kind": "prereg",
    "date": "2026-11-02",
    "what": "PREREG: Study A's design (PREREG 843b447, N1 approved) on XAGUSD and EURUSD dev 2016-2023; verdict per market by D7, BH over both markets' 8 tests; counts only, no outcome",
+   "by": "owner brief, 2026-11-02 (R1-R5 approved)"
+  },
+  {
+   "n": 2,
+   "kind": "machinery_check",
+   "date": "2026-11-02",
+   "what": "synthetic prices on each market's dev bar times (XAGUSD, EURUSD), real event times; effect x4 for 30 min vs null (Study A PREREG section 7, as PREREG section 7 here)",
    "by": "owner brief, 2026-11-02 (R1-R5 approved)"
   }
  ]
