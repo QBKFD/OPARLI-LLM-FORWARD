@@ -3,7 +3,7 @@
  "prereg_attempts": 1,
  "amendments": 0,
  "machinery_checks": 1,
- "outcome_analyses": 0,
+ "outcome_analyses": 1,
  "log": [
   {
    "n": 1,
@@ -17,6 +17,13 @@
    "kind": "machinery_check",
    "date": "2026-11-02",
    "what": "synthetic prices on each market's dev bar times (XAGUSD, EURUSD), real event times; effect x4 for 30 min vs null (Study A PREREG section 7, as PREREG section 7 here)",
+   "by": "owner brief, 2026-11-02 (R1-R5 approved)"
+  },
+  {
+   "n": 3,
+   "kind": "outcome_analysis",
+   "date": "2026-11-02",
+   "what": "XAGUSD and EURUSD dev 2016-2023: Q1, Q2 (H 240, 60), Q3 per market; BH over both markets' 8 tests; verdict per market by D7 (single run)",
    "by": "owner brief, 2026-11-02 (R1-R5 approved)"
   }
  ]
