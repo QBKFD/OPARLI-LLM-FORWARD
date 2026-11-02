@@ -3,11 +3,11 @@
 These were taken during the unattended run of 2026-11-01. The owner's rule: take
 the conservative option, record it, continue. D1–D9 are the owner's, approved
 2026-11-01. The N rows below fill gaps D1–D9 leave open. They are part of the
-PREREG once it is merged.
+PREREG once it is merged. The owner has since approved N1 (2026-11-02).
 
 | # | Decision | Why | Alternative |
 |---|---|---|---|
-| N1 | **A release at minute e is in origin t's window when t ≤ e < t+H**, i.e. when its reaction bar (the 1-min bar opening at e) closes in (t, t+H]. | The window's returns are the bars opening in [t, t+H), so the window spans (t, t+H] in bar-close time, the convention of `vol_block`'s labels. Read with e as the release instant, "(t, t+H]" puts a whole-hour release on the wrong side: FOMC at 14:00 NY would flag the window ending at 14:00, with no FOMC in it, and leave the 14:00 window with the reaction unflagged. Both readings agree for every release that isn't on a whole hour (CPI and NFP, 8:30). `results/counts.md` gives the literal reading's counts too. **This is the one reading of an approved decision; the owner should check it first.** | The literal instant reading (counted only). |
+| N1 | **A release at minute e is in origin t's window when t ≤ e < t+H**, i.e. when its reaction bar (the 1-min bar opening at e) closes in (t, t+H]. | The window's returns are the bars opening in [t, t+H), so the window spans (t, t+H] in bar-close time, the convention of `vol_block`'s labels. Read with e as the release instant, "(t, t+H]" puts a whole-hour release on the wrong side: FOMC at 14:00 NY would flag the window ending at 14:00, with no FOMC in it, and leave the 14:00 window with the reaction unflagged. Both readings agree for every release that isn't on a whole hour (CPI and NFP, 8:30). `results/counts.md` gives the literal reading's counts too. **APPROVED (owner, 2026-11-02):** a release counts when its reaction bar falls in the window (t ≤ e < t+H). | The literal instant reading (counted only). |
 | N2 | Q1 and Q3 run at **H = 240** only. | D3 makes 240 primary, and D9 has one p for Q1 and one for Q3. Q1 at H = 60 is reported outside BH. | Both H in BH (a family of 6). |
 | N3 | "Release window" in Q1 and Q3 means **any** grouped event (data or FOMC). | D6 and D8 say "release" without a type. | Data releases only. |
 | N4 | **Training rows are non-crossing too**, the same for both arms. | D4 excludes crossing windows; fitting on them would mix two populations. This is sigma_compare's post-hoc amendment (a). | Fit on all rows (sigma_compare's original). |
