@@ -28,7 +28,7 @@ from backend.scanner.journal.outcomes import sweep_counterfactuals, sweep_outcom
 from backend.scanner.journal.schema import open_log, start_epoch
 from backend.scanner.journal.writes import last_live_bar, load_offset, save_offset, sweep_auto_missed
 from backend.scanner.market import _market_open, _valid_bar
-from backend.scanner.telegram import Telegram, _handle_reply
+from backend.scanner.telegram import TRANSPORT_ERRORS, Telegram, _handle_reply, poll_replies
 
 logger = logging.getLogger(__name__)
 
@@ -837,7 +837,7 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                     try:
                         tg.send(f"scanner: no XAUUSD bars for >{SILENCE_WARN_S // 60} min "
                                 f"during market hours — check the feed")
-                    except Exception:
+                    except TRANSPORT_ERRORS:
                         pass
                     hb["warned"] = True
             else:
@@ -847,15 +847,9 @@ def run_live(symbol: str = "XAUUSD", dry: bool = False):
                 _time.sleep(2)
                 continue
             polled_from = offset
-            try:
-                msgs, offset = tg.poll(offset)
-            except Exception as e:
-                # a Telegram/network hiccup must not kill the feed (it used to:
-                # "connection reset by peer" -> crash -> restart gap). offset is
-                # unchanged, so unread replies are fetched again next round.
-                print(f"telegram poll failed ({e!r}); retrying", flush=True)
-                _time.sleep(5)
-                msgs = []
+            # a transport error is logged and retried with the same offset;
+            # a parsing bug propagates (telegram.poll_replies)
+            msgs, offset = poll_replies(tg, offset)
             for msg in msgs:
                 _handle_reply(con, lock, tg, msg, epoch)
             if msgs or offset != polled_from:

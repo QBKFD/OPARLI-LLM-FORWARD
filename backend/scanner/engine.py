@@ -11,7 +11,7 @@ from backend.levels.build import SESSIONS, build_levels
 from backend.levels.touch import WINDOW_MIN, Scanner
 from backend.scanner.journal.writes import insert_alert, record_progress
 from backend.scanner.market import _utc
-from backend.scanner.telegram import format_alert
+from backend.scanner.telegram import TRANSPORT_ERRORS, format_alert
 
 class LiveLevels:
     """Keeps a live Scanner equal to a continuous replay over the same bars.
@@ -208,9 +208,10 @@ def _alert_sender(tg, dry: bool):
         if dry:
             print("ALERT  " + format_alert(a).replace("\n", " | "), flush=True)
             return
+        text = format_alert(a)          # a bug here propagates; only the send is best-effort
         try:
-            tg.send(format_alert(a))
-        except Exception as e:
+            tg.send(text)
+        except TRANSPORT_ERRORS as e:
             print(f"telegram send failed for {a['alert_id']}: {e}")
     return send
 

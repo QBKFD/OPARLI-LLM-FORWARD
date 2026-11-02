@@ -2,12 +2,19 @@
 wrapper (sendMessage, getUpdates), and handling one reply into a decision."""
 from __future__ import annotations
 
+import http.client
+import json
 from typing import NamedTuple
 
 import pandas as pd
 
 from backend.scanner.journal.outcomes import take_problem
 from backend.scanner.journal.writes import record_decision
+
+# What a Telegram call can fail with that is not our own bug: the network, the
+# HTTP layer (urllib's URLError/HTTPError are OSErrors), or a reply that is not
+# JSON. Everything else (a bug in the parser, the alert text, ...) propagates.
+TRANSPORT_ERRORS = (OSError, http.client.HTTPException, json.JSONDecodeError)
 
 # ── Telegram (stdlib only — message carries facts, never a recommendation) ──
 def format_alert(a: dict) -> str:
@@ -86,10 +93,15 @@ class Telegram:
     def send(self, text: str):
         return self._get("sendMessage", {"chat_id": self.chat_id, "text": text})
 
+    def fetch(self, offset: int):
+        """getUpdates (long poll): Telegram's JSON reply as it came. Only the
+        transport: it can fail with TRANSPORT_ERRORS, nothing is parsed here."""
+        return self._get("getUpdates", {"offset": offset, "timeout": 60})
+
     def poll(self, offset: int):
         """Long-poll replies. Returns (messages, next_offset): TelegramMessage
         for each text message from our chat, oldest first."""
-        res = self._get("getUpdates", {"offset": offset, "timeout": 60})
+        res = self.fetch(offset)
         return parse_updates(res.get("result", []), self.chat_id, offset)
 
 
@@ -127,8 +139,28 @@ def _send_quietly(tg, text: str):
     """Confirmation messages are best-effort: the decision is already logged."""
     try:
         tg.send(text)
-    except Exception as e:
+    except TRANSPORT_ERRORS as e:
         print(f"telegram send failed ({e!r})", flush=True)
+
+
+def poll_replies(tg, offset: int, sleep=None, log=print):
+    """One getUpdates round of a live main loop: (messages, next offset).
+
+    Only the HTTP call is inside the try. A transport error is logged and the
+    round is retried with the same offset (a Telegram or network hiccup must
+    not kill the feed: it used to, "connection reset by peer" -> crash ->
+    restart gap), after a 5 s pause. The replies are parsed outside it: a bug
+    there propagates, and the crash-only loop exits and restarts, instead of
+    being logged as a poll failure every 5 s with no reply journaled."""
+    import time as _time
+    sleep = sleep or _time.sleep
+    try:
+        res = tg.fetch(offset)
+    except TRANSPORT_ERRORS as e:
+        log(f"telegram poll failed ({e!r}); retrying", flush=True)
+        sleep(5)
+        return [], offset
+    return parse_updates(res.get("result", []), tg.chat_id, offset)
 
 
 def _handle_reply(con, lock, tg, msg: TelegramMessage, epoch: int, log=print):
