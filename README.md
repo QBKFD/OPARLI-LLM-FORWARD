@@ -13,7 +13,7 @@ this table and a report differ, the report is right.
 | Study | Verdict | One-line result | Report |
 |---|---|---|---|
 | `sigma_compare` | **adopted** | HAR σ on (L, S_hd, T) beats the plug-in: QLIKE −18 % at 60 min, −16 % at 240 min; better in 24/24 folds | [REPORT](research/sigma_compare/REPORT.md) |
-| `news_vol` (Study A) | **PASS** | telling HAR that a CPI, NFP or FOMC release is in the window lowers QLIKE −18.6 % at 240 min and −12.7 % at 60 min (DM p ≈ 1e−16); release windows have ~2.8× HAR's variance (Q1 +1.04 log); surprise size vs direction (Q3) n.s.; XAUUSD dev, gold only so far | [REPORT](research/news_vol/REPORT.md) |
+| `news_vol` (Study A) | **PASS**, replicated | telling HAR that a CPI, NFP or FOMC release is in the window lowers QLIKE at 240 min by −18.6 % on gold, −12.2 % on silver and −21.9 % on EURUSD (DM p ≤ 1e−11 in each; gold −12.7 % at 60 min); release windows have ~2.2–2.9× HAR's variance (Q1); FOMC carries 56–69 % of the gain; surprise size vs direction (Q3) n.s. on the metals; dev 2016–2023 | [gold](research/news_vol/REPORT.md), [XAGUSD + EURUSD](research/news_vol_rep/REPORT.md) |
 | `vol_block` | locked (engineering decision) | L, S_hd, T kept as the volatility block; confirmed and unconfirmed parts listed apart | [decision](research/vol_block/VOL_BLOCK_DECISION.md) |
 | `vol_features` r1 | not adopted | 3 features don't replace the 13 at 4h (R² 0.183 vs 0.249) | [REPORT](research/vol_features/REPORT.md) |
 | `vol_features` r2, r3 | not recommended | the no-clock rule fails: hour gain 0.0133 (r2), 0.0119 (r3) against a 0.01 limit | [r2](research/vol_features_r2/REPORT.md), [r3](research/vol_features_r3/REPORT.md) |
