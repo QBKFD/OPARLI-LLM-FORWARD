@@ -280,7 +280,8 @@ Built 2026-10-17, stacked on `feat/agents-discussion` (#23).
 Built 2026-10-31 from the owner's brief (macro calendar ingest, data prep
 only, plus the six additions). The results are in `docs/MACRO_CALENDAR.md`.
 **MC1 and MC3 depart from the brief** and wait for the owner. The rest fill
-gaps the brief leaves open.
+gaps the brief leaves open. MC1 and MC11's N were decided by the owner on
+2026-11-08; see the next section.
 
 | # | Decision | Reason | Alternative |
 |---|---|---|---|
@@ -299,3 +300,15 @@ gaps the brief leaves open.
 | MC13 | `manifest check --content` checks a content hash only for entries that have one. The clean calendar parquet has only a file hash: a rebuild is byte-identical, checked. | The content hash covers OHLCV columns, which a calendar doesn't have. | A calendar content hash. |
 | MC14 | `.gitignore` also ignores CSVs and parquets in any `database/historical_news*/` folder. The raw files sat untracked and unignored in `database/historical_news_1/` of the main checkout. | One `git add -A` there would have committed the scrape. | — |
 | MC15 | The clean table keeps untimed rows (null `ts_utc` + `time_flag`). It drops exact duplicate rows (2). | The brief: flag, never guess. | — |
+
+## data/macro-calendar: owner decisions (2026-11-08)
+
+| # | Decision | Reason | Replaces |
+|---|---|---|---|
+| OD4 | **MC1 approved: the 2015–2023 Forex Factory times are UTC+8** (`Etc/GMT-8`); 2024–2026 stay Europe/Warsaw. The builder and the clean table are unchanged. | The anchor check: 0 mismatches under UTC+8 in 2015–2023, 64–66 per year under Warsaw. | The original brief's Europe/Warsaw for every year |
+| OD5 | **Surprise scaling (z) for a Forex Factory series: surprise / the expanding SD of that series' past surprises, first used once N ≥ 24 past surprises** (`n_prior` ≥ 24, so strictly earlier `ts_utc`: no look-ahead, and same-time rows don't count each other). A row with `n_prior` < 24 gets no z. **A rolling SD over the last 60 past surprises is reported as a sensitivity check only**; it never decides a result. | Owner. | MC11's "N = 24 is proposed" |
+| OD6 | **OD5's details (owner, 2026-11-08):** the SD is taken **around 0**, the root mean square of the past surprises: z = surprise / √(mean of the n_prior past surprises²). **The rolling sensitivity check starts once 60 past surprises exist** (`n_prior` ≥ 60) and uses the last 60; before that it gives no value. | Owner. | The sample SD around the expanding mean; a rolling window shorter than 60 from N = 24 |
+
+**Still open:** MC3 (the two nulled CPI y/y rows).
+
+**Note:** Study B's first part (FOMC, `docs/STUDY_B_FEASIBILITY.md` §5) takes its surprises from the FRBSF series, not Forex Factory, so OD5 applies from its data-release part on.
