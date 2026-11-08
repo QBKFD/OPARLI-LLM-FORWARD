@@ -19,7 +19,7 @@
   "source": "database/ohlcv_data/XAUUSD_1min_UTC_clean.parquet (rows 2020-01-01 .. < 2024-01-01; training rows from 2021-01-01)",
   "train_start": "2021-01-01T00:00:00+00:00"
  },
- "definition": "var(t, H) = P(t, H) * exp(beta . [1, L, S_hd, T, d_data, d_fomc]) * smear_c. P, L, S_hd, T as in sigma_har (P over the first H market-open minutes u >= t, the window [t, E)). d_data / d_fomc = 1 when an event of that group (currency, impact and names in 'events') has t <= ts_utc < E, else 0. Same VolParams as the base model.",
+ "definition": "var(t, H) = P(t, H) * exp(beta . [1, L, S_hd, T, d_data, d_fomc]) * smear_c. P, L, S_hd, T as in sigma_har (P over the first H market-open minutes u >= t, the window [t, E)). d_data / d_fomc = 1 when an event of that group (currency, impact and names in 'events') has t <= ts_utc < E, else 0. Same VolParams as the base model. Fitted on windows that don't cross a close; a crossing window is outside the training rows.",
  "events": {
   "currency": "USD",
   "data": [
@@ -47,42 +47,25 @@
  "horizons": {
   "240": {
    "beta": [
-    -0.20235292368896493,
-    0.8654974028245975,
-    0.3086494819714593,
-    -0.21358419617197708,
-    1.0627489730011037,
-    2.1473547886993836
+    -0.12126451114388423,
+    0.8461041248093873,
+    0.28905261041826064,
+    -0.23120509494733435,
+    0.9701584123671189,
+    2.037204354025191
    ],
-   "n_train": 17576,
-   "n_train_crossing": 2968,
-   "n_train_crossing_with_release": 24,
+   "n_base_rows_dropped_crossing": 2968,
+   "n_train": 14608,
    "n_train_data": 280,
-   "n_train_fomc": 96,
-   "smear_c": 1.188433563659132
-  },
-  "60": {
-   "beta": [
-    -0.251958154201588,
-    0.9172914182454502,
-    0.47167244397327673,
-    -0.1530935134712161,
-    1.5608598023823739,
-    2.8420573960576667
-   ],
-   "n_train": 17659,
-   "n_train_crossing": 738,
-   "n_train_crossing_with_release": 0,
-   "n_train_data": 70,
-   "n_train_fomc": 24,
-   "smear_c": 1.2235604025413258
+   "n_train_fomc": 72,
+   "smear_c": 1.1031679978079119
   }
  },
- "horizons_note": "fitted for H = 60 and 240 only; other H are not supported",
+ "horizons_note": "H = 240 only (owner, 2026-11-08); any other H is not supported",
  "model": "sigma_har_news",
- "sha256": "616a0394f2f98fba4f18c5c63daa80196b9d9bfecade8d76069b06a0f5e12a2a",
+ "sha256": "61990324215e145bcc251b213ac8fa850ed0175f63adcc39e32891160fd98b5a",
  "study": {
-  "fit": "research/news_vol/fit_final.py, not pre-registered (DECISIONS.md NS1-NS6)",
+  "fit": "research/news_vol/fit_final.py, not pre-registered (DECISIONS.md NS1-NS8)",
   "path": "research/news_vol",
   "prereg_commit": "843b447",
   "results_merge": "4b72e08",

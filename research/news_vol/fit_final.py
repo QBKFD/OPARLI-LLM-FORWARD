@@ -3,19 +3,20 @@
 
 Not part of Study A's PREREG, and no outcome test: Study A's verdict (PASS, #64;
 replicated on XAGUSD and EURUSD, #69) chose the design. This fits it once for live
-use, as research/sigma_compare/fit_final.py did for HAR. DECISIONS.md, NS1-NS6.
+use, as research/sigma_compare/fit_final.py did for HAR. DECISIONS.md, NS1-NS8.
 
-Data and rows: exactly those of the default live model, parquet2021_2023
-(sigma_compare fit_final.py parquet): the clean XAUUSD parquet, rows 2020-01-01 ..
-< 2024-01-01; VolParams and OLS from 2021-01-01; every hourly label whose window
-ends by 2024-01-01, crossing windows included (sigma_compare's pre-registered fit).
-The base fit must reproduce the shipped model (VolParams hash, beta, smear_c), or
-nothing is written.
+Data: those of the default live model, parquet2021_2023 (sigma_compare fit_final.py
+parquet): the clean XAUUSD parquet, rows 2020-01-01 .. < 2024-01-01; VolParams and
+training labels from 2021-01-01; windows ending by 2024-01-01. The base fit must
+reproduce the shipped model (VolParams hash, beta, smear_c), or nothing is written.
 
-Augmented arm: Study A's (D5) on the same rows: X = [1, L, S_hd, T, d_data, d_fomc],
-OLS of ln(RV / P) plus Duan smearing. d_x = 1 when a grouped usd_tier1 release of
-that type falls in the window, t <= e < E (N1), E = the end of the window's H
-market-open minutes (t + H unless the window crosses a close).
+Augmented arm: Study A's (D5, N4), owner 2026-11-08: the base model's training rows
+**without the windows that cross the daily break**; X = [1, L, S_hd, T, d_data,
+d_fomc], OLS of ln(RV / P) plus Duan smearing. d_x = 1 when a grouped usd_tier1
+release of that type falls in the window, t <= e < t + H (N1).
+
+Shipped: H = 240 only (owner, 2026-11-08). The H = 60 fit, the 60-min FOMC term
+included, is in fit_final_result.json for the record and isn't shipped.
 
     .venv/bin/python research/news_vol/fit_final.py
 """
@@ -51,11 +52,13 @@ NAME = f"sigma_har_news_parquet2021_2023_v{VERSION}.json"
 MODEL = HERE / "model" / NAME
 LIVE = ROOT / "backend" / "datafeed" / "features" / "models" / NAME
 RESULT = HERE / "model" / "fit_final_result.json"
+SHIP_H = (240,)                                      # owner, 2026-11-08
 
 DEFINITION = ("var(t, H) = P(t, H) * exp(beta . [1, L, S_hd, T, d_data, d_fomc]) * smear_c. P, L, S_hd, "
               "T as in sigma_har (P over the first H market-open minutes u >= t, the window [t, E)). "
               "d_data / d_fomc = 1 when an event of that group (currency, impact and names in "
-              "'events') has t <= ts_utc < E, else 0. Same VolParams as the base model.")
+              "'events') has t <= ts_utc < E, else 0. Same VolParams as the base model. Fitted on windows that "
+              "don't cross a close; a crossing window is outside the training rows.")
 
 
 def flags(labels: pd.DatetimeIndex, E_ns: np.ndarray, ev_ns: np.ndarray) -> np.ndarray:
@@ -92,26 +95,33 @@ def main() -> int:
         b_har, c_har = nv.fit_smeared(fit.X[train], y)
         assert np.array_equal(b_har, fit.model[H]["beta"]) and c_har == fit.model[H]["c"]
         Xa = np.column_stack([fit.X, d_data, d_fomc])
-        beta, c = nv.fit_smeared(Xa[train], y)
-        horizons[str(H)] = {"beta": [float(b) for b in beta], "smear_c": float(c), "n_train": int(train.sum()),
-                            "n_train_data": int(d_data[train].sum()), "n_train_fomc": int(d_fomc[train].sum()),
-                            "n_train_crossing": int((train & w.crossing).sum()),
-                            "n_train_crossing_with_release": int((train & w.crossing & ((d_data + d_fomc) > 0)).sum())}
-        # descriptive, in-sample (no test): the news model against the base off and on releases
-        h_har = P * np.exp(fit.X @ b_har) * c_har
-        h_aug = P * np.exp(Xa @ beta) * c
-        none = train & (d_data == 0) & (d_fomc == 0)
-        nc = train & ~w.crossing
-        bn, cn = nv.fit_smeared(Xa[nc], np.log(w.rv[nc] / P[nc]))
+        nc = train & ~w.crossing                                     # Study A's N4
+        beta, c = nv.fit_smeared(Xa[nc], np.log(w.rv[nc] / P[nc]))
+        fitted = {"beta": [float(b) for b in beta], "smear_c": float(c), "n_train": int(nc.sum()),
+                  "n_train_data": int(d_data[nc].sum()), "n_train_fomc": int(d_fomc[nc].sum()),
+                  "n_base_rows_dropped_crossing": int((train & w.crossing).sum())}
+        if H in SHIP_H:
+            horizons[str(H)] = fitted
+        # descriptive, in-sample (no test): news against the shipped default model
+        h_base = P * np.exp(fit.X @ b_har) * c_har
+        h_news = P * np.exp(Xa @ beta) * c
+        rel = (d_data + d_fomc) > 0
+
+        def med(mask):
+            return float(np.median(h_news[mask] / h_base[mask]))
+
+        bx, cx = nv.fit_smeared(Xa[train], y)
         result["horizons"][str(H)] = {
+            "shipped": H in SHIP_H, "fit": fitted,
             "variance_multiplier_data": float(np.exp(beta[4])), "variance_multiplier_fomc": float(np.exp(beta[5])),
-            "median_ratio_news_to_base_no_release": float(np.median(h_aug[none] / h_har[none])),
-            "median_ratio_news_to_base_data": float(np.median(h_aug[train & (d_data == 1)] / h_har[train & (d_data == 1)])),
-            "median_ratio_news_to_base_fomc": float(np.median(h_aug[train & (d_fomc == 1)] / h_har[train & (d_fomc == 1)])),
-            "noncrossing_rows_only_fit": {"beta": [float(b) for b in bn], "smear_c": float(cn), "n_train": int(nc.sum())},
+            "median_variance_ratio_news_to_default": {
+                "no_release_noncrossing": med(nc & ~rel), "no_release_crossing": med(train & w.crossing & ~rel),
+                "no_release_all": med(train & ~rel), "data": med(nc & (d_data == 1)), "fomc": med(nc & (d_fomc == 1))},
+            "fit_with_crossing_rows_superseded": {"beta": [float(b) for b in bx], "smear_c": float(cx),
+                                                  "n_train": int(train.sum())},
         }
-        rs.log(f"H={H}: beta={[round(b, 4) for b in beta]} c={c:.4f} n_train={int(train.sum()):,} "
-               f"(data {horizons[str(H)]['n_train_data']}, FOMC {horizons[str(H)]['n_train_fomc']})")
+        rs.log(f"H={H}: beta={[round(b, 4) for b in beta]} c={c:.4f} n_train={int(nc.sum()):,} "
+               f"(data {fitted['n_train_data']}, FOMC {fitted['n_train_fomc']}){'' if H in SHIP_H else ' not shipped'}")
 
     data = json.loads((vb.MODELS_DIR / vb.SIGMA_MODELS[BASE][0]).read_text())["data"]   # same bars and rows
     data["calendar"] = {"key": nv_data.CALENDAR_KEY, "sha256": info["calendar_sha256"],
@@ -123,10 +133,10 @@ def main() -> int:
         "study": {"path": "research/news_vol", "prereg_commit": "843b447", "results_merge": "4b72e08",
                   "verdict": "PASS (REPORT.md section 1); replicated on XAGUSD and EURUSD "
                              "(research/news_vol_rep, PREREG d653c68, results 9f9c8b0)",
-                  "fit": "research/news_vol/fit_final.py, not pre-registered (DECISIONS.md NS1-NS6)"},
+                  "fit": "research/news_vol/fit_final.py, not pre-registered (DECISIONS.md NS1-NS8)"},
         "base_model": {"name": BASE, "sha256": base.sha256},
         "definition": DEFINITION,
-        "horizons_note": "fitted for H = 60 and 240 only; other H are not supported",
+        "horizons_note": "H = 240 only (owner, 2026-11-08); any other H is not supported",
         "data": data,
         "events": {"currency": "USD", "impact": "High", "data": list(V.DATA_EVENTS), "fomc": list(V.FOMC_EVENTS),
                    "rule": "t <= ts_utc < E; untimed rows never count"},

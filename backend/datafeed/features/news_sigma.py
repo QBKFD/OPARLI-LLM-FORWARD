@@ -10,9 +10,19 @@ THE MODEL
     rate and press conference as FOMC.
     Evidence: Study A (PREREG 843b447), PASS: QLIKE -19 % at 240 min on gold,
     replicated on XAGUSD (-12 %) and EURUSD (-22 %) (research/news_vol_rep).
-    The shipped fit is research/news_vol/fit_final.py: the default HAR model's bars,
-    rows and VolParams (parquet2021_2023) with the two indicators added, so a state
-    from state_at(model.params) serves both models.
+    The shipped fit is research/news_vol/fit_final.py: the default HAR model's bars
+    and VolParams (parquet2021_2023), so a state from state_at(model.params) serves
+    both models, and its training rows without the windows that cross the daily
+    break (Study A's N4; owner, 2026-11-08). Training years 2021-2023 only: the
+    multipliers (variance x2.6 data, x7.7 FOMC) are that period's.
+    H = 240 only (owner, 2026-11-08): the 60-min terms, FOMC's included, are off;
+    for H = 60 use sigma_over.
+
+WHAT CHANGES AGAINST sigma_over
+    Not only release windows: all six terms are refit, and part of the release vol
+    sat in the default model's intercept. With no release in the window the news
+    model's variance is a median 0.94x the default's (sigma about 3 % lower),
+    in-sample 2021-2023 (research/news_vol/model/fit_final_result.json).
 
 THE CALENDAR
     Only the schedule is read (time, currency, impact, name), never an actual. The
@@ -22,10 +32,10 @@ THE CALENDAR
     Untimed rows never count (calendar_source drops them).
 
 WHAT IT DOESN'T DO
-    Nothing calls it yet: sigma_over, the scanner, risk/ and the agents are unchanged.
-    An unscheduled event (the 2020-03-03 cut) is in no calendar. A window that
-    crosses a close and holds a release had no rows in Study A, which excluded
-    crossing windows; the fit includes them (research/news_vol/DECISIONS.md NS3).
+    It is off: nothing calls it, and sigma_over, the scanner, risk/ and the agents
+    are unchanged. An unscheduled event (the 2020-03-03 cut) is in no calendar. A
+    window that crosses a close is outside the training rows; its sigma is computed
+    the same way and flagged crosses_close (research/news_vol/DECISIONS.md NS3).
 """
 
 from __future__ import annotations
@@ -49,7 +59,7 @@ FEATURES = ("1", "L", "S_hd", "T", "d_data", "d_fomc")
 # research/news_vol/fit_final.py wrote it. Pinned here, like vol_block.SIGMA_MODELS.
 NEWS_SIGMA_MODELS = {
     "news_parquet2021_2023": ("sigma_har_news_parquet2021_2023_v1.json",
-                              "616a0394f2f98fba4f18c5c63daa80196b9d9bfecade8d76069b06a0f5e12a2a"),
+                              "61990324215e145bcc251b213ac8fa850ed0175f63adcc39e32891160fd98b5a"),
 }
 DEFAULT_NEWS_SIGMA_MODEL = "news_parquet2021_2023"
 

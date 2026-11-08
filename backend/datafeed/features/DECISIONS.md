@@ -103,6 +103,12 @@ here.
       `models/sigma_har_news_parquet2021_2023_v1.json` is pinned by SHA-256, like
       the HAR models. It shares `parquet2021_2023`'s VolParams, so the same state
       serves both.
+    - **Owner (2026-11-08):**
+      - trained without windows that cross the daily break;
+      - **H = 240 only**: H = 60 raises, and `sigma_over` serves it;
+      - the flag stays off, so nothing calls it.
+    - **What changes against `sigma_over`:**
+      - at 240 min, variance ×2.6 with a data release and ×7.7 with FOMC (2021–2023 fit);
+      - with no release, about 0.94× (σ about 3 % lower), because all terms are refit.
     - The events come from the caller, with `known_until`; a window past it raises.
-    - Nothing calls it yet. The fit and its choices:
-      `research/news_vol/DECISIONS.md`, NS1–NS6.
+    - Fit and choices: `research/news_vol/DECISIONS.md`, NS1–NS8.

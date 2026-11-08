@@ -38,7 +38,7 @@ def ev(ts, event="CPI m/m", currency="USD", impact="High"):
 def test_shipped_model_loads_with_its_pinned_sha256():
     m = ns.load_news_model()
     assert (m.name, m.version, m.sha256) == ("news_parquet2021_2023", 1, ns.NEWS_SIGMA_MODELS[m.name][1])
-    assert set(m.horizons) == {60, 240}
+    assert set(m.horizons) == {240}                       # owner, 2026-11-08: the 60-min terms are off
     assert all(len(b) == 6 for b, _ in m.horizons.values())
     assert m.groups.currency == "USD" and m.groups.impact == "High"
     assert m.groups.data == {"CPI m/m", "CPI y/y", "Core CPI m/m", "Non-Farm Employment Change"}
@@ -86,8 +86,8 @@ def _as_har(model: ns.NewsSigmaModel) -> ns.NewsSigmaModel:
 
 
 @pytest.mark.parametrize("ts", ["2021-03-24 10:00", "2021-03-23 20:00", "2021-11-03 13:17:30"])
-@pytest.mark.parametrize("H", [60, 240])
-def test_zero_release_terms_give_sigma_over_exactly(ts, H):
+def test_zero_release_terms_give_sigma_over_exactly(ts):
+    H = 240
     model = _as_har(ns.load_news_model())
     st = state(ts, L=-0.2, S_hd=0.1, T=-0.05, close=1900.0)
     got = ns.sigma_over_news(model, st, H, [ev("2021-03-24 12:30"), ev("2021-11-03 18:00", "FOMC Statement")], FAR)
@@ -115,19 +115,19 @@ def test_formula_by_hand():
 # ---------------------------------------------------------------- which events count
 
 def test_window_is_t_inclusive_end_exclusive():
-    """N1: t <= e < E. Wed 2021-03-24 10:00 UTC + 60 open minutes ends at 11:00."""
+    """N1: t <= e < E. Wed 2021-03-24 10:00 UTC + 240 open minutes ends at 14:00."""
     model, st = ns.load_news_model(), state("2021-03-24 10:00")
-    assert ns.sigma_over_news(model, st, 60, [ev("2021-03-24 10:00")], FAR).d_data
-    assert ns.sigma_over_news(model, st, 60, [ev("2021-03-24 10:59")], FAR).d_data
-    assert not ns.sigma_over_news(model, st, 60, [ev("2021-03-24 11:00")], FAR).d_data
-    assert not ns.sigma_over_news(model, st, 60, [ev("2021-03-24 09:59")], FAR).d_data
+    assert ns.sigma_over_news(model, st, 240, [ev("2021-03-24 10:00")], FAR).d_data
+    assert ns.sigma_over_news(model, st, 240, [ev("2021-03-24 13:59")], FAR).d_data
+    assert not ns.sigma_over_news(model, st, 240, [ev("2021-03-24 14:00")], FAR).d_data
+    assert not ns.sigma_over_news(model, st, 240, [ev("2021-03-24 09:59")], FAR).d_data
 
 
 def test_mid_minute_t_starts_at_the_next_minute():
     model = ns.load_news_model()
     st = state("2021-03-24 10:00:20")
-    assert not ns.sigma_over_news(model, st, 60, [ev("2021-03-24 10:00")], FAR).d_data
-    assert ns.sigma_over_news(model, st, 60, [ev("2021-03-24 11:00")], FAR).d_data
+    assert not ns.sigma_over_news(model, st, 240, [ev("2021-03-24 10:00")], FAR).d_data
+    assert ns.sigma_over_news(model, st, 240, [ev("2021-03-24 14:00")], FAR).d_data
 
 
 def test_window_over_the_daily_break_uses_its_open_minutes():
@@ -144,9 +144,9 @@ def test_only_the_models_groups_count():
     others = [ev("2021-03-24 10:30", "CPI m/m", currency="EUR"), ev("2021-03-24 10:30", impact="Medium"),
               ev("2021-03-24 10:30", "Unemployment Claims"), ev("2021-03-24 10:30", "Core PCE Price Index m/m"),
               ev("2021-03-24 10:30", "FOMC Meeting Minutes")]
-    s = ns.sigma_over_news(model, st, 60, others, FAR)
+    s = ns.sigma_over_news(model, st, 240, others, FAR)
     assert (s.d_data, s.d_fomc, s.releases) == (False, False, ())
-    s = ns.sigma_over_news(model, st, 60, others + [ev("2021-03-24 10:30", "FOMC Press Conference")], FAR)
+    s = ns.sigma_over_news(model, st, 240, others + [ev("2021-03-24 10:30", "FOMC Press Conference")], FAR)
     assert (s.d_data, s.d_fomc) == (False, True) and [e.event for e in s.releases] == ["FOMC Press Conference"]
 
 
@@ -154,14 +154,14 @@ def test_only_the_models_groups_count():
 
 def test_a_window_past_the_calendar_raises():
     model, st = ns.load_news_model(), state("2021-03-24 10:00")
-    assert ns.sigma_over_news(model, st, 60, [], t("2021-03-24 11:00")).known_until == t("2021-03-24 11:00")
+    assert ns.sigma_over_news(model, st, 240, [], t("2021-03-24 14:00")).known_until == t("2021-03-24 14:00")
     with pytest.raises(ValueError, match="known_until"):
-        ns.sigma_over_news(model, st, 60, [], t("2021-03-24 10:59"))
+        ns.sigma_over_news(model, st, 240, [], t("2021-03-24 13:59"))
     with pytest.raises(ValueError, match="naive"):
-        ns.sigma_over_news(model, st, 60, [], datetime(2030, 1, 1))
+        ns.sigma_over_news(model, st, 240, [], datetime(2030, 1, 1))
 
 
-@pytest.mark.parametrize("H", [30, 120, 60.0, True])
+@pytest.mark.parametrize("H", [60, 30, 120, 240.0, True])
 def test_only_fitted_horizons(H):
     with pytest.raises(ValueError, match="H must be one of"):
         ns.sigma_over_news(ns.load_news_model(), state("2021-03-24 10:00"), H, [], FAR)
@@ -171,11 +171,11 @@ def test_state_from_other_params_or_unusable_raises():
     model = ns.load_news_model()
     txt = vb.load_sigma_model("txt2007_2023").params
     with pytest.raises(ValueError, match="other VolParams"):
-        ns.sigma_over_news(model, state("2021-03-24 10:00", params=txt), 60, [], FAR)
+        ns.sigma_over_news(model, state("2021-03-24 10:00", params=txt), 240, [], FAR)
     with pytest.raises(ValueError, match="insufficient_history"):
-        ns.sigma_over_news(model, state("2021-03-24 10:00", reason="insufficient_history"), 60, [], FAR)
+        ns.sigma_over_news(model, state("2021-03-24 10:00", reason="insufficient_history"), 240, [], FAR)
     with pytest.raises(ValueError, match="valid state"):
-        ns.sigma_over_news(model, state("2021-03-24 10:00", T=float("nan")), 60, [], FAR)
+        ns.sigma_over_news(model, state("2021-03-24 10:00", T=float("nan")), 240, [], FAR)
 
 
 def test_from_a_real_state_built_with_the_model_params():
@@ -188,7 +188,7 @@ def test_from_a_real_state_built_with_the_model_params():
     model = ns.load_news_model()
     st = vb.state_at(model.params, m, pd.Timestamp("2021-03-24 10:00", tz="UTC"))
     assert st.reason is None
-    for H in (60, 240):
+    for H in (240,):
         quiet = ns.sigma_over_news(model, st, H, [], FAR).sigma
         fomc = ns.sigma_over_news(model, st, H, [ev("2021-03-24 10:30", "FOMC Statement")], FAR).sigma
         assert fomc.sigma_ret / quiet.sigma_ret == pytest.approx(math.exp(model.horizons[H][0][5] / 2), rel=1e-12)
