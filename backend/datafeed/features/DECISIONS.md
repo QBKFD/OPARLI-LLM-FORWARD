@@ -94,3 +94,15 @@ here.
       - a state from the txt params is refused by the parquet model;
       - an unstamped state is refused;
       - the hash survives a JSON round trip and changes with the content.
+
+## feat/news-sigma (2026-11-08)
+
+14. **`news_sigma.py` adds a news-aware σ next to `sigma_over`, which is unchanged.**
+    - `sigma_over_news(model, state, H, events, known_until)`: HAR plus Study A's
+      I(data release) and I(FOMC) in the window. The model file
+      `models/sigma_har_news_parquet2021_2023_v1.json` is pinned by SHA-256, like
+      the HAR models. It shares `parquet2021_2023`'s VolParams, so the same state
+      serves both.
+    - The events come from the caller, with `known_until`; a window past it raises.
+    - Nothing calls it yet. The fit and its choices:
+      `research/news_vol/DECISIONS.md`, NS1–NS6.

@@ -18,3 +18,23 @@ PREREG once it is merged. The owner has since approved N1 (2026-11-02).
 | N9 | **The calendar was looked at before this PREREG was committed**, for its schema and the count of usd_tier1 rows per event and flag. | Needed to write §3. These are timestamps and names only: no value, no price. | — |
 | N10 | **The synthetic check's parameters** (×4 for 30 minutes, the AR(1), the profile, the ×0.5–×2 band) were set by Claude. While the code was written, before the PREREG was fixed, it ran on made-up events (short) and once on the full period with the real event times (passed: Q1 0.88× the truth). These runs used synthetic bars and timestamps only, no real price. | The check tests machinery, not data. Its parameters are fixed in this PREREG before the formal run from the merged commit. | — |
 | N11 | **The bars come from `XAUUSD.txt`** (the audit_long cache), not the clean parquet. | D1 says dev 2016–2023, and the parquet starts in 2020. The same source is used by variance_ratio and pullback_structure on the same period. | — |
+
+## feat/news-sigma: the live fit (`fit_final.py`, 2026-11-08)
+
+After the verdict, not part of the PREREG, and no outcome test: a model fit for live
+use, as `research/sigma_compare/fit_final.py` was. The owner asked for `feat/news-sigma`
+in the plan of 2026-11-08 but didn't fix its design. These are Claude's choices.
+
+| # | Decision | Why | Alternative |
+|---|---|---|---|
+| NS1 | **Same bars, VolParams and training rows as the default live model `parquet2021_2023`**: the clean parquet from 2020 (warm-up), training labels from 2021-01-01, windows ending by 2024-01-01. The script refuses to write unless its base fit reproduces that model exactly (VolParams hash, β, c): it did. | One `state_at(model.params)` serves both σ's, and the news model differs from the default only by the release terms and their refit. Owner decision #12 (features/DECISIONS.md) picked this data and window for live. | Study A's own data and window (XAUUSD.txt, expanding from 2016): about 2.5× as many FOMC windows, but other VolParams, so a second state. |
+| NS2 | **Study A's augmented arm, as tested:** OLS of ln(RV/P) on [1, L, S_hd, T, d_data, d_fomc] plus Duan smearing; all six terms refit. Study A's groups (D2, N7): data = CPI m/m, CPI y/y, Core CPI m/m, NFP; FOMC = statement, rate, press conference; USD, High impact, timed. | It is the design Study A validated out of sample. | Keep the base β and c fixed and fit only the two release terms: σ outside news windows would then equal the default exactly, but that model wasn't tested. |
+| NS3 | **Crossing windows are in the training rows**, as in the default model. A release counts when t ≤ e < E, with E the end of the window's H market-open minutes (= t + H unless the window crosses a close). | The default model was fit on them (sigma_compare's pre-registered fit) and live σ is asked for any t. At H = 240, 24 of 17,576 training rows cross a close and hold a release; at H = 60, none. | Study A's N4, non-crossing rows only: its coefficients are in `model/fit_final_result.json` (240 min: data 0.97, FOMC 2.04 vs 1.06, 2.15 shipped). |
+| NS4 | **The calendar's coverage is the caller's statement:** `sigma_over_news` takes `known_until` and raises when the window ends after it. | A missing or stale calendar must not read as "no release" (the owner's rule: missing config → abstain, never default). | Treat a missing calendar as no release. |
+| NS5 | **Nothing calls it.** `sigma_over`, the default model, the scanner, `risk/` and the agents are unchanged. | Wiring σ into brackets or sizing is the owner's decision (Study A report §3). | Make it the default. |
+| NS6 | **`fit_final_result.json` holds in-sample descriptives only:** variance multipliers, the news/base ratio on and off releases, the non-crossing fit. No QLIKE or other out-of-sample comparison. | Study A and its replication already tested the design; a new test would be a new study. | — |
+
+**What the fit gave** (the model file and `model/fit_final_result.json`):
+- **Release multipliers on variance:** 240 min ×2.9 (data), ×8.6 (FOMC); 60 min ×4.8, ×17.2.
+- **Training rows:** 240 min 280 data and 96 FOMC rows; 60 min 70 and 24. The 60-min FOMC term rests on 24 windows (one per meeting, 2021–2023).
+- **Outside news windows**, the news model's variance is a median 0.93× (240 min) and 0.96× (60 min) the default's, i.e. σ about 3.5 % and 2 % lower. Part of the release vol sat in the default model's intercept.

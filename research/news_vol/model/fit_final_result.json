@@ -1,0 +1,44 @@
+{
+ "base_model": "parquet2021_2023",
+ "horizons": {
+  "240": {
+   "median_ratio_news_to_base_data": 2.67585080337787,
+   "median_ratio_news_to_base_fomc": 7.904313697302183,
+   "median_ratio_news_to_base_no_release": 0.9315950284786909,
+   "noncrossing_rows_only_fit": {
+    "beta": [
+     -0.12126451114388423,
+     0.8461041248093873,
+     0.28905261041826064,
+     -0.23120509494733435,
+     0.9701584123671189,
+     2.037204354025191
+    ],
+    "n_train": 14608,
+    "smear_c": 1.1031679978079119
+   },
+   "variance_multiplier_data": 2.8943164611288754,
+   "variance_multiplier_fomc": 8.562179641006415
+  },
+  "60": {
+   "median_ratio_news_to_base_data": 4.5744441179558795,
+   "median_ratio_news_to_base_fomc": 16.43933928106094,
+   "median_ratio_news_to_base_no_release": 0.9630169854093146,
+   "noncrossing_rows_only_fit": {
+    "beta": [
+     -0.19973802264226206,
+     0.9151916385004909,
+     0.46050972345944197,
+     -0.16192249927260907,
+     1.504689778986532,
+     2.791757656094819
+    ],
+    "n_train": 16921,
+    "smear_c": 1.1668112891582993
+   },
+   "variance_multiplier_data": 4.762914650489377,
+   "variance_multiplier_fomc": 17.151015695019733
+  }
+ },
+ "model_sha256": "616a0394f2f98fba4f18c5c63daa80196b9d9bfecade8d76069b06a0f5e12a2a"
+}
