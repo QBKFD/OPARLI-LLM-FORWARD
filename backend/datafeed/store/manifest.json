@@ -1,6 +1,6 @@
 {
  "schema": "data_manifest/1",
- "about": "The data files code reads, by path from the repo root. Checked by backend/datafeed/store/manifest.py. The real price files are IBKR data, licensed for the owner's own use only; the macro calendar files are scraped (licence unclear). All are untracked and never committed (public repo). Only the synthetic fixture is in git.",
+ "about": "The data files code reads, by path from the repo root. Checked by backend/datafeed/store/manifest.py. The real price files are IBKR data, licensed for the owner's own use only; the macro calendar files are scraped (licence unclear); the FOMC surprise files are San Francisco Fed downloads (credit required, docs/FOMC_SURPRISES.md). All are untracked and never committed (public repo). Only the synthetic fixture is in git.",
  "files": {
   "database/ohlcv_data/XAUUSD.txt": {
    "in_git": false,
@@ -9573,6 +9573,78 @@
     "surprise": "float64",
     "n_prior": "Int64"
    }
+  },
+  "database/fomc_surprises/USMPD.xlsx": {
+   "in_git": false,
+   "status": "unused by any study",
+   "doc": "docs/FOMC_SURPRISES.md",
+   "periods": "research/SEALING.md: rows dated from 2026-10-01 on are sealed; a loader must drop them before reading any value. Their count is below (sealed_rows), from the date column only.",
+   "source": {
+    "provider": "Federal Reserve Bank of San Francisco, US Monetary Policy Event-Study Database (USMPD)",
+    "url": "https://www.frbsf.org/wp-content/uploads/USMPD.xlsx",
+    "page": "https://www.frbsf.org/research-and-insights/data-and-indicators/us-monetary-policy-event-study-database/",
+    "downloaded_utc": "2026-11-08T15:12:10Z",
+    "source_update": "30 October 2026 (the file's README sheet)",
+    "reference": "Acosta, Ajello, Bauer, Loria and Miranda-Agrippino (2025), FRBSF Working Paper 2025-30, doi:10.24148/wp2025-30",
+    "terms": "frbsf.org/site-policies (read 2026-11-08), 'Appropriate Use': reproduction allowed 'without limitation as to number' if 'not distributed for the purpose of private gain' and 'appropriately credited to the Federal Reserve Bank of San Francisco'; third-party copyrighted material needs the owner's permission. The data pages state no other licence. USMPD is built from LSEG Tick History (feasibility doc). Kept local, never in git; cite the references."
+   },
+   "contents": "sheets README, Statements (280 rows), Press Conferences (96), Monetary Events (280), Minutes (207): per event Date, date_time, then 30-min (statements, minutes) or 70-min (press conferences) changes in money-market futures, OIS, Treasury, TIPS, equity and FX. Units: percentage points.",
+   "bytes": 199373,
+   "sha256": "2b91297c42cf692dd74f65eabf7ee97f81d452676e23fa02edb222bfa60f0d0a",
+   "rows": 280,
+   "rows_note": "Statements sheet; per-sheet counts in contents",
+   "first_ts": "1994-02-04T11:05:00",
+   "last_ts": "2026-10-28T14:00:00",
+   "timezone": "date_time as in the file; not yet checked against #60's calendar (New York time expected)",
+   "sealed_rows": 4,
+   "sealed_rows_note": "one event per sheet (Statements, Press Conferences, Monetary Events: 2026-10-28; Minutes: 2026-10-08)"
+  },
+  "database/fomc_surprises/monetary-policy-surprises-data.xlsx": {
+   "in_git": false,
+   "status": "unused by any study",
+   "doc": "docs/FOMC_SURPRISES.md",
+   "periods": "research/SEALING.md: rows dated from 2026-10-01 on are sealed; a loader must drop them before reading any value. Their count is below (sealed_rows), from the date column only.",
+   "source": {
+    "provider": "Federal Reserve Bank of San Francisco, Monetary Policy Surprises (Bauer and Swanson)",
+    "url": "https://www.frbsf.org/wp-content/uploads/monetary-policy-surprises-data.xlsx",
+    "page": "https://www.frbsf.org/research-and-insights/data-and-indicators/monetary-policy-surprises/",
+    "downloaded_utc": "2026-11-08T15:12:10Z",
+    "source_update": "not stated; the FOMC sheet is 'update 2023'",
+    "reference": "Bauer and Swanson (2023), 'A Reassessment of Monetary Policy Surprises and High-Frequency Identification', NBER Macroeconomics Annual",
+    "terms": "frbsf.org/site-policies (read 2026-11-08), 'Appropriate Use': reproduction allowed 'without limitation as to number' if 'not distributed for the purpose of private gain' and 'appropriately credited to the Federal Reserve Bank of San Francisco'; third-party copyrighted material needs the owner's permission. The data pages state no other licence. USMPD is built from LSEG Tick History (feasibility doc). Kept local, never in git; cite the references."
+   },
+   "contents": "sheets Description, FOMC (update 2023) (361 meetings: Date, Time, Unscheduled, futures and asset changes, MPS, MPS_ORTH, controls), Monthly (update 2023), FOMC (original) (323), Monthly (original).",
+   "bytes": 301655,
+   "sha256": "708606624de050cdaf6fd850a320b38d45099ab7c2398e01ba12dcece5743668",
+   "rows": 361,
+   "rows_note": "FOMC (update 2023) sheet",
+   "first_ts": "1988-02-04T00:00:00",
+   "last_ts": "2023-12-13T00:00:00",
+   "sealed_rows": 0
+  },
+  "database/fomc_surprises/monetary-policy-surprises.zip": {
+   "in_git": false,
+   "status": "unused by any study",
+   "doc": "docs/FOMC_SURPRISES.md",
+   "periods": "research/SEALING.md: rows dated from 2026-10-01 on are sealed; a loader must drop them before reading any value. Their count is below (sealed_rows), from the date column only.",
+   "source": {
+    "provider": "Federal Reserve Bank of San Francisco, surprises computed from USMPD (Acosta et al. 2025 methodology)",
+    "url": "https://www.frbsf.org/wp-content/uploads/monetary-policy-surprises.zip",
+    "page": "https://www.frbsf.org/research-and-insights/data-and-indicators/us-monetary-policy-event-study-database/",
+    "downloaded_utc": "2026-11-08T15:12:10Z",
+    "source_update": "CSV members dated 2026-10-30",
+    "reference": "Acosta, Ajello, Bauer, Loria and Miranda-Agrippino (2025), FRBSF Working Paper 2025-30",
+    "terms": "frbsf.org/site-policies (read 2026-11-08), 'Appropriate Use': reproduction allowed 'without limitation as to number' if 'not distributed for the purpose of private gain' and 'appropriately credited to the Federal Reserve Bank of San Francisco'; third-party copyrighted material needs the owner's permission. The data pages state no other licence. USMPD is built from LSEG Tick History (feasibility doc). Kept local, never in git; cite the references."
+   },
+   "contents": "mps.R, gss.R, README.md; mps.csv (280 meetings: Date, STMT, PC, ME surprises, normalized to move the 1-year Treasury yield one-for-one, so positive = hawkish), mps_minutes.csv (175: Date, MIN), y1.csv (8,197 days: Date, SVENY01).",
+   "bytes": 78948,
+   "sha256": "ee9f98bc6a2b49e43078dde0028413c6ca008df39fa57104ca1bf1174c27af0d",
+   "rows": 280,
+   "rows_note": "mps.csv",
+   "first_ts": "1994-02-04T00:00:00",
+   "last_ts": "2026-10-28T00:00:00",
+   "sealed_rows": 18,
+   "sealed_rows_note": "mps.csv 1, mps_minutes.csv 1, y1.csv 16"
   }
  }
 }

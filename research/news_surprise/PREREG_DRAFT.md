@@ -5,14 +5,18 @@
   committed `PREREG.md` naming a guarded file, so the macro calendar stays closed to this
   study even if the draft is merged. The bars aren't a guarded file. What keeps them unread
   is that this branch has no code.
-- **Nothing was downloaded, and no price or surprise value was read.** The only numbers used
-  are Study A's committed event counts (`research/news_vol/results/counts.md`).
-- **OPEN** marks what must be fixed before the PREREG. **B1–B12** are Claude's proposals
+- **No price or surprise value was read.** The FRBSF files were downloaded on 2026-11-08 (owner's
+  go-ahead) and registered "unused by any study" (`docs/FOMC_SURPRISES.md`); only their sheet
+  names, headers, row counts and date columns were read. The other numbers are Study A's
+  committed event counts (`research/news_vol/results/counts.md`).
+- **Updated 2026-11-08 after the owner's review:** the extension to 2012–2023 is **blocked** by
+  the period rules (§2a); the design stays on 2016–2023 until the owner decides.
+- **OPEN** marks what must be fixed before the PREREG. **B1–B13** are Claude's proposals
   (reasons and alternatives in `DECISIONS.md`); the owner approves, changes or rejects each one.
 
 Basis: `docs/STUDY_B_FEASIBILITY.md` (#65), Study A (`research/news_vol`, PASS, replicated in
 `research/news_vol_rep`), and the owner's decisions of 2026-11-08 (`docs/DECISIONS.md`,
-OD4 and OD5; PR #70).
+OD4–OD6; PR #70).
 
 ## 1. Question
 
@@ -27,7 +31,7 @@ with surprises scaled by OD5. It is not designed here.
 - **Would say:** gold's reaction to the FOMC has a direction that the surprise, once known,
   explains.
 - **Wouldn't say:** that the direction is tradeable. The surprise is measured from futures
-  in the 30 minutes around the statement. It is known only after the release, so it isn't a
+  around the statement and the press conference. It is known only after the release, so it isn't a
   forecast.
 
 ## 2. Data
@@ -36,7 +40,7 @@ with surprises scaled by OD5. It is not designed here.
 |---|---|---|
 | Market | XAUUSD, dev 2016-01-01 .. 2023-12-31 (B1). Bars: `XAUUSD.txt`, as Study A (N11), through data_guard, the manifest and `sealing.assert_period(..., "dev")` | Same files as Study A |
 | Events | Scheduled FOMC statements in #60's calendar (`FOMC Statement` / `Federal Funds Rate`, grouped by minute as Study A's N7): **64 meetings**, 8 a year. The two unscheduled 2020 actions are excluded (B2) | Counts from Study A, below |
-| Surprise | The FRBSF series (feasibility §1). **Primary:** Bauer–Swanson's monetary policy surprise (the first principal component). **Secondary:** USMPD's statement-window change in the front fed funds future (a Kuttner-type target surprise) (B3) | **OPEN:** download (needs the owner's go-ahead), coverage of 2016–2023, column definitions, terms of use, the manifest entry |
+| Surprise | The FRBSF files (`docs/FOMC_SURPRISES.md`). **Primary: `ME` in `mps.csv`**, the "monetary event" surprise (statement and press conference together, Acosta et al. 2025), because the 60-min window holds both. **Secondary:** Bauer–Swanson's `MPS` (statement window; ends 2023-12-13). **Check:** `STMT` (statement only). All three are normalized so that +1 moves the 1-year Treasury yield +1 pp: **positive = hawkish** (B3, revised from the column definitions; B10) | **Downloaded 2026-11-08**, hashes and terms in the manifest, "unused by any study". Both cover 2012–2023 in full. **No value read.** OPEN: the PREREG names the files |
 | Seal | Nothing from 2024-01-01 is read; the global seal (2026-10-01) holds anyway | — |
 
 **Scheduled statements per year** (Study A's counts, minus the 2 unscheduled):
@@ -48,6 +52,21 @@ with surprises scaled by OD5. It is not designed here.
 Study A's FOMC release minutes also hold press conferences: 4 a year in 2016–2018, then one
 per meeting. **OPEN:** match each meeting's FRBSF row to its statement minute by NY date, and
 list any meeting the FRBSF files lack.
+
+## 2a. The 2012–2015 extension (owner, 2026-11-08): blocked by the rules as written
+
+The owner asked to extend Part 1 to FOMC 2012–2023 if the sealing and era rules allow 2012–2015 for gold, and
+otherwise to stop and report. **They don't, so the draft stays on 2016–2023.**
+
+| Rule | 2012–2015 | Blocks? |
+|---|---|---|
+| **Instrument periods** (`research/SEALING.md`, owner 2026-10-28; `sealing.py`) | Gold has three periods: dev 2016–2023, holdout 2024–2026-09, sealed. 2012–2015 is in **none**, so `sealing.assert_period("XAUUSD", ts, "dev")` refuses those rows, and no other period name exists. They aren't sealed, and they have been read before (`squeeze_oco` 2012–2020, `sigma_compare` 2007–2020) | **Yes:** it needs a period from the owner (e.g. "pre-dev 2012–2015, seen") |
+| **Data eras of `XAUUSD.txt`** (`research/README.md`, owner 2026-10-26) | 2012–2014 is the era with a 60-min daily break against 61 min from 2015; the owner called the difference cosmetic | No |
+| **Event times** (`docs/DECISIONS.md` MC2) | #60's calendar covers 2015–2026 only. FOMC statements were at 12:30 or 14:15 NY before 2013, so "the 14:00 anchor would need an era rule". USMPD has each statement's time, so a source exists | **Yes, until a rule says which source gives 2012–2014's times** |
+| **σ** | Study A's walk-forward HAR starts in 2016 (first out-of-sample fold 2018). 2012–2015 needs a σ rule too (for example sigma_compare's folds, which start in 2007) | A design choice, not a rule |
+
+**Power if the owner opens 2012–2015** (96 scheduled meetings, 8 a year; §5's method): about **0.25** at
+α = 0.05, and 0.31 at BH's strictest rank (0.0125), against 0.31 and 0.38 with 64.
 
 ## 3. Windows and outcome
 
@@ -94,7 +113,7 @@ Let s be the primary surprise (positive = hawkish, higher expected rates).
 
 ## 5. Power (rough, before any data)
 
-There are 64 events. For a one-sided correlation test at α = 0.05, 80 % power needs about
+There are 64 events (96 with 2012–2015, §2a). For a one-sided correlation test at α = 0.05, 80 % power needs about
 |ρ| ≥ 0.31. At BH's strictest rank of 4, α = 0.0125, it needs about 0.38. With 2018–2023 only
 (48 events) the figures are 0.35 and 0.43.
 
@@ -148,10 +167,11 @@ The generator's parameters are fixed in the PREREG.
 
 ## 10. OPEN before this becomes a PREREG
 
-1. Owner go-ahead to download the FRBSF files (free). Then: coverage, columns, terms,
-   manifest entry, data_guard key. **No surprise value is looked at before the PREREG is
-   merged**, apart from the schema and the row count per year.
-2. B1–B12 approved or changed.
+1. **Done 2026-11-08:** the FRBSF files are downloaded and registered (`docs/FOMC_SURPRISES.md`). The PREREG
+   must name their manifest keys. **No surprise value is looked at before the PREREG is merged.**
+1a. **The owner's call on 2012–2015 (§2a):** a period for gold 2012–2015, a rule for 2012–2014's statement
+   times, and a σ for those years.
+2. B1–B13 approved or changed.
 3. The primary surprise column (B3), fixed from the column definitions alone.
 4. The machinery check's generator parameters.
 5. The pilot's comparison source (Part 2 only; it doesn't block Part 1).
