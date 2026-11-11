@@ -54,7 +54,13 @@ def test_the_shipped_manifest_lists_the_files_with_hashes():
         {"database/ohlcv_data/DXY_PROXY_1min_20160101_20260930.parquet"}             # planned, docs/MULTI_MARKET_DATA.md
     calendar = {f"database/historical_news/forex_factory_calendar_{y}.csv" for y in range(2015, 2027)} | \
         {"database/historical_news/macro_calendar_utc.parquet"}                      # docs/MACRO_CALENDAR.md
-    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC, BACKFILL} | multi | calendar
+    fomc = {f"database/fomc_surprises/{f}" for f in                                  # docs/FOMC_SURPRISES.md
+            ("USMPD.xlsx", "monetary-policy-surprises-data.xlsx", "monetary-policy-surprises.zip")}
+    assert set(doc["files"]) == {TXT, CLEAN, REAL_FIXTURE, SYNTHETIC, BACKFILL} | multi | calendar | fomc
+    for k in fomc:                                                                 # no study may read them yet
+        e = doc["files"][k]
+        assert e["status"] == "unused by any study" and not e["in_git"] and "frbsf.org" in e["source"]["url"]
+        assert e["source"]["downloaded_utc"] and e["source"]["terms"] and isinstance(e["sealed_rows"], int)
     for k in multi:                                                                # planned, or built with its hashes
         e = doc["files"][k]
         assert e["status"] == "unused by any study" and (e.get("planned") or (len(e["sha256"]) == 64 and e["validation"]["passed"]))
