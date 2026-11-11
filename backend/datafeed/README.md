@@ -231,6 +231,7 @@ The functions:
 | `ingest/gold_options.py` | planned, later PR |
 | `calendar_source.py` | v1: the macro calendar as of t (`events_as_of`, `news_window`); actuals hidden until after release, untimed rows counted. Not wired into ingest or the store |
 | `features/vol_block.py` | v1: L, S_hd, T as in `research/vol_block` (bit-identical), as of t from the store. `sigma_over` = HAR sigma over the next H market-open minutes (H = 60, 240) from a shipped model in `features/models/`, SHA-256 pinned (research/sigma_compare); the former plug-in is `sigma_plugin`. Needs numpy and pandas |
+| `features/news_sigma.py` | v1, **off** (nothing calls it): `sigma_over_news` = HAR plus Study A's I(data release) and I(FOMC) in the window (research/news_vol), **H = 240 only**, from a SHA-256-pinned model sharing `parquet2021_2023`'s VolParams, fitted on 2021–2023 non-crossing windows. Variance ×2.6 (data) / ×7.7 (FOMC); with no release, σ about 3 % below `sigma_over`. Events and `known_until` from the caller; a window past `known_until` raises |
 | `features/exposures.py` | planned, later PR |
 | `store/sealed.py` | planned, later PR |
 | `store/manifest.py`, `store/manifest.json` | v1: the data manifest (source, cleaning steps, range, SHA-256 of `XAUUSD.txt` and the clean parquet); `ReplaySource` checks it before reading. `python -m backend.datafeed.store.manifest check` |

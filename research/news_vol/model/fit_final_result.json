@@ -1,0 +1,84 @@
+{
+ "base_model": "parquet2021_2023",
+ "horizons": {
+  "240": {
+   "fit": {
+    "beta": [
+     -0.12126451114388423,
+     0.8461041248093873,
+     0.28905261041826064,
+     -0.23120509494733435,
+     0.9701584123671189,
+     2.037204354025191
+    ],
+    "n_base_rows_dropped_crossing": 2968,
+    "n_train": 14608,
+    "n_train_data": 280,
+    "n_train_fomc": 72,
+    "smear_c": 1.1031679978079119
+   },
+   "fit_with_crossing_rows_superseded": {
+    "beta": [
+     -0.20235292368896493,
+     0.8654974028245975,
+     0.3086494819714593,
+     -0.21358419617197708,
+     1.0627489730011037,
+     2.1473547886993836
+    ],
+    "n_train": 17576,
+    "smear_c": 1.188433563659132
+   },
+   "median_variance_ratio_news_to_default": {
+    "data": 2.4844673088308395,
+    "fomc": 7.2203024901233075,
+    "no_release_all": 0.9429913173546141,
+    "no_release_crossing": 0.9434301928730656,
+    "no_release_noncrossing": 0.9429032388691976
+   },
+   "shipped": true,
+   "variance_multiplier_data": 2.638362375480954,
+   "variance_multiplier_fomc": 7.6691390037442275
+  },
+  "60": {
+   "fit": {
+    "beta": [
+     -0.19973802264226206,
+     0.9151916385004909,
+     0.46050972345944197,
+     -0.16192249927260907,
+     1.504689778986532,
+     2.791757656094819
+    ],
+    "n_base_rows_dropped_crossing": 738,
+    "n_train": 16921,
+    "n_train_data": 70,
+    "n_train_fomc": 24,
+    "smear_c": 1.1668112891582993
+   },
+   "fit_with_crossing_rows_superseded": {
+    "beta": [
+     -0.251958154201588,
+     0.9172914182454502,
+     0.47167244397327673,
+     -0.1530935134712161,
+     1.5608598023823739,
+     2.8420573960576667
+    ],
+    "n_train": 17659,
+    "smear_c": 1.2235604025413258
+   },
+   "median_variance_ratio_news_to_default": {
+    "data": 4.36085031677333,
+    "fomc": 15.69874363503218,
+    "no_release_all": 0.9686920833659113,
+    "no_release_crossing": 0.969371844686146,
+    "no_release_noncrossing": 0.9686752942496518
+   },
+   "shipped": false,
+   "variance_multiplier_data": 4.50275656389536,
+   "variance_multiplier_fomc": 16.30966139913831
+  }
+ },
+ "model_sha256": "61990324215e145bcc251b213ac8fa850ed0175f63adcc39e32891160fd98b5a"
+}
