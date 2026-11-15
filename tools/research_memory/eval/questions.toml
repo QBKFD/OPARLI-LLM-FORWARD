@@ -1,0 +1,134 @@
+# Research-memory evaluation: 25 questions written from the documents
+# (2026-11-15, before the first eval run; not changed after seeing results).
+# `expected`: every corpus file that states the answer. A retrieval hit at k
+# is any top-k chunk from one of them; a correct citation is an answered,
+# check-passing response that cites one of them. Questions are paraphrased:
+# they avoid the documents' own headings and wording where possible.
+# Spread over the primary source's status: result 14, owner decision 2,
+# post hoc 1, draft 3, reference 3, decision log 2.
+
+[[question]]
+id = "q01"
+question = "What did Study A conclude about telling the gold volatility forecast that a major US release is coming?"
+expected = ["research/news_vol/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q02"
+question = "Did the Study A finding carry over to silver and the euro?"
+expected = ["research/news_vol_rep/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q03"
+question = "Do runs of small 15-minute candles forecast bigger moves than HAR already does?"
+expected = ["research/squeeze_oco/README.md", "research/README.md"]
+
+[[question]]
+id = "q04"
+question = "On silver, what share of breaks stalled, compared with the random-walk baseline?"
+expected = ["research/breakout_fade/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q05"
+question = "What did the second development run of the pullback study find after the audit's bugs were fixed?"
+expected = ["research/pullback_structure/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q06"
+question = "Which volatility forecast should risk sizing use, and how much did it improve QLIKE over the plug-in?"
+expected = ["research/sigma_compare/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q07"
+question = "Did the HAR model, fitted on 2007-2020 and never refitted, still beat the plug-in on 2021-2023?"
+expected = ["research/sigma_compare/POSTHOC_RESULT.md"]
+
+[[question]]
+id = "q08"
+question = "Why could no variance ratio be estimated at a one-day horizon?"
+expected = ["research/variance_ratio/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q09"
+question = "How many of the six hypotheses about previous-day and weekly highs and lows held up?"
+expected = ["research/levels/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q10"
+question = "What happened when the near-open PDH/PDL breakout failure idea was tested on 2024 to January 2026 data?"
+expected = ["research/levels_confirm/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q11"
+question = "Why did the levels diagnostic never get to its main questions?"
+expected = ["research/levels_diag/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q12"
+question = "Do the jump-model regime labels do better than simply splitting on the L terciles?"
+expected = ["research/regime_v2/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q13"
+question = "Should direction-neutral trend strength be added as a feature?"
+expected = ["research/trend_features/REPORT.md", "research/README.md"]
+
+[[question]]
+id = "q14"
+question = "In the third volatility-features round, how much R-squared did hour dummies still add at 4 hours, against what limit?"
+expected = ["research/vol_features_r3/REPORT.md", "research/README.md", "research/vol_block/VOL_BLOCK_DECISION.md"]
+
+[[question]]
+id = "q15"
+question = "For the locked volatility block, what is confirmed and what is not?"
+expected = ["research/vol_block/VOL_BLOCK_DECISION.md"]
+
+[[question]]
+id = "q16"
+question = "What was the verdict of the options-positioning feasibility check, and which gate did not pass?"
+expected = ["research/gex_feasibility/REPORT.md", "research/gex_feasibility/OWNER_DECISION.md", "research/README.md"]
+
+[[question]]
+id = "q17"
+question = "Why did the owner go ahead with a GEX level test anyway?"
+expected = ["research/gex_feasibility/OWNER_DECISION.md"]
+
+[[question]]
+id = "q18"
+question = "From which date is data reserved for the final strategy test?"
+expected = ["research/SEALING.md", "research/README.md"]
+
+[[question]]
+id = "q19"
+question = "What time zone are the 2015 to 2023 Forex Factory calendar exports in?"
+expected = ["docs/MACRO_CALENDAR.md", "docs/DECISIONS.md"]
+
+[[question]]
+id = "q20"
+question = "Where should Study B get its FOMC surprise measure, and can IBKR provide the old futures history?"
+expected = ["docs/STUDY_B_FEASIBILITY.md"]
+
+[[question]]
+id = "q21"
+question = "Is the Technical agent experiment pre-registered yet, and what is its main horizon?"
+expected = ["research/agents_v1/PREREG.md", "research/agents_v1/README.md", "research/agents_v1/DECISIONS.md",
+            "research/README.md"]
+
+[[question]]
+id = "q22"
+question = "What trade would the level_target study test, with its stop and target?"
+expected = ["research/level_target/SPEC.md", "research/README.md"]
+
+[[question]]
+id = "q23"
+question = "Was the check of the sigma result on 2012-2020 alone ever carried out?"
+expected = ["research/era_check/PROPOSAL.md"]
+
+[[question]]
+id = "q24"
+question = "How was the datafeed ingest command's occasional hang on exit fixed?"
+expected = ["docs/decisions/fix-ingest-exit-hang.md"]
+
+[[question]]
+id = "q25"
+question = "How is ruff split between the whole repository and the maintained packages in CI?"
+expected = ["docs/DECISIONS.md"]

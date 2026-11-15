@@ -52,3 +52,9 @@ database/*.sqlite
 
 # research/pullback_structure inspection gallery: charts of real prices, local only (PREREG P37)
 research/pullback_structure/gallery/
+
+# Research memory (tools/research_memory): the index, the LLM ledger and the
+# eval report are rebuilt locally; the owner's config may hold local paths
+database/research_memory*
+tools/research_memory/research_memory.toml
+.venv-memory/

@@ -1,0 +1,29 @@
+# research_memory.toml: the owner's settings for the research-memory answer
+# step. Copy to tools/research_memory/research_memory.toml (or point
+# $RESEARCH_MEMORY_CONFIG at a copy) and fill in every <...>. Code supplies no
+# default for any value below; a value left as <...> makes the graph abstain.
+
+[answer]
+provider = "<anthropic | ollama>"
+model = "<exact model id: claude-... for anthropic, the Ollama model tag for ollama>"
+effort = "<default | low | medium | high | xhigh | max>"   # "default": no effort is sent
+max_tokens = "<integer>"
+prompt_path = "<path of the owner's prompt, relative to the repo root (template: tools/research_memory/prompt.template.md)>"
+
+[llm]                      # the same block as agents.toml (backend/agents/owner_config.py)
+mode = "<live | rerun>"    # rerun: answers from the response cache only, never a new call
+timeout_s = "<seconds>"
+max_retries = "<0..5>"
+
+[budget]
+max_calls_per_day = "<integer>"          # attempts per UTC day, counted in the ledger below
+kill_switch_path = "<path: if this file exists, no call is made>"
+
+# Only for provider = "ollama":
+# [ollama]
+# url = "http://127.0.0.1:11434"
+
+# Optional; these defaults are infrastructure, not owner values:
+# [paths]
+# ledger = "database/research_memory_llm.sqlite"   # llm_calls + response cache (git-ignored)
+# env_file = ".env"                                # ANTHROPIC_API_KEY is read from here if not in the environment
