@@ -1,0 +1,15 @@
+# Research memory (tools/research_memory): local sentence-transformers
+# embeddings for the RAG index over research/ and docs/ documents. A laptop
+# tool: not used by CI (the tests use a fake embedder), the scanner image or
+# any deployment, so it stays out of requirements/requirements.lock (which is
+# compiled from every pyproject extra; torch must never reach it).
+# It also carries LangGraph Studio's dev server (same pin as
+# requirements-studio.in), so `langgraph dev` can run both graphs from this
+# venv: the Studio venv has no torch, and its setuptools pin conflicts with it.
+# Pinned to the newest releases at least two weeks old on 2026-11-15, except
+# torch: 2.11.0 is the last release with macOS 11+ arm64 wheels (2.12+ need
+# macOS 14; the owner's laptop runs macOS 12).
+sentence-transformers==6.2.0
+torch==2.11.0
+transformers==5.22.1
+langgraph-cli[inmem]==0.4.32

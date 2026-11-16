@@ -74,11 +74,11 @@ owner's TAKE/SKIP replies. Nothing trades. On 2026-10-21 the host ran
 | `deploy/scanner/` | Docker stack: gateway, scanner, watchdog, backup/restore | live (older commit) |
 | `deploy/datafeed/` | local replay stack | local only |
 | `research/` | the studies above ([index](research/README.md)) | — |
-| `tools/` | data build and backfill, σ calibration, status board, options probe, LangGraph Studio, calendar scraper | — |
-| `tests/` | scanner, levels, datafeed, agents, risk, scoring, deploy, status | CI |
+| `tools/` | data build and backfill, σ calibration, status board, options probe, LangGraph Studio, calendar scraper, [research memory](tools/research_memory/README.md) | — |
+| `tests/` | scanner, levels, datafeed, agents, risk, scoring, deploy, status, research memory | CI |
 | `docs/` | architecture, [deploy runbook](docs/DEPLOY_RUNBOOK.md), decisions, design notes | — |
 | `database/` | local data, not in git ([README](database/README.md)) | local only |
-| `requirements/` | the hashed lock file | — |
+| `requirements/` | the hashed lock files (main, Studio, research memory) | — |
 | `legacy/` | the old agent framework: archived, tag `legacy-agents-v0` | archived |
 
 ## Quick start
@@ -101,9 +101,31 @@ python3.13 -m venv .venv
 - **IBKR tests** are manual: `-m ibkr` with `DATAFEED_IBKR_LIVE=1`, against a
   paper gateway only.
 
+## Research memory
+
+Ask questions of the research documents. It answers only from cited chunks
+and says "not in the documents" otherwise. Built from `git ls-files` (75
+documents, no data), with local embeddings and a separate venv because it
+needs torch. Details: [tools/research_memory/README.md](tools/research_memory/README.md).
+
+```
+python3.13 -m venv .venv-memory
+.venv-memory/bin/pip install --require-hashes -r requirements/requirements-memory.lock
+.venv-memory/bin/pip install --no-deps --no-build-isolation -e .
+.venv-memory/bin/python -m tools.research_memory fetch-model      # once
+.venv-memory/bin/python -m tools.research_memory build            # rebuild the index
+.venv-memory/bin/python -m tools.research_memory ask "What did Study A conclude?"
+.venv-memory/bin/python -m tools.research_memory eval [--llm]
+```
+
+`ask` needs the owner's config and prompt; without them it abstains. Eval
+(25 questions, run once): retrieval hit rate **80 % at k = 3, 96 % at k = 5**.
+Citation correctness is pending the owner's prompt.
+
 ## Roadmap
 
-- **Research memory:** RAG over every PREREG, report and null result.
+- **Research memory:** built (above). Next: citation correctness with the
+  owner's prompt.
 - **Co-pilot v1:** the multi-agent brief per alert, scored against the
   neutral bracket ([agents_v1 PREREG draft](research/agents_v1/PREREG.md)).
 - **Vol-targeted portfolio:** trend across ETFs, sized by the σ model.

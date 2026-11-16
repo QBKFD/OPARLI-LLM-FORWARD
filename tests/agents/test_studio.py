@@ -231,7 +231,9 @@ def test_cli_build_db_refuses_holdout_data(tmp_path, caplog):
 def test_langgraph_json_points_at_the_factory():
     cfg = json.loads((ROOT / "tools/langgraph_studio/langgraph.json").read_text())
     assert cfg["dependencies"] == ["."]
-    assert cfg["graphs"] == {"agents": "./tools/langgraph_studio/studio.py:make_graph"}
+    assert cfg["graphs"]["agents"] == "./tools/langgraph_studio/studio.py:make_graph"
+    # the only other graph is research memory (tests/research_memory/test_graph.py checks its entry)
+    assert set(cfg["graphs"]) == {"agents", "research_memory"}
     path, attr = cfg["graphs"]["agents"].split(":")
     assert (ROOT / path).resolve() == STUDIO_PATH == Path(studio.__file__).resolve()
     assert callable(getattr(studio, attr))

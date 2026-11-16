@@ -1,0 +1,152 @@
+# The research-memory corpus: which tracked documents are indexed, and the
+# status of each one. Owner-approved on 2026-11-15 (scope, the eight statuses
+# and this map). The build reads `git ls-files` only and fails when:
+#   - a file matched by `include` (or listed in `extra`) has no status here;
+#   - a status entry names a file that is not in the corpus (stale entry);
+#   - a section override matches no heading of its file.
+# A new PREREG/REPORT/DECISIONS/README therefore needs a status line before
+# the next build: nothing is ever indexed with a guessed status.
+
+[include]
+# Under these roots, files whose name matches one of `names` (fnmatch).
+roots = ["research", "docs"]
+names = ["PREREG.md", "REPORT.md", "DECISIONS*.md", "README.md"]
+
+[exclude]
+# Generated or data paths: never indexed even if a name above matches.
+globs = ["*/results/*", "*/cache/*", "*/gallery/*"]
+
+[extra]
+# Named documents outside the patterns, added by the owner.
+paths = [
+    "research/squeeze_oco/Q1_SETUP.md",
+    "research/squeeze_oco/PROPOSALS.md",
+    "research/sigma_compare/POSTHOC.md",
+    "research/sigma_compare/POSTHOC_RESULT.md",
+    "research/sigma_compare/PROPOSAL.md",
+    "research/level_target/SPEC.md",
+    "research/gex_feasibility/OWNER_DECISION.md",
+    "research/vol_block/VOL_BLOCK_DECISION.md",
+    "research/levels_diag/DIAGNOSTIC_PLAN.md",
+    "research/SEALING.md",
+    "research/era_check/PROPOSAL.md",
+    "docs/MACRO_CALENDAR.md",
+    "docs/STUDY_B_FEASIBILITY.md",
+]
+globs = ["docs/decisions/*.md"]
+
+# ---------------------------------------------------------------------------
+# Status of each file. The eight statuses:
+#   draft           not registered: drafts, proposals, specs, setup and plans
+#   registered      a committed pre-registration
+#   amended         a section of a PREREG under an amendment (section override)
+#   post hoc        written after a verdict, not pre-registered
+#   result          a study's reported outcome
+#   owner decision  a decision the owner took
+#   decision log    decisions Claude took during a run (some rows later approved)
+#   reference       background: READMEs, sealing, data notes
+# `globs` entries cover every matching file not listed in `paths`.
+# ---------------------------------------------------------------------------
+
+[status.paths]
+# draft
+"research/agents_v1/PREREG.md" = "draft"              # headed "PREREG (DRAFT)", not binding
+"research/sigma_compare/PROPOSAL.md" = "draft"
+"research/era_check/PROPOSAL.md" = "draft"
+"research/level_target/SPEC.md" = "draft"
+"research/squeeze_oco/Q1_SETUP.md" = "draft"
+"research/squeeze_oco/PROPOSALS.md" = "draft"
+"research/levels_diag/DIAGNOSTIC_PLAN.md" = "draft"
+# registered
+"research/breakout_fade/PREREG.md" = "registered"
+"research/gex_feasibility/PREREG.md" = "registered"
+"research/levels/PREREG.md" = "registered"
+"research/levels_confirm/PREREG.md" = "registered"
+"research/news_vol/PREREG.md" = "registered"
+"research/news_vol_rep/PREREG.md" = "registered"
+"research/pullback_structure/PREREG.md" = "registered"
+"research/regime_v2/PREREG.md" = "registered"
+"research/sigma_compare/PREREG.md" = "registered"
+"research/trend_features/PREREG.md" = "registered"
+"research/variance_ratio/PREREG.md" = "registered"
+"research/vol_features/PREREG.md" = "registered"
+"research/vol_features_r2/PREREG.md" = "registered"
+"research/vol_features_r3/PREREG.md" = "registered"
+# post hoc
+"research/sigma_compare/POSTHOC.md" = "post hoc"
+"research/sigma_compare/POSTHOC_RESULT.md" = "post hoc"
+# result
+"research/breakout_fade/REPORT.md" = "result"
+"research/gex_feasibility/REPORT.md" = "result"
+"research/levels/REPORT.md" = "result"
+"research/levels_confirm/REPORT.md" = "result"
+"research/levels_diag/REPORT.md" = "result"
+"research/news_vol/REPORT.md" = "result"
+"research/news_vol_rep/REPORT.md" = "result"
+"research/pullback_structure/REPORT.md" = "result"
+"research/regime_v2/REPORT.md" = "result"
+"research/sigma_compare/REPORT.md" = "result"
+"research/trend_features/REPORT.md" = "result"
+"research/variance_ratio/REPORT.md" = "result"
+"research/vol_features/REPORT.md" = "result"
+"research/vol_features_r2/REPORT.md" = "result"
+"research/vol_features_r3/REPORT.md" = "result"
+"research/squeeze_oco/README.md" = "result"          # the study has no REPORT; its README holds the Q1 result
+# owner decision
+"research/gex_feasibility/OWNER_DECISION.md" = "owner decision"
+"research/vol_block/VOL_BLOCK_DECISION.md" = "owner decision"
+# reference
+"research/README.md" = "reference"
+"research/agents_v1/README.md" = "reference"
+"research/gex_feasibility/README.md" = "reference"
+"research/SEALING.md" = "reference"
+"docs/MACRO_CALENDAR.md" = "reference"
+"docs/STUDY_B_FEASIBILITY.md" = "reference"
+
+[status.globs]
+# decision log: every DECISIONS*.md (docs/DECISIONS.md and each study's) and
+# the per-branch logs in docs/decisions/.
+"*/DECISIONS*.md" = "decision log"
+"docs/decisions/*.md" = "decision log"
+
+# ---------------------------------------------------------------------------
+# Section overrides: a chunk whose heading path contains a heading matching
+# `heading` (a Python regex, searched) gets this status instead of the
+# file's. Subsections inherit it. Each must match at least one heading.
+# ---------------------------------------------------------------------------
+
+[[section]]
+path = "research/breakout_fade/PREREG.md"
+heading = '^6\. Amendment 1\b'
+status = "amended"
+
+[[section]]
+path = "research/gex_feasibility/PREREG.md"
+heading = '^Amendment 1\b'
+status = "amended"
+
+[[section]]
+path = "research/pullback_structure/PREREG.md"
+heading = '^11\. Amendment 1\b'
+status = "amended"
+
+[[section]]
+path = "research/pullback_structure/PREREG.md"
+heading = '^12\. Amendment 2\b'
+status = "amended"
+
+[[section]]
+path = "research/sigma_compare/PREREG.md"
+heading = '^AMENDMENT \(post hoc'
+status = "post hoc"
+
+# ---------------------------------------------------------------------------
+# Skipped sections: removed from the document (with their subsections) before
+# the scan and the index. For content the scan rightly flags but that sits in
+# an otherwise indexable document. Each must match a heading.
+# ---------------------------------------------------------------------------
+
+[[skip_section]]
+path = "research/gex_feasibility/REPORT.md"
+heading = '^D, by trade date$'
+reason = "a dated table of daily GC futures dollar volume (exchange-derived market data): the scan's calendar_rows_run rule"
